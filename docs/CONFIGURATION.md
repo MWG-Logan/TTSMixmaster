@@ -17,7 +17,7 @@ All API credentials are optional - configure only the services you want to use:
 - `SPOTIFY_CLIENT_ID` - Your Spotify Client ID (for playlist access)
 - `SPOTIFY_CLIENT_SECRET` - Your Spotify Client Secret (for playlist access)
 - `SPOTIFY_USER_ID` - Your Spotify User ID (optional, for personal playlists)
-- `SPOTIFY_REDIRECT_URI` - OAuth redirect URI (default: http://localhost:8888/callback)
+- `SPOTIFY_REDIRECT_URI` - OAuth redirect URI (default: http://127.0.0.1:8888/callback)
 - `SPOTIFY_USE_OAUTH` - Use OAuth for user data access (default: true, set to false for public data only)
 
 ### Azure Storage Configuration
@@ -82,7 +82,7 @@ YOUTUBE_CHANNEL_ID=your_channel_id_optional
 SPOTIFY_CLIENT_ID=your_spotify_client_id_here
 SPOTIFY_CLIENT_SECRET=your_spotify_client_secret_here
 SPOTIFY_USER_ID=your_spotify_user_id_optional
-SPOTIFY_REDIRECT_URI=http://localhost:8888/callback
+SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback
 SPOTIFY_USE_OAUTH=true
 
 # Azure Configuration
@@ -121,14 +121,14 @@ Contains application settings and preferences:
 ### Spotify Setup
 1. Visit [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/)
 2. Create a new app (or use an existing one)
-3. In the app settings, add `http://localhost:8888/callback` as a Redirect URI
+3. In the app settings, add `http://127.0.0.1:8888/callback` as a Redirect URI
 4. Get Client ID and Client Secret from the app dashboard
 5. **For Development Mode Apps**: Add your Spotify account email to the "User Management" section
 6. (Optional) Add your Spotify User ID for additional features
 
 **Important**: The application uses OAuth Authorization Code flow to access user playlists and private data. When you first connect to Spotify, your browser will open automatically to authenticate. After logging in and granting permissions, the application will save your credentials for future use.
 
-**Redirect URI**: The default redirect URI is `http://localhost:8888/callback`. Make sure this exactly matches the URI in your Spotify app settings. If you need to change it, update both the Spotify Dashboard and the `spotify_redirect_uri` setting in your config.
+**Redirect URI**: The default redirect URI is `http://127.0.0.1:8888/callback`. Make sure this exactly matches the URI in your Spotify app settings. If you need to change it, update both the Spotify Dashboard and the `spotify_redirect_uri` setting in your config.
 
 ### Azure Setup
 1. Create an Azure Storage account

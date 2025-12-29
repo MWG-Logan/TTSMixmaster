@@ -27,7 +27,7 @@ class SpotifyService(BaseMusicService):
     """Spotify API client for retrieving playlists and tracks"""
     
     def __init__(self, client_id: str, client_secret: str, user_id: str = "", 
-                 redirect_uri: str = "http://localhost:8888/callback", 
+                 redirect_uri: str = "http://127.0.0.1:8888/callback", 
                  use_oauth: bool = True):
         """
         Initialize the Spotify API client
@@ -36,7 +36,7 @@ class SpotifyService(BaseMusicService):
             client_id: Spotify Client ID
             client_secret: Spotify Client Secret
             user_id: Default user ID for user operations
-            redirect_uri: OAuth redirect URI (default: http://localhost:8888/callback)
+            redirect_uri: OAuth redirect URI (default: http://127.0.0.1:8888/callback)
             use_oauth: If True, use OAuth for user data access. If False, use Client Credentials (public data only)
         """
         super().__init__(ServiceType.SPOTIFY)

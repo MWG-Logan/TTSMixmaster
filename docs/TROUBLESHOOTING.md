@@ -48,7 +48,7 @@ pip install python-dotenv
 ### Spotify Connection Failed
 - Confirm your Client ID and Client Secret in the Spotify Developer Dashboard
 - **For OAuth Authentication (default)**: 
-  - Ensure `http://localhost:8888/callback` is added to your Redirect URIs in the Spotify app settings
+  - Ensure `http://127.0.0.1:8888/callback` is added to your Redirect URIs in the Spotify app settings
   - For apps in development mode, make sure your Spotify account email is whitelisted in "User Management"
   - If the browser doesn't open automatically, check the console for the authentication URL
   - Tokens are cached in `~/.ttsmixmaster/.spotify_cache` - delete this file if you encounter authentication issues

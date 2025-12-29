@@ -31,7 +31,7 @@ class AppConfig:
     spotify_client_id: str = ""
     spotify_client_secret: str = ""
     spotify_user_id: str = ""
-    spotify_redirect_uri: str = "http://localhost:8888/callback"
+    spotify_redirect_uri: str = "http://127.0.0.1:8888/callback"
     spotify_use_oauth: bool = True
     
     # Legacy Steam API Settings (for backwards compatibility)
