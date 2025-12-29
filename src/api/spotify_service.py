@@ -11,13 +11,24 @@ import requests
 from typing import List, Optional, Dict, Any
 from urllib.parse import urlencode
 
+try:
+    import spotipy
+    from spotipy.oauth2 import SpotifyOAuth, SpotifyClientCredentials
+    from spotipy.cache_handler import CacheFileHandler
+    SPOTIPY_AVAILABLE = True
+except ImportError:
+    SPOTIPY_AVAILABLE = False
+    print("Warning: spotipy not available. Install with: pip install spotipy")
+
 from .base_service import BaseMusicService, Track, PlaylistInfo, ServiceType, PlaylistType
 
 
 class SpotifyService(BaseMusicService):
     """Spotify API client for retrieving playlists and tracks"""
     
-    def __init__(self, client_id: str, client_secret: str, user_id: str = ""):
+    def __init__(self, client_id: str, client_secret: str, user_id: str = "", 
+                 redirect_uri: str = "http://localhost:8888/callback", 
+                 use_oauth: bool = True):
         """
         Initialize the Spotify API client
         
@@ -25,62 +36,141 @@ class SpotifyService(BaseMusicService):
             client_id: Spotify Client ID
             client_secret: Spotify Client Secret
             user_id: Default user ID for user operations
+            redirect_uri: OAuth redirect URI (default: http://localhost:8888/callback)
+            use_oauth: If True, use OAuth for user data access. If False, use Client Credentials (public data only)
         """
         super().__init__(ServiceType.SPOTIFY)
         self.client_id = client_id
         self.client_secret = client_secret
         self.user_id = user_id
+        self.redirect_uri = redirect_uri
+        self.use_oauth = use_oauth and SPOTIPY_AVAILABLE
+        self.sp = None
         self.access_token = None
         self.base_url = "https://api.spotify.com/v1"
-          # Authenticate using Client Credentials flow
+        
+        # Authenticate based on mode
         if client_id and client_secret:
             print(f"Attempting to authenticate Spotify with client ID: {client_id[:10]}...")
-            if self._authenticate():
-                print("Spotify authentication successful")
+            if self.use_oauth:
+                if self._authenticate_oauth():
+                    print("Spotify OAuth authentication successful")
+                else:
+                    print("Spotify OAuth authentication failed, falling back to Client Credentials")
+                    self.use_oauth = False
+                    if self._authenticate():
+                        print("Spotify Client Credentials authentication successful")
+                    else:
+                        print("Spotify authentication failed")
             else:
-                print("Spotify authentication failed")
+                if self._authenticate():
+                    print("Spotify authentication successful (Client Credentials mode)")
+                else:
+                    print("Spotify authentication failed")
         else:
             print("Spotify credentials not provided - service will not be available")
     
-    def _authenticate(self) -> bool:
+    def _authenticate_oauth(self) -> bool:
         """
-        Authenticate using the Client Credentials flow
+        Authenticate using OAuth Authorization Code flow for user data access
         
         Returns:
             bool: True if authentication successful, False otherwise
         """
+        if not SPOTIPY_AVAILABLE:
+            return False
+            
         try:
-            # Encode client credentials
-            credentials = f"{self.client_id}:{self.client_secret}"
-            credentials_b64 = base64.b64encode(credentials.encode()).decode()
+            # Define scopes needed for user playlists and library access
+            scope = "playlist-read-private playlist-read-collaborative user-library-read user-top-read user-read-recently-played"
             
-            # Request access token
-            headers = {
-                "Authorization": f"Basic {credentials_b64}",
-                "Content-Type": "application/x-www-form-urlencoded"
-            }
+            # Use cache file handler to persist tokens
+            cache_dir = os.path.expanduser("~/.ttsmixmaster")
+            os.makedirs(cache_dir, exist_ok=True)
+            cache_path = os.path.join(cache_dir, ".spotify_cache")
+            cache_handler = CacheFileHandler(cache_path=cache_path)
             
-            data = {
-                "grant_type": "client_credentials"
-            }
-            
-            response = requests.post(
-                "https://accounts.spotify.com/api/token",
-                headers=headers,
-                data=data
+            # Create OAuth manager
+            auth_manager = SpotifyOAuth(
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                redirect_uri=self.redirect_uri,
+                scope=scope,
+                cache_handler=cache_handler,
+                open_browser=True  # Will open browser for user authentication
             )
             
-            if response.status_code == 200:
-                token_data = response.json()
-                self.access_token = token_data.get("access_token")
+            # Create Spotify client with OAuth
+            self.sp = spotipy.Spotify(auth_manager=auth_manager)
+            
+            # Test the connection
+            try:
+                self.sp.current_user()
                 return True
-            else:
-                print(f"Spotify authentication failed: {response.status_code} - {response.text}")
+            except Exception as e:
+                print(f"OAuth connection test failed: {e}")
                 return False
                 
         except Exception as e:
-            print(f"Spotify authentication error: {e}")
+            print(f"Spotify OAuth authentication error: {e}")
             return False
+    
+    def _authenticate(self) -> bool:
+        """
+        Authenticate using the Client Credentials flow (public data only)
+        
+        Returns:
+            bool: True if authentication successful, False otherwise
+        """
+        if SPOTIPY_AVAILABLE:
+            try:
+                # Use spotipy's Client Credentials manager
+                auth_manager = SpotifyClientCredentials(
+                    client_id=self.client_id,
+                    client_secret=self.client_secret
+                )
+                self.sp = spotipy.Spotify(auth_manager=auth_manager)
+                
+                # Test connection with a simple request
+                self.sp.search(q="test", limit=1)
+                return True
+            except Exception as e:
+                print(f"Spotify Client Credentials authentication error: {e}")
+                return False
+        else:
+            # Fallback to manual implementation if spotipy is not available
+            try:
+                # Encode client credentials
+                credentials = f"{self.client_id}:{self.client_secret}"
+                credentials_b64 = base64.b64encode(credentials.encode()).decode()
+                
+                # Request access token
+                headers = {
+                    "Authorization": f"Basic {credentials_b64}",
+                    "Content-Type": "application/x-www-form-urlencoded"
+                }
+                
+                data = {
+                    "grant_type": "client_credentials"
+                }
+                
+                response = requests.post(
+                    "https://accounts.spotify.com/api/token",
+                    headers=headers,
+                    data=data
+                )
+                
+                if response.status_code == 200:
+                    token_data = response.json()
+                    self.access_token = token_data.get("access_token")
+                    return True
+                else:
+                    print(f"Spotify authentication failed: {response.status_code} - {response.text}")
+                    return False
+                    
+            except Exception as e:
+                print(f"Spotify authentication error: {e}")
+                return False
     
     def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """
@@ -131,10 +221,22 @@ class SpotifyService(BaseMusicService):
             bool: True if connection successful, False otherwise
         """
         try:
-            # Try to get featured playlists as a test
-            response = self._make_request("browse/featured-playlists", {"limit": 1})
-            return response is not None
-        except Exception:
+            if self.sp:
+                # Test using spotipy
+                if self.use_oauth:
+                    # Test with current user (requires auth)
+                    self.sp.current_user()
+                else:
+                    # Test with a simple search (public data)
+                    self.sp.search(q="test", limit=1)
+                return True
+            elif self.access_token:
+                # Fallback to manual request
+                response = self._make_request("browse/featured-playlists", {"limit": 1})
+                return response is not None
+            return False
+        except Exception as e:
+            print(f"Connection test failed: {e}")
             return False
     
     def get_user_playlists(self, **kwargs) -> List[PlaylistInfo]:
@@ -146,8 +248,36 @@ class SpotifyService(BaseMusicService):
         """
         playlists = []
         
-        # If user ID is provided, try to get user playlists
-        if self.user_id:
+        if self.sp and self.use_oauth:
+            # Use spotipy for OAuth-authenticated requests
+            try:
+                # Get current user's playlists
+                results = self.sp.current_user_playlists(limit=50)
+                
+                while results:
+                    for item in results['items']:
+                        playlist_info = PlaylistInfo(
+                            name=item['name'],
+                            tracks=[],  # Will be populated later if needed
+                            description=item.get('description', ''),
+                            service_type=ServiceType.SPOTIFY,
+                            playlist_type=PlaylistType.SPOTIFY_PLAYLIST,
+                            total_tracks=item['tracks']['total'],
+                            service_id=item['id'],
+                            owner=item['owner']['display_name']
+                        )
+                        playlists.append(playlist_info)
+                    
+                    # Get next page if available
+                    if results['next']:
+                        results = self.sp.next(results)
+                    else:
+                        break
+                        
+            except Exception as e:
+                print(f"Failed to get user playlists: {e}")
+        elif self.user_id:
+            # Fallback to manual implementation for specific user
             try:
                 user_playlists = self._get_user_playlists()
                 playlists.extend(user_playlists)
@@ -195,40 +325,53 @@ class SpotifyService(BaseMusicService):
         playlist_name = "Spotify Playlist"
         playlist_description = ""
         
-        try:
-            # First get playlist info
-            playlist_response = self._make_request(f"playlists/{playlist_id}")
-            if playlist_response:
-                playlist_name = playlist_response.get("name", "Spotify Playlist")
-                playlist_description = playlist_response.get("description", "")
-            
-            # Get playlist tracks
-            response = self._make_request(f"playlists/{playlist_id}/tracks", {"limit": 100})
-            
-            if response and "items" in response:
-                for item in response["items"]:
-                    track_data = item.get("track")
-                    if track_data and track_data.get("type") == "track":
-                        # Build artist string
-                        artists = [artist["name"] for artist in track_data.get("artists", [])]
-                        artist_str = ", ".join(artists)
-                        track = Track(
-                            artist=artist_str,
-                            title=track_data.get("name", "Unknown"),
-                            album=track_data.get("album", {}).get("name", "Unknown"),
-                            url=track_data.get("external_urls", {}).get("spotify", ""),
-                            duration=track_data.get("duration_ms", 0) // 1000,  # Convert to seconds
-                            service_id=track_data.get("id", ""),
-                            service_type=ServiceType.SPOTIFY
-                        )
-                        tracks.append(track)
-            
-            # Handle pagination if needed
-            while response and response.get("next"):
-                next_url = response["next"]
-                # Extract just the endpoint from the full URL
-                endpoint = next_url.replace(self.base_url + "/", "")
-                response = self._make_request(endpoint)
+        if self.sp:
+            # Use spotipy for requests
+            try:
+                # Get playlist info
+                playlist = self.sp.playlist(playlist_id)
+                playlist_name = playlist['name']
+                playlist_description = playlist.get('description', '')
+                
+                # Get all tracks from playlist
+                results = playlist['tracks']
+                while results:
+                    for item in results['items']:
+                        track_data = item.get('track')
+                        if track_data and track_data.get('type') == 'track':
+                            # Build artist string
+                            artists = [artist['name'] for artist in track_data.get('artists', [])]
+                            artist_str = ", ".join(artists)
+                            track = Track(
+                                artist=artist_str,
+                                title=track_data.get('name', 'Unknown'),
+                                album=track_data.get('album', {}).get('name', 'Unknown'),
+                                url=track_data.get('external_urls', {}).get('spotify', ''),
+                                duration=track_data.get('duration_ms', 0) // 1000,
+                                service_id=track_data.get('id', ''),
+                                service_type=ServiceType.SPOTIFY
+                            )
+                            tracks.append(track)
+                    
+                    # Get next page if available
+                    if results['next']:
+                        results = self.sp.next(results)
+                    else:
+                        break
+                        
+            except Exception as e:
+                print(f"Error getting playlist tracks: {e}")
+        else:
+            # Fallback to manual implementation
+            try:
+                # First get playlist info
+                playlist_response = self._make_request(f"playlists/{playlist_id}")
+                if playlist_response:
+                    playlist_name = playlist_response.get("name", "Spotify Playlist")
+                    playlist_description = playlist_response.get("description", "")
+                
+                # Get playlist tracks
+                response = self._make_request(f"playlists/{playlist_id}/tracks", {"limit": 100})
                 
                 if response and "items" in response:
                     for item in response["items"]:
@@ -242,13 +385,39 @@ class SpotifyService(BaseMusicService):
                                 title=track_data.get("name", "Unknown"),
                                 album=track_data.get("album", {}).get("name", "Unknown"),
                                 url=track_data.get("external_urls", {}).get("spotify", ""),
-                                duration=track_data.get("duration_ms", 0) // 1000,
+                                duration=track_data.get("duration_ms", 0) // 1000,  # Convert to seconds
                                 service_id=track_data.get("id", ""),
-                                service_type=ServiceType.SPOTIFY                            )
+                                service_type=ServiceType.SPOTIFY
+                            )
                             tracks.append(track)
-        
-        except Exception as e:
-            print(f"Error getting playlist tracks: {e}")
+                
+                # Handle pagination if needed
+                while response and response.get("next"):
+                    next_url = response["next"]
+                    # Extract just the endpoint from the full URL
+                    endpoint = next_url.replace(self.base_url + "/", "")
+                    response = self._make_request(endpoint)
+                    
+                    if response and "items" in response:
+                        for item in response["items"]:
+                            track_data = item.get("track")
+                            if track_data and track_data.get("type") == "track":
+                                # Build artist string
+                                artists = [artist["name"] for artist in track_data.get("artists", [])]
+                                artist_str = ", ".join(artists)
+                                track = Track(
+                                    artist=artist_str,
+                                    title=track_data.get("name", "Unknown"),
+                                    album=track_data.get("album", {}).get("name", "Unknown"),
+                                    url=track_data.get("external_urls", {}).get("spotify", ""),
+                                    duration=track_data.get("duration_ms", 0) // 1000,
+                                    service_id=track_data.get("id", ""),
+                                    service_type=ServiceType.SPOTIFY
+                                )
+                                tracks.append(track)
+            
+            except Exception as e:
+                print(f"Error getting playlist tracks: {e}")
         
         # Return PlaylistInfo with tracks
         return PlaylistInfo(
@@ -273,30 +442,53 @@ class SpotifyService(BaseMusicService):
         """
         playlists = []
         
-        try:
-            params = {
-                "q": query,
-                "type": "playlist",
-                "limit": min(limit, 50)  # Spotify API limit
-            }
+        if self.sp:
+            # Use spotipy for search
+            try:
+                results = self.sp.search(q=query, type='playlist', limit=min(limit, 50))
+                
+                if results and 'playlists' in results:
+                    for item in results['playlists']['items']:
+                        playlist_info = PlaylistInfo(
+                            name=item['name'],
+                            tracks=[],  # Will be populated later if needed
+                            description=item.get('description', ''),
+                            service_type=ServiceType.SPOTIFY,
+                            playlist_type=PlaylistType.SPOTIFY_PLAYLIST,
+                            total_tracks=item['tracks']['total'],
+                            service_id=item['id'],
+                            owner=item['owner']['display_name']
+                        )
+                        playlists.append(playlist_info)
+                        
+            except Exception as e:
+                print(f"Error searching playlists: {e}")
+        else:
+            # Fallback to manual implementation
+            try:
+                params = {
+                    "q": query,
+                    "type": "playlist",
+                    "limit": min(limit, 50)  # Spotify API limit
+                }
+                
+                response = self._make_request("search", params)
+                
+                if response and "playlists" in response:
+                    for item in response["playlists"]["items"]:
+                        playlist_info = PlaylistInfo(
+                            name=item["name"],
+                            tracks=[],  # Will be populated later if needed
+                            description=item.get("description", ""),
+                            service_type=ServiceType.SPOTIFY,
+                            playlist_type=PlaylistType.SPOTIFY_PLAYLIST,
+                            total_tracks=item["tracks"]["total"],
+                            service_id=item["id"],
+                            owner=item["owner"]["display_name"]
+                        )
+                        playlists.append(playlist_info)
             
-            response = self._make_request("search", params)
-            
-            if response and "playlists" in response:
-                for item in response["playlists"]["items"]:
-                    playlist_info = PlaylistInfo(
-                        name=item["name"],
-                        tracks=[],  # Will be populated later if needed
-                        description=item.get("description", ""),
-                        service_type=ServiceType.SPOTIFY,
-                        playlist_type=PlaylistType.SPOTIFY_PLAYLIST,
-                        total_tracks=item["tracks"]["total"],
-                        service_id=item["id"],
-                        owner=item["owner"]["display_name"]
-                    )
-                    playlists.append(playlist_info)
-        
-        except Exception as e:
-            print(f"Error searching playlists: {e}")
+            except Exception as e:
+                print(f"Error searching playlists: {e}")
         
         return playlists

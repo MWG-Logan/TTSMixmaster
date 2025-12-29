@@ -390,7 +390,9 @@ class PlaylistTabManager:
             spotify_creds = {
                 'client_id': config.spotify_client_id,
                 'client_secret': config.spotify_client_secret,
-                'user_id': config.spotify_user_id
+                'user_id': config.spotify_user_id,
+                'redirect_uri': config.spotify_redirect_uri,
+                'use_oauth': config.spotify_use_oauth
             }
             if self.service_manager.configure_service(ServiceType.SPOTIFY, spotify_creds):
                 self.status_labels["spotify"].configure(text="Spotify: ✅", text_color="green")
