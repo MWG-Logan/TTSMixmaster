@@ -5,62 +5,72 @@ This module provides functionality to interact with the YouTube Data API v3
 to retrieve playlists and track information.
 """
 
-import os
 from typing import List, Optional, Dict, Any
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import isodate
+import logging
+from collections import OrderedDict
 
 from .base_service import BaseMusicService, Track, PlaylistInfo, ServiceType, PlaylistType
 
 
+logger = logging.getLogger(__name__)
+
+
 class YouTubeService(BaseMusicService):
     """YouTube API client for retrieving playlists and videos"""
-    
+
     def __init__(self, api_key: str, channel_id: str = ""):
         """
         Initialize the YouTube API client
-        
+
         Args:
             api_key: YouTube Data API v3 key
-            channel_id: Default channel ID for user operations        """
+            channel_id: Default channel ID for user operations
+        """
         super().__init__(ServiceType.YOUTUBE)
         self.api_key = api_key
         self.channel_id = channel_id
         self.youtube = None
-        
+
+        # Simple in-memory caches to reduce repeated API calls.
+        # These are per-service-instance; they reset when the app restarts.
+        self._video_details_cache: Dict[str, Dict[str, Any]] = {}
+        self._official_search_cache: "OrderedDict[str, Optional[Dict[str, Any]]]" = OrderedDict()
+        self._official_search_cache_max_entries: int = 2000
+
         if api_key:
             try:
                 self.youtube = build('youtube', 'v3', developerKey=api_key)
-                print(f"YouTube API initialized successfully with key: {api_key[:10]}...")
+                logger.info("YouTube API initialized successfully")
             except Exception as e:
-                print(f"Failed to initialize YouTube API: {e}")
+                logger.exception("Failed to initialize YouTube API")
                 self.youtube = None
         else:
-            print("YouTube API key not provided - service will not be available")
-    
+            logger.warning("YouTube API key not provided - service will not be available")
+
     def test_connection(self) -> bool:
         """Test if the YouTube connection is working"""
         try:
             if not self.youtube:
-                print("YouTube API client not initialized")
+                logger.warning("YouTube API client not initialized")
                 return False
-            
-            print("Testing YouTube API connection...")
-            # Try a simple search to test the connection
-            response = self.youtube.search().list(
+
+            logger.info("Testing YouTube API connection...")
+            self.youtube.search().list(
                 part='snippet',
                 q='test',
                 maxResults=1,
                 type='video'
             ).execute()
-            
-            print("YouTube API connection successful")
+
+            logger.info("YouTube API connection successful")
             return True
         except Exception as e:
-            print(f"YouTube API connection failed: {e}")
+            logger.exception("YouTube API connection failed")
             return False
-    
+
     def get_supported_playlist_types(self) -> List[PlaylistType]:
         """Get list of supported playlist types for YouTube"""
         return [
@@ -141,81 +151,132 @@ class YouTubeService(BaseMusicService):
     def get_playlist_tracks(self, playlist_id: str, **kwargs) -> PlaylistInfo:
         """
         Get tracks from a specific YouTube playlist
-        
+
         Args:
             playlist_id: YouTube playlist ID
-            **kwargs: Additional parameters like max_results
-            
+            **kwargs:
+                max_results: Maximum tracks to load (default None = full playlist)
+                max_pages: Maximum playlistItems pages to request (default None = derived)
+                prefer_official: If True, attempt to replace Topic uploads with "official" uploads (default False)
+                max_official_searches: Hard cap on official-search API calls per playlist load (default 0)
+
         Returns:
             PlaylistInfo with tracks loaded
         """
         if not self.youtube:
             raise Exception("YouTube API not initialized")
-        
-        max_results = kwargs.get('max_results', 50)
-        
+
+        max_results_raw = kwargs.get('max_results', None)
+        max_results: Optional[int]
+        if max_results_raw is None:
+            max_results = None
+        else:
+            max_results = int(max_results_raw)
+
+        prefer_official = bool(kwargs.get('prefer_official', False))
+        max_official_searches = int(kwargs.get('max_official_searches', 0))
+        max_pages_raw = kwargs.get('max_pages')
+
+        # Safety guardrail to prevent accidentally loading an absurd amount of data.
+        # Can be overridden by explicitly setting max_results.
+        hard_max_tracks_default = 5000
+
         try:
             # Get playlist info
             playlist_response = self.youtube.playlists().list(
                 part='snippet,contentDetails',
                 id=playlist_id
             ).execute()
-            
-            if not playlist_response['items']:
+
+            if not playlist_response.get('items'):
                 raise ValueError(f"Playlist not found: {playlist_id}")
-            
+
             playlist_data = playlist_response['items'][0]
-            
-            # Get playlist items
-            tracks = []
-            next_page_token = None
-            
-            while len(tracks) < max_results:
+            playlist_item_count = int(playlist_data.get('contentDetails', {}).get('itemCount', 0) or 0)
+
+            if max_results is None:
+                # Load the full playlist (or the hard cap if itemCount is missing/huge)
+                target_tracks = playlist_item_count if playlist_item_count > 0 else hard_max_tracks_default
+                target_tracks = min(target_tracks, hard_max_tracks_default)
+            else:
+                target_tracks = max(0, max_results)
+
+            # If max_pages isn't provided, derive a safe upper bound from target_tracks.
+            if max_pages_raw is None:
+                max_pages = max(1, (target_tracks + 49) // 50) if target_tracks > 0 else 1
+            else:
+                max_pages = max(1, int(max_pages_raw))
+
+            tracks: List[Track] = []
+            next_page_token: Optional[str] = None
+            pages_loaded = 0
+            official_searches_used = 0
+
+            while (len(tracks) < target_tracks) and (pages_loaded < max_pages):
                 request = self.youtube.playlistItems().list(
                     part='snippet,contentDetails',
                     playlistId=playlist_id,
-                    maxResults=min(50, max_results - len(tracks)),
+                    maxResults=min(50, target_tracks - len(tracks)),
                     pageToken=next_page_token
                 )
-                
+
                 response = request.execute()
-                
-                # Get video details for duration
-                video_ids = [item['contentDetails']['videoId'] for item in response['items']]
+                pages_loaded += 1
+
+                items = response.get('items', [])
+                if not items:
+                    break
+
+                video_ids = [item.get('contentDetails', {}).get('videoId', '') for item in items]
+                video_ids = [vid for vid in video_ids if vid]
                 video_details = self._get_video_details(video_ids)
-                
-                for item in response['items']:
-                    video_id = item['contentDetails']['videoId']
+
+                for item in items:
+                    if len(tracks) >= target_tracks:
+                        break
+
+                    video_id = item.get('contentDetails', {}).get('videoId', '')
+                    if not video_id:
+                        continue
+
                     video_detail = video_details.get(video_id, {})
-                    
-                    # Parse duration
+
                     duration = 0
-                    if 'contentDetails' in video_detail and 'duration' in video_detail['contentDetails']:
+                    if (
+                        'contentDetails' in video_detail
+                        and isinstance(video_detail.get('contentDetails'), dict)
+                        and 'duration' in video_detail['contentDetails']
+                    ):
                         try:
                             duration_obj = isodate.parse_duration(video_detail['contentDetails']['duration'])
                             duration = int(duration_obj.total_seconds())
-                        except:
-                            pass
-                      # Get cleaner artist and title using parsing methods
-                    raw_channel = item['snippet']['videoOwnerChannelTitle'] or item['snippet']['channelTitle']
-                    video_title = item['snippet']['title']
-                    
-                    # Parse artist and title from video title if possible
+                        except Exception:
+                            duration = 0
+
+                    snippet = item.get('snippet', {})
+                    raw_channel = snippet.get('videoOwnerChannelTitle') or snippet.get('channelTitle') or ""
+                    video_title = snippet.get('title') or ""
+
                     parsed_artist, parsed_title = self._parse_track_from_title(video_title, raw_channel)
-                    
-                    # If we have a Topic channel, try to find an official version
-                    if raw_channel and raw_channel.endswith(" - Topic"):
+
+                    if (
+                        prefer_official
+                        and max_official_searches > 0
+                        and official_searches_used < max_official_searches
+                        and raw_channel.endswith(" - Topic")
+                    ):
                         official_version = self._search_for_official_version(parsed_artist, parsed_title)
+                        official_searches_used += 1
                         if official_version:
-                            # Use the official version's data
-                            official_channel = official_version['snippet']['channelTitle']
+                            official_channel = official_version.get('snippet', {}).get('channelTitle', '')
+                            official_title_str = official_version.get('snippet', {}).get('title', '')
                             official_artist, official_title = self._parse_track_from_title(
-                                official_version['snippet']['title'], 
-                                official_channel
+                                official_title_str,
+                                official_channel,
                             )
                             parsed_artist = official_artist
                             parsed_title = official_title
-                    
+
                     track = Track(
                         title=parsed_title,
                         artist=parsed_artist,
@@ -223,102 +284,116 @@ class YouTubeService(BaseMusicService):
                         url=f"https://www.youtube.com/watch?v={video_id}",
                         service_id=video_id,
                         service_type=ServiceType.YOUTUBE,
-                        thumbnail_url=item['snippet']['thumbnails'].get('medium', {}).get('url', '')
+                        thumbnail_url=snippet.get('thumbnails', {}).get('medium', {}).get('url', ''),
                     )
                     tracks.append(track)
-                
+
                 next_page_token = response.get('nextPageToken')
                 if not next_page_token:
                     break
-            
+
             return PlaylistInfo(
-                name=playlist_data['snippet']['title'],
+                name=playlist_data.get('snippet', {}).get('title', ""),
                 tracks=tracks,
-                description=playlist_data['snippet']['description'],
+                description=playlist_data.get('snippet', {}).get('description', ""),
                 service_type=ServiceType.YOUTUBE,
                 playlist_type=PlaylistType.YOUTUBE_PLAYLIST,
                 service_id=playlist_id,
-                thumbnail_url=playlist_data['snippet']['thumbnails'].get('medium', {}).get('url', ''),
-                owner=playlist_data['snippet']['channelTitle'],
-                total_tracks=len(tracks)
+                thumbnail_url=playlist_data.get('snippet', {}).get('thumbnails', {}).get('medium', {}).get('url', ''),
+                owner=playlist_data.get('snippet', {}).get('channelTitle', ""),
+                total_tracks=len(tracks),
             )
-            
-        except HttpError as e:
-            raise Exception(f"YouTube API error: {e}")
-    
-    def search_playlists(self, query: str, limit: int = 20) -> List[PlaylistInfo]:
-        """
-        Search for public YouTube playlists
-        
-        Args:
-            query: Search query
-            limit: Maximum number of results
-            
-        Returns:
-            List of PlaylistInfo objects
-        """
-        if not self.youtube:
-            raise Exception("YouTube API not initialized")
-        
-        try:
-            response = self.youtube.search().list(
-                part='snippet',
-                q=query,
-                maxResults=min(limit * 2, 50),  # Get more results to filter for official channels
-                type='playlist'
-            ).execute()
-            
-            playlists = []
-            official_playlists = []
-            other_playlists = []
-            
-            # Separate official and unofficial playlists
-            for item in response['items']:
-                channel_title = item['snippet']['channelTitle']
-                playlist_info = PlaylistInfo(
-                    name=item['snippet']['title'],
-                    tracks=[],  # Tracks loaded on demand
-                    description=item['snippet']['description'],
-                    service_type=ServiceType.YOUTUBE,
-                    playlist_type=PlaylistType.YOUTUBE_PLAYLIST,
-                    service_id=item['id']['playlistId'],
-                    thumbnail_url=item['snippet']['thumbnails'].get('medium', {}).get('url', ''),
-                    owner=self._clean_artist_name(channel_title)
-                )
-                
-                if self._is_official_channel(channel_title):
-                    official_playlists.append(playlist_info)
-                else:
-                    other_playlists.append(playlist_info)
-            
-            # Prefer official playlists, then others
-            preferred_playlists = official_playlists + other_playlists
-            
-            # Return up to the requested limit
-            return preferred_playlists[:limit]
+
         except HttpError as e:
             raise Exception(f"YouTube API error: {e}")
     
     def _get_video_details(self, video_ids: List[str]) -> Dict[str, Any]:
-        """Get detailed information for multiple videos"""
+        """Get detailed information for multiple videos (cached by video_id)."""
         if not video_ids or not self.youtube:
             return {}
         
+        # De-dupe and request only cache misses.
+        unique_ids = list(dict.fromkeys(video_ids))
+        missing_ids = [vid for vid in unique_ids if vid not in self._video_details_cache]
+
+        if missing_ids:
+            try:
+                response = self.youtube.videos().list(
+                    part='contentDetails,statistics',
+                    id=','.join(missing_ids)
+                ).execute()
+
+                for item in response.get('items', []):
+                    video_id = item.get('id')
+                    if video_id:
+                        self._video_details_cache[video_id] = item
+
+            except HttpError:
+                # Return whatever we have from cache.
+                pass
+
+        return {vid: self._video_details_cache.get(vid, {}) for vid in unique_ids}
+
+    def _normalize_official_search_key(self, artist: str, title: str) -> str:
+        return f"{artist.strip().lower()}::{title.strip().lower()}"
+
+    def _search_for_official_version(self, artist: str, title: str) -> Optional[Dict[str, Any]]:
+        """
+        Search for an official version of a track, preferring official channels.
+
+        Note: this result is cached by (artist,title) to avoid repeated searches.
+        """
+        if not self.youtube:
+            return None
+
+        cache_key = self._normalize_official_search_key(artist, title)
+        if cache_key in self._official_search_cache:
+            # LRU refresh
+            cached = self._official_search_cache.pop(cache_key)
+            self._official_search_cache[cache_key] = cached
+            return cached
+
         try:
-            response = self.youtube.videos().list(
-                part='contentDetails,statistics',
-                id=','.join(video_ids)
+            search_query = f"{artist} {title}".strip()
+            if not search_query:
+                return None
+
+            response = self.youtube.search().list(
+                part='snippet',
+                q=search_query,
+                maxResults=10,
+                type='video',
+                order='relevance'
             ).execute()
-            
-            details = {}
-            for item in response['items']:
-                details[item['id']] = item
-            
-            return details
-            
-        except HttpError:
-            return {}
-    
+
+            videos = response.get('items', [])
+            official_videos: List[Dict[str, Any]] = []
+            topic_videos: List[Dict[str, Any]] = []
+            other_videos: List[Dict[str, Any]] = []
+
+            for video in videos:
+                channel_title = video.get('snippet', {}).get('channelTitle', '')
+                if self._is_official_channel(channel_title):
+                    official_videos.append(video)
+                elif channel_title.endswith(" - Topic"):
+                    topic_videos.append(video)
+                else:
+                    other_videos.append(video)
+
+            preferred_order = official_videos + other_videos + topic_videos
+            result = preferred_order[0] if preferred_order else None
+
+        except Exception:
+            logger.exception("Error searching for official version")
+            result = None
+
+        # Cache with bounded size (simple LRU).
+        self._official_search_cache[cache_key] = result
+        if len(self._official_search_cache) > self._official_search_cache_max_entries:
+            self._official_search_cache.popitem(last=False)
+
+        return result
+
     def _clean_artist_name(self, channel_title: str) -> str:
         """
         Clean up artist names from YouTube channel titles
@@ -392,7 +467,7 @@ class YouTubeService(BaseMusicService):
                 
                 # Remove common extra text from titles
                 title = re.sub(r'\s*\(Official.*?\)', '', title, flags=re.IGNORECASE)
-                title = re.sub(r'\s*\[Official.*?\]', '', title, flags=re.IGNORECASE)
+                title = re.sub(r'\s*\[Official.*?]', '', title, flags=re.IGNORECASE)
                 title = re.sub(r'\s*\(Music Video\)', '', title, flags=re.IGNORECASE)
                 title = re.sub(r'\s*\(Lyric Video\)', '', title, flags=re.IGNORECASE)
                 title = re.sub(r'\s*\(Audio\)', '', title, flags=re.IGNORECASE)
@@ -406,7 +481,7 @@ class YouTubeService(BaseMusicService):
         
         # Clean up the title
         title = re.sub(r'\s*\(Official.*?\)', '', title, flags=re.IGNORECASE)
-        title = re.sub(r'\s*\[Official.*?\]', '', title, flags=re.IGNORECASE)
+        title = re.sub(r'\s*\[Official.*?]', '', title, flags=re.IGNORECASE)
         title = title.strip()
         
         return artist, title
@@ -449,56 +524,54 @@ class YouTubeService(BaseMusicService):
             "Auto-Generated"
         ])
     
-    def _search_for_official_version(self, artist: str, title: str) -> Optional[Dict[str, Any]]:
-        """
-        Search for an official version of a track, preferring official channels
-        
+    def search_playlists(self, query: str, limit: int = 20) -> List[PlaylistInfo]:
+        """Search for public YouTube playlists.
+
         Args:
-            artist: Artist name
-            title: Song title
-            
+            query: Search query
+            limit: Maximum number of results
+
         Returns:
-            YouTube video data if found, None otherwise
+            List of PlaylistInfo objects
         """
         if not self.youtube:
-            return None
-        
+            raise Exception("YouTube API not initialized")
+
         try:
-            # Search for the track with artist and title
-            search_query = f"{artist} {title}"
-            
             response = self.youtube.search().list(
                 part='snippet',
-                q=search_query,
-                maxResults=10,  # Get more results to find official versions
-                type='video',
-                order='relevance'
+                q=query,
+                maxResults=min(limit * 2, 50),
+                type='playlist'
             ).execute()
-            
-            # Sort results by preference: official channels first
-            videos = response.get('items', [])
-            official_videos = []
-            topic_videos = []
-            other_videos = []
-            
-            for video in videos:
-                channel_title = video['snippet']['channelTitle']
-                if self._is_official_channel(channel_title):
-                    official_videos.append(video)
-                elif channel_title.endswith(" - Topic"):
-                    topic_videos.append(video)
-                else:
-                    other_videos.append(video)
-            
-            # Prefer official channels, then others, then topic channels as last resort
-            preferred_order = official_videos + other_videos + topic_videos
-            
-            if preferred_order:
-                return preferred_order[0]
-            
-        except Exception as e:
-            print(f"Error searching for official version: {e}")
-        
-        return None
 
-    # ...existing code...
+            official_playlists: List[PlaylistInfo] = []
+            other_playlists: List[PlaylistInfo] = []
+
+            for item in response.get('items', []):
+                snippet = item.get('snippet', {})
+                channel_title = snippet.get('channelTitle', '')
+
+                playlist_info = PlaylistInfo(
+                    name=snippet.get('title', ''),
+                    tracks=[],
+                    description=snippet.get('description', ''),
+                    service_type=ServiceType.YOUTUBE,
+                    playlist_type=PlaylistType.YOUTUBE_PLAYLIST,
+                    service_id=item.get('id', {}).get('playlistId', ''),
+                    thumbnail_url=snippet.get('thumbnails', {}).get('medium', {}).get('url', ''),
+                    owner=self._clean_artist_name(channel_title),
+                )
+
+                if self._is_official_channel(channel_title):
+                    official_playlists.append(playlist_info)
+                else:
+                    other_playlists.append(playlist_info)
+
+            preferred_playlists = official_playlists + other_playlists
+            # Filter out entries missing IDs; then cap to requested limit.
+            preferred_playlists = [p for p in preferred_playlists if p.service_id]
+            return preferred_playlists[:limit]
+
+        except HttpError as e:
+            raise Exception(f"YouTube API error: {e}")
