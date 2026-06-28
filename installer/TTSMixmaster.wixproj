@@ -28,6 +28,6 @@
 
   <ItemGroup>
     <!-- Include the WiX Heat package for directory harvesting -->
-    <PackageReference Include="WixToolset.Heat" />
+    <PackageReference Include="WixToolset.Heat" Version="4.0.5" />
   </ItemGroup>
 </Project>
