@@ -23,10 +23,13 @@ All API credentials are optional - configure only the services you want to use:
 ### Azure Storage Configuration
 - `AZURE_STORAGE_CONNECTION_STRING` - Azure Storage connection string (optional, for cloud uploads)
 - `AZURE_CONTAINER_NAME` - Azure Storage container name (optional, defaults to "tts-audio")
+- `azure_blob_freshness_days` - Delta upload window (config.json only). When re-uploading,
+  a blob is left untouched if it was modified within this many days; older blobs are
+  replaced in place (the blob name and public URL stay the same). Default: `1`. Set to
+  `0` to always replace.
 
 ### Application Settings
 - `DOWNLOAD_PATH` - Path for downloaded files (default: ./downloads)
-- `UPLOAD_PATH` - Path for upload preparation (default: ./uploads)
 - `TTS_OUTPUT_PATH` - Path for TTS formatted files (default: ./tts_formatted)
 - `AUDIO_QUALITY` - Audio quality in kbps: 128, 192, 256, 320 (default: 192)
 - `THEME` - UI theme: dark, light (default: dark)
@@ -95,8 +98,8 @@ Contains application settings and preferences:
 ```json
 {
   "download_path": "./downloads",
-  "upload_path": "./uploads",
   "tts_output_path": "./tts_formatted",
+  "azure_blob_freshness_days": 1,
   "audio_quality": "192",
   "theme": "dark",
   "window_size": "1200x800"
@@ -139,7 +142,6 @@ Contains application settings and preferences:
 
 ### Paths
 - Download Path: `./downloads`
-- Upload Path: `./uploads`
 - TTS Output Path: `./tts_formatted`
 
 ### Audio Settings
@@ -186,7 +188,6 @@ Use the built-in test buttons to validate:
 You can set custom paths for all directories:
 ```env
 DOWNLOAD_PATH=/custom/downloads
-UPLOAD_PATH=/custom/uploads
 TTS_OUTPUT_PATH=/custom/tts_output
 ```
 

@@ -179,7 +179,8 @@ class AudioDownloader:
         return filename
     
     def search_and_download_track(self, track: Track, search_engines: Optional[List[str]] = None,
-                                  playlist_folder: Optional[Path] = None) -> DownloadResult:
+                                  playlist_folder: Optional[Path] = None,
+                                  output_basename: Optional[str] = None) -> DownloadResult:
         """
         Search for and download a track from various sources
         
@@ -187,6 +188,9 @@ class AudioDownloader:
             track: Track object to download
             search_engines: List of search engines to use (youtube, soundcloud, etc.)
             playlist_folder: Optional specific folder for playlist-organized downloads
+            output_basename: Optional filename (without extension) to save as. When
+                omitted, defaults to "{artist} - {title}". Used to give colliding
+                tracks unique filenames within a playlist.
             
         Returns:
             DownloadResult object
@@ -202,8 +206,11 @@ class AudioDownloader:
         download_path = playlist_folder if playlist_folder is not None else self.download_path
         download_path.mkdir(parents=True, exist_ok=True)
         
+        # Resolve the base filename (without extension) for this track.
+        base_name = output_basename or f"{track.artist} - {track.title}"
+        
         # Check if file already exists - if so, skip download (ONE FILE PER SONG)
-        expected_filename = self.sanitize_filename(f"{track.artist} - {track.title}.mp3")
+        expected_filename = self.sanitize_filename(f"{base_name}.mp3")
         expected_path = download_path / expected_filename
         
         if expected_path.exists():
@@ -224,21 +231,147 @@ class AudioDownloader:
         if track.album:
             query += f" {track.album}"
         
+        last_error: Optional[str] = None
+        
+        # Prefer downloading directly from the track's own URL when it points at a
+        # media source yt-dlp can handle (e.g. a YouTube playlist item or a
+        # SoundCloud track). This avoids a redundant search request per track,
+        # which is slow and triggers provider rate limiting.
+        if self._is_direct_media_url(track.url):
+            try:
+                result = self._download_from_url(track, track.url, download_path, base_name)
+                if result.success:
+                    return result
+                if result.error_message:
+                    last_error = result.error_message
+            except Exception as e:
+                self.logger.warning(f"Direct download from {track.url} failed: {e}")
+                last_error = str(e)
+        
         # Try each search engine
         for engine in search_engines:
             try:
-                result = self._download_from_engine(track, query, engine, download_path)
+                result = self._download_from_engine(track, query, engine, download_path, base_name)
                 if result.success:
                     return result
+                if result.error_message:
+                    last_error = result.error_message
             except Exception as e:
                 self.logger.warning(f"Failed to download from {engine}: {e}")
+                last_error = str(e)
                 continue
         
         return DownloadResult(
             success=False,
             track=track,
-            error_message="Could not find track on any supported platform"
+            error_message=last_error or "Could not find track on any supported platform"
         )
+
+    def _resolve_playlist_filenames(self, tracks: List[Track]) -> List[tuple]:
+        """
+        De-duplicate a playlist's tracks and assign a unique base filename
+        (without extension) to each remaining track.
+
+        - Tracks that are identical "to the core" (same artist, title, album and
+          source URL) are treated as true duplicates and collapsed into one.
+        - Tracks that share an "{artist} - {title}" filename but are genuinely
+          different (e.g. the same song from different albums, or different source
+          videos) are kept and disambiguated. The album name is appended when
+          available; otherwise a numeric suffix is used.
+
+        Args:
+            tracks: The playlist's tracks in order
+
+        Returns:
+            List of (track, base_filename) tuples for the tracks to download
+        """
+        # 1. Drop exact duplicates (same artist + title + album + url)
+        seen_identity = set()
+        unique_tracks: List[Track] = []
+        for t in tracks:
+            identity = (
+                t.artist.strip().lower(),
+                t.title.strip().lower(),
+                (t.album or "").strip().lower(),
+                (t.url or "").strip().lower(),
+            )
+            if identity in seen_identity:
+                self.logger.info(f"Skipping exact duplicate track: {t.artist} - {t.title}")
+                continue
+            seen_identity.add(identity)
+            unique_tracks.append(t)
+
+        # 2. Count how many kept tracks share each base "{artist} - {title}"
+        def base_key(track: Track) -> str:
+            return self.sanitize_filename(f"{track.artist} - {track.title}").lower()
+
+        base_counts: Dict[str, int] = {}
+        for t in unique_tracks:
+            base_counts[base_key(t)] = base_counts.get(base_key(t), 0) + 1
+
+        # 3. Assign unique base filenames, disambiguating collisions
+        resolved: List[tuple] = []
+        used_names = set()
+        for t in unique_tracks:
+            base = f"{t.artist} - {t.title}"
+            if base_counts[base_key(t)] > 1:
+                # Collision: prefer the album name to disambiguate when present.
+                if t.album and t.album.strip():
+                    candidate = f"{t.artist} - {t.title} ({t.album.strip()})"
+                else:
+                    candidate = base
+                # Guarantee uniqueness, falling back to a numeric suffix.
+                name = candidate
+                counter = 2
+                while self.sanitize_filename(name).lower() in used_names:
+                    name = f"{candidate} ({counter})"
+                    counter += 1
+                base = name
+            used_names.add(self.sanitize_filename(base).lower())
+            resolved.append((t, self.sanitize_filename(base)))
+
+        return resolved
+
+    def map_tracks_to_files(self, playlist_info, playlist_folder: Path) -> List[tuple]:
+        """
+        Align a playlist's tracks to their downloaded files on disk.
+
+        Uses the same de-duplication and filename resolution as the downloader
+        so each track is paired with the exact file that was written for it.
+        This avoids relying on directory iteration order (which is alphabetical,
+        not playlist order) when building the TTS object, which previously
+        matched track names to the wrong audio file.
+
+        Args:
+            playlist_info: PlaylistInfo object containing tracks
+            playlist_folder: Folder containing the downloaded audio files
+
+        Returns:
+            List of (track, base_name, local_path_or_None) tuples in
+            de-duplicated playlist order.
+        """
+        from ..utils.config import is_audio_file
+
+        resolved = self._resolve_playlist_filenames(playlist_info.tracks)
+
+        # Build a lookup of available audio files keyed by sanitized stem.
+        files_by_stem: Dict[str, str] = {}
+        folder = Path(playlist_folder) if playlist_folder is not None else None
+        if folder is not None and folder.exists():
+            for f in folder.iterdir():
+                if f.is_file() and is_audio_file(str(f)):
+                    files_by_stem[f.stem.lower()] = str(f)
+
+        mapping: List[tuple] = []
+        for track, base_name in resolved:
+            local_path = files_by_stem.get(base_name.lower())
+            if local_path is None:
+                # Fall back to re-sanitizing in case sanitize_filename is not
+                # perfectly idempotent for this name.
+                local_path = files_by_stem.get(self.sanitize_filename(base_name).lower())
+            mapping.append((track, base_name, local_path))
+
+        return mapping
 
     def download_playlist(self, playlist_info, playlist_folder: Path, 
                          search_engines: Optional[List[str]] = None) -> List[DownloadResult]:
@@ -258,18 +391,24 @@ class AudioDownloader:
         # Ensure playlist folder exists
         playlist_folder.mkdir(parents=True, exist_ok=True)
         
+        # De-duplicate and assign unique filenames up front so the reported
+        # counts, the files on disk, and the manifest all stay consistent.
+        resolved_tracks = self._resolve_playlist_filenames(playlist_info.tracks)
+        
         results = []
         downloaded_tracks = []
+        total = len(resolved_tracks)
         
-        self.logger.info(f"Starting download of {len(playlist_info.tracks)} tracks to {playlist_folder}")
+        self.logger.info(f"Starting download of {total} tracks to {playlist_folder}")
         
-        for i, track in enumerate(playlist_info.tracks):
-            self.logger.info(f"Downloading {i+1}/{len(playlist_info.tracks)}: {track.artist} - {track.title}")
+        for i, (track, base_name) in enumerate(resolved_tracks):
+            self.logger.info(f"Downloading {i+1}/{total}: {track.artist} - {track.title}")
             
             result = self.search_and_download_track(
                 track, 
                 search_engines=search_engines, 
-                playlist_folder=playlist_folder
+                playlist_folder=playlist_folder,
+                output_basename=base_name
             )
             results.append(result)
             
@@ -280,11 +419,111 @@ class AudioDownloader:
         save_playlist_manifest(playlist_folder, playlist_info, downloaded_tracks)
         
         successful = len(downloaded_tracks)
-        total = len(playlist_info.tracks)
         self.logger.info(f"Playlist download complete: {successful}/{total} tracks downloaded to {playlist_folder}")
         
         return results
-    def _download_from_engine(self, track: Track, query: str, engine: str, download_path: Path = None) -> DownloadResult:
+
+    def _is_direct_media_url(self, url: Optional[str]) -> bool:
+        """
+        Determine whether a URL points directly at a downloadable media item
+        that yt-dlp can fetch without performing a search.
+
+        Args:
+            url: The track URL to inspect
+
+        Returns:
+            True if the URL is a direct YouTube/SoundCloud media link
+        """
+        if not url:
+            return False
+
+        url_lower = url.lower()
+
+        # Direct YouTube video links (watch?v=, youtu.be/, /shorts/)
+        if 'youtube.com/watch' in url_lower or 'youtu.be/' in url_lower or 'youtube.com/shorts/' in url_lower:
+            return True
+
+        # Direct SoundCloud track links (but not search or user pages)
+        if 'soundcloud.com/' in url_lower and 'soundcloud.com/search' not in url_lower:
+            return True
+
+        return False
+
+    def _download_from_url(self, track: Track, url: str, download_path: Path = None,
+                           output_basename: Optional[str] = None) -> DownloadResult:
+        """
+        Download audio directly from a known media URL (no search step).
+
+        Args:
+            track: Track object
+            url: Direct media URL to download
+            download_path: Specific download path (defaults to self.download_path)
+            output_basename: Filename (without extension) to save as
+
+        Returns:
+            DownloadResult object
+        """
+        if not YT_DLP_AVAILABLE or yt_dlp is None:
+            return DownloadResult(
+                success=False,
+                track=track,
+                error_message="yt-dlp is not available"
+            )
+
+        if download_path is None:
+            download_path = self.download_path
+
+        base_name = output_basename or f"{track.artist} - {track.title}"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_opts = self.ydl_opts.copy()
+            sanitized_name = self.sanitize_filename(base_name)
+            temp_opts['outtmpl'] = os.path.join(temp_dir, f"{sanitized_name}.%(ext)s")
+
+            try:
+                with yt_dlp.YoutubeDL(temp_opts) as ydl:  # type: ignore[arg-type]
+                    # Download directly from the provided URL
+                    info = ydl.extract_info(url, download=True)
+
+                    downloaded_files = list(Path(temp_dir).glob("*"))
+                    if not downloaded_files:
+                        raise DownloadError("No files were downloaded")
+
+                    downloaded_file = downloaded_files[0]
+
+                    if self.ffmpeg_available:
+                        final_filename = self.sanitize_filename(f"{base_name}.mp3")
+                    else:
+                        original_ext = downloaded_file.suffix
+                        final_filename = self.sanitize_filename(f"{base_name}{original_ext}")
+
+                    final_path = download_path / final_filename
+                    final_path.parent.mkdir(parents=True, exist_ok=True)
+                    downloaded_file.replace(final_path)
+
+                    file_size = final_path.stat().st_size
+                    duration = info.get('duration', 0.0) if info else 0.0
+
+                    self.logger.info(f"Successfully downloaded (direct URL): {final_filename}")
+
+                    return DownloadResult(
+                        success=True,
+                        track=track,
+                        file_path=str(final_path),
+                        duration=duration,
+                        file_size=file_size
+                    )
+
+            except Exception as e:
+                self.logger.error(f"Failed to download directly from {url}: {e}")
+                return DownloadResult(
+                    success=False,
+                    track=track,
+                    error_message=str(e)
+                )
+
+    def _download_from_engine(self, track: Track, query: str, engine: str, download_path: Path = None,
+                              output_basename: Optional[str] = None) -> DownloadResult:
         """
         Download from a specific search engine
         
@@ -293,6 +532,7 @@ class AudioDownloader:
             query: Search query
             engine: Search engine name
             download_path: Specific download path (defaults to self.download_path)
+            output_basename: Filename (without extension) to save as
             
         Returns:
             DownloadResult object
@@ -306,13 +546,15 @@ class AudioDownloader:
         
         if download_path is None:
             download_path = self.download_path
-            
+        
+        base_name = output_basename or f"{track.artist} - {track.title}"
+        
         search_url = self._get_search_url(query, engine)
         
         # Create a temporary directory for this download
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_opts = self.ydl_opts.copy()
-            sanitized_name = self.sanitize_filename(f"{track.artist} - {track.title}")
+            sanitized_name = self.sanitize_filename(base_name)
             temp_opts['outtmpl'] = os.path.join(temp_dir, f"{sanitized_name}.%(ext)s")
             
             try:
@@ -351,11 +593,11 @@ class AudioDownloader:
                     
                     # Determine final filename based on FFmpeg availability
                     if self.ffmpeg_available:
-                        final_filename = self.sanitize_filename(f"{track.artist} - {track.title}.mp3")
+                        final_filename = self.sanitize_filename(f"{base_name}.mp3")
                     else:
                         # Keep original extension if FFmpeg is not available
                         original_ext = downloaded_file.suffix
-                        final_filename = self.sanitize_filename(f"{track.artist} - {track.title}{original_ext}")
+                        final_filename = self.sanitize_filename(f"{base_name}{original_ext}")
                     
                     # Move file to final destination
                     final_path = download_path / final_filename

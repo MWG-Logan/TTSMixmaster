@@ -151,6 +151,9 @@ class TTSMixmasterApp:
         self.azure_container_entry = ctk.CTkEntry(azure_frame, placeholder_text="Container Name (default: tts-audio)")
         self.azure_container_entry.pack(fill="x", padx=5, pady=2)
         
+        self.azure_freshness_entry = ctk.CTkEntry(azure_frame, placeholder_text="Skip re-upload if modified within N days (default: 1)")
+        self.azure_freshness_entry.pack(fill="x", padx=5, pady=2)
+        
         # Path Configuration Frame
         path_frame = ctk.CTkFrame(tab)
         path_frame.pack(fill="x", padx=10, pady=5)
@@ -170,20 +173,6 @@ class TTSMixmasterApp:
         
         ctk.CTkButton(path_inner_frame, text="Browse", width=80,
                      command=lambda: self._browse_folder(self.download_path_entry)).pack(side="right", padx=2)
-        
-        # Upload path
-        upload_frame = ctk.CTkFrame(path_frame)
-        upload_frame.pack(fill="x", padx=10, pady=2)
-        
-        ctk.CTkLabel(upload_frame, text="Upload Path:").pack(anchor="w", padx=5)
-        path_inner_frame2 = ctk.CTkFrame(upload_frame)
-        path_inner_frame2.pack(fill="x", padx=5, pady=2)
-        
-        self.upload_path_entry = ctk.CTkEntry(path_inner_frame2)
-        self.upload_path_entry.pack(side="left", fill="x", expand=True, padx=2)
-        
-        ctk.CTkButton(path_inner_frame2, text="Browse", width=80,
-                     command=lambda: self._browse_folder(self.upload_path_entry)).pack(side="right", padx=2)
         
         # TTS output path
         tts_frame = ctk.CTkFrame(path_frame)
@@ -364,7 +353,6 @@ class TTSMixmasterApp:
         # Action buttons
         button_frame = ctk.CTkFrame(controls_frame)
         button_frame.pack(fill="x", padx=10, pady=5)        
-        ctk.CTkButton(button_frame, text="Prepare Upload Files", command=self._prepare_uploads).pack(side="left", padx=5)
         ctk.CTkButton(button_frame, text="Upload to Azure", command=self._start_upload).pack(side="left", padx=5)
         ctk.CTkButton(button_frame, text="Show Instructions", command=self._show_upload_instructions).pack(side="left", padx=5)
         
@@ -402,16 +390,9 @@ class TTSMixmasterApp:
         options_frame = ctk.CTkFrame(controls_frame)
         options_frame.pack(fill="x", padx=10, pady=5)
         
-        # Output format selection
+        # Format options row
         format_row = ctk.CTkFrame(options_frame)
         format_row.pack(fill="x", pady=2)
-        
-        ctk.CTkLabel(format_row, text="Output Format:").pack(side="left", padx=5)
-        self.output_format_var = ctk.StringVar(value="save_file")
-        formats = ["lua", "json", "save_file", "all"]
-        self.output_format_combo = ctk.CTkComboBox(format_row, values=formats,
-                                                  variable=self.output_format_var)
-        self.output_format_combo.pack(side="left", padx=5)
         
         # Simple format checkbox
         self.use_simple_format_var = ctk.BooleanVar(value=True)
@@ -511,10 +492,10 @@ class TTSMixmasterApp:
         # Azure settings
         self.azure_connection_entry.insert(0, self.config.azure_storage_connection_string)
         self.azure_container_entry.insert(0, self.config.azure_container_name)
+        self.azure_freshness_entry.insert(0, str(self.config.azure_blob_freshness_days))
         
         # Path settings
         self.download_path_entry.insert(0, self.config.download_path)
-        self.upload_path_entry.insert(0, self.config.upload_path)
         self.tts_path_entry.insert(0, self.config.tts_output_path)
         
         # Audio settings
@@ -530,6 +511,12 @@ class TTSMixmasterApp:
     def _save_config(self):
         """Save configuration from GUI"""
         try:
+            # Parse the Azure delta freshness window, tolerating bad input.
+            try:
+                freshness_days = float(self.azure_freshness_entry.get().strip())
+            except (ValueError, AttributeError):
+                freshness_days = self.config.azure_blob_freshness_days
+            
             self.config_manager.update_config(
                 # Last.fm settings
                 lastfm_api_key=self.lastfm_api_key_entry.get(),
@@ -545,9 +532,9 @@ class TTSMixmasterApp:
                 # Azure settings
                 azure_storage_connection_string=self.azure_connection_entry.get(),
                 azure_container_name=self.azure_container_entry.get(),
+                azure_blob_freshness_days=freshness_days,
                 # Path settings
                 download_path=self.download_path_entry.get(),
-                upload_path=self.upload_path_entry.get(),
                 tts_output_path=self.tts_path_entry.get(),
                 # Audio settings
                 audio_quality=self.audio_quality_var.get()            )
@@ -851,51 +838,35 @@ class TTSMixmasterApp:
         
         self.download_results_text.insert(tk.END, f"\nSummary: {successful} successful, {failed} failed")
     
-    def _prepare_uploads(self):
-        """Prepare upload folders from playlist downloads"""
-        try:
-            # Check if we have playlist folders to work with
-            if hasattr(self, 'playlist_tab_manager') and self.playlist_tab_manager:
-                selected_playlist = self.playlist_tab_manager.get_selected_playlist()
-                if selected_playlist:
-                    from ..utils.config import create_playlist_directories
-                    playlist_paths = create_playlist_directories(self.config, selected_playlist.name)
-                    
-                    # Copy audio files from download folder to upload folder
-                    download_folder = playlist_paths['download']
-                    upload_folder = playlist_paths['upload']
-                    
-                    if download_folder.exists():
-                        from ..utils.config import is_audio_file
-                        import shutil
-                        
-                        audio_files = [f for f in download_folder.iterdir() if is_audio_file(str(f))]
-                        
-                        for audio_file in audio_files:
-                            dest_file = upload_folder / audio_file.name
-                            if not dest_file.exists():
-                                shutil.copy2(audio_file, dest_file)
-                        
-                        # Copy manifest file too
-                        manifest_file = download_folder / "playlist_manifest.txt"
-                        if manifest_file.exists():
-                            shutil.copy2(manifest_file, upload_folder / "playlist_manifest.txt")
-                        
-                        self._update_status(f"Prepared {len(audio_files)} files for upload from playlist: {selected_playlist.name}")
-                        return
-            
-            # Fallback to legacy preparation
-            self._update_status("Upload folders prepared")
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to prepare uploads: {e}")
-            self._update_status("Upload preparation failed")
-    
     def _start_upload(self):
         """Start uploading to Azure Blob Storage"""
         def upload_worker():
             try:
-                if not self.download_results:
+                # Gather files to upload directly from the selected playlist's
+                # download folder, falling back to this session's download results.
+                from ..utils.config import create_playlist_directories, is_audio_file
+                
+                files_to_upload = []
+                selected_playlist = None
+                if hasattr(self, 'playlist_tab_manager') and self.playlist_tab_manager:
+                    selected_playlist = self.playlist_tab_manager.get_selected_playlist()
+                
+                if selected_playlist:
+                    playlist_paths = create_playlist_directories(self.config, selected_playlist.name)
+                    download_folder = playlist_paths['download']
+                    if download_folder.exists():
+                        files_to_upload = [
+                            str(f) for f in download_folder.iterdir() if is_audio_file(str(f))
+                        ]
+                
+                # Fallback to in-session download results if the folder had nothing
+                if not files_to_upload and self.download_results:
+                    files_to_upload = [
+                        r.file_path for r in self.download_results
+                        if r.success and r.file_path and os.path.exists(r.file_path)
+                    ]
+                
+                if not files_to_upload:
                     messagebox.showwarning("Warning", "No downloaded files to upload")
                     return
                 
@@ -908,26 +879,20 @@ class TTSMixmasterApp:
                     
                     self.uploader = AzureBlobUploader(
                         connection_string=config.azure_storage_connection_string,
-                        container_name=config.azure_container_name
+                        container_name=config.azure_container_name,
+                        freshness_days=config.azure_blob_freshness_days
                     )
                 
                 self._update_status("Starting Azure upload...")
                 
-                # Get successful downloads
-                successful_downloads = [result for result in self.download_results if result.success]
-                total_files = len(successful_downloads)
-                
-                if total_files == 0:
-                    messagebox.showwarning("Warning", "No successful downloads to upload")
-                    return
+                total_files = len(files_to_upload)
                 
                 # Update progress
                 self.upload_progress.set(0)
                 
                 # Upload files
                 self.upload_results = []
-                for i, download_result in enumerate(successful_downloads):
-                    file_path = download_result.file_path
+                for i, file_path in enumerate(files_to_upload):
                     if file_path and os.path.exists(file_path):
                         self._update_status(f"Uploading {i+1}/{total_files}: {os.path.basename(file_path)}")
                         
@@ -943,7 +908,12 @@ class TTSMixmasterApp:
                         self._update_upload_results()
                 
                 successful_uploads = len([r for r in self.upload_results if r.success])
-                self._update_status(f"Upload complete: {successful_uploads}/{total_files} successful")
+                skipped = len([r for r in self.upload_results if getattr(r, 'skipped', False)])
+                replaced = successful_uploads - skipped
+                self._update_status(
+                    f"Upload complete: {successful_uploads}/{total_files} successful "
+                    f"({replaced} replaced, {skipped} up-to-date/skipped)"
+                )
                 
             except Exception as e:
                 messagebox.showerror("Error", f"Upload failed: {e}")
@@ -958,7 +928,8 @@ class TTSMixmasterApp:
             config = self.config_manager.get_config()
             self.uploader = AzureBlobUploader(
                 connection_string=config.azure_storage_connection_string if config.azure_storage_connection_string != 'your_azure_storage_connection_string_here' else None,
-                container_name=config.azure_container_name
+                container_name=config.azure_container_name,
+                freshness_days=config.azure_blob_freshness_days
             )
         
         # Get Azure setup instructions
@@ -1017,21 +988,55 @@ Status: {status}        """.strip().format(
             if not self.formatter:
                 self.formatter = TTSFormatter(str(playlist_paths['tts_output']))
             
-            # Create music player with upload results if available, otherwise use local files
+            # Lazily create a downloader so we can reuse its canonical filename
+            # resolution to pair each track with its own audio file.
+            if not self.downloader:
+                self.downloader = AudioDownloader(
+                    self.config.download_path,
+                    self.config.audio_quality
+                )
+
+            # Build a track->file mapping in playlist order. Relying on directory
+            # iteration order (alphabetical) here previously scrambled track
+            # names against files, so a track could point at another song's audio.
+            from ..api.base_service import PlaylistInfo
+            download_folder = playlist_paths['download']
+            track_file_map = self.downloader.map_tracks_to_files(selected_playlist, download_folder)
+
+            deduped_tracks = [t for t, _base, _path in track_file_map]
+            local_files = [path for _t, _base, path in track_file_map]
+
+            # Fall back to this session's download results if nothing was found
+            # on disk (e.g. a fresh download that hasn't been flushed yet).
+            if not any(local_files) and self.download_results:
+                results_by_track = {
+                    id(r.track): r.file_path
+                    for r in self.download_results
+                    if r.success and r.file_path is not None
+                }
+                local_files = [results_by_track.get(id(t)) for t in deduped_tracks]
+
+            # A de-duplicated playlist whose track order matches local_files and
+            # the aligned upload results one-to-one.
+            deduped_playlist = PlaylistInfo(name=selected_playlist.name, tracks=deduped_tracks)
+
+            # Align uploaded Azure URLs to tracks by filename (not by upload
+            # order, which follows directory iteration and would mismatch).
+            aligned_uploads = None
             if self.upload_results:
-                music_player = self.formatter.create_music_player_from_playlist_info(selected_playlist, upload_results=self.upload_results)
-            else:
-                # Look for audio files in the playlist download folder
-                local_files = []
-                if playlist_paths['download'].exists():
-                    audio_files = [str(f) for f in playlist_paths['download'].iterdir() if is_audio_file(str(f))]
-                    local_files = audio_files
-                elif self.download_results:
-                    # Fallback to download results
-                    local_files = [result.file_path for result in self.download_results 
-                                   if result.success and result.file_path is not None]
-                
-                music_player = self.formatter.create_music_player_from_playlist_info(selected_playlist, local_files=local_files)
+                uploads_by_stem = {}
+                for r in self.upload_results:
+                    if r and getattr(r, 'file_path', None):
+                        uploads_by_stem[Path(r.file_path).stem.lower()] = r
+                aligned_uploads = [
+                    uploads_by_stem.get(base.lower()) for _t, base, _path in track_file_map
+                ]
+
+            music_player = self.formatter.create_music_player_from_playlist_info(
+                deduped_playlist,
+                upload_results=aligned_uploads,
+                local_files=local_files,
+            )
             
             # Get customization options
             nickname = self.tts_nickname_var.get().strip()
@@ -1039,58 +1044,42 @@ Status: {status}        """.strip().format(
             image_url = self.tts_image_url_var.get().strip()
             image_secondary_url = self.tts_image_secondary_url_var.get().strip()
             use_simple_format = self.use_simple_format_var.get()
-            output_format = self.output_format_var.get()
             
             # Set default nickname if empty
             if not nickname:
                 nickname = f"{selected_playlist.name} Music Player"
             
-            # Generate appropriate code based on format
-            if output_format == "lua":
-                if use_simple_format:
-                    code = self.formatter.generate_simple_playlist_lua(music_player)
-                else:
-                    code = self.formatter.generate_lua_script(music_player)
-            elif output_format == "json":
-                code = self.formatter.generate_json_data(music_player)
-            elif output_format == "save_file":
-                # Generate full save file and display the path
-                save_data = self.formatter.generate_save_file(
-                    music_player, 
-                    nickname=nickname, 
-                    description=description,
-                    use_simple_format=use_simple_format,
-                    image_url=image_url,
-                    image_secondary_url=image_secondary_url
-                )
-                code = json.dumps(save_data, indent=2)
-            else:
-                code = "Unknown format selected"
+            # Generate the TTS save object (the only output directly usable in TTS)
+            save_data = self.formatter.generate_save_file(
+                music_player,
+                nickname=nickname,
+                description=description,
+                use_simple_format=use_simple_format,
+                image_url=image_url,
+                image_secondary_url=image_secondary_url
+            )
+            code = json.dumps(save_data, indent=2)
             
-            # Display in text widget
-            self.tts_output_text.delete("1.0", "end")
-            self.tts_output_text.insert("1.0", code)
+            # Display in preview widget
+            self.tts_preview_text.delete("1.0", "end")
+            self.tts_preview_text.insert("1.0", code)
             
-            # Save to playlist TTS folder
-            if output_format != "save_file":
-                base_filename = f"{selected_playlist.name.replace(' ', '_')}"
-                saved_files = self.formatter.save_formatted_files(
-                    music_player,
-                    base_filename=base_filename,
-                    nickname=nickname,
-                    description=description,
-                    use_simple_format=use_simple_format,
-                    image_url=image_url,
-                    image_secondary_url=image_secondary_url
-                )
-                
-                self._update_status(f"TTS files generated and saved to: {playlist_paths['tts_output']}")
-                
-                # Show saved files info
-                files_info = "\n".join([f"{key}: {path}" for key, path in saved_files.items()])
-                messagebox.showinfo("Files Saved", f"Generated files:\n\n{files_info}")
-            else:
-                self._update_status(f"TTS save file code generated for playlist: {selected_playlist.name}")
+            # Save the save-object .json to the playlist TTS folder
+            base_filename = f"{selected_playlist.name.replace(' ', '_')}"
+            saved_files = self.formatter.save_formatted_files(
+                music_player,
+                base_filename=base_filename,
+                nickname=nickname,
+                description=description,
+                use_simple_format=use_simple_format,
+                image_url=image_url,
+                image_secondary_url=image_secondary_url
+            )
+            
+            self._update_status(f"TTS save object generated for playlist: {selected_playlist.name}")
+            
+            files_info = "\n".join([f"{key}: {path}" for key, path in saved_files.items()])
+            messagebox.showinfo("File Saved", f"Generated TTS save object:\n\n{files_info}")
                 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to generate TTS code: {e}")

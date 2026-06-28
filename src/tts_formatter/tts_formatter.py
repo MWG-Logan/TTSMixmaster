@@ -126,7 +126,7 @@ class TTSFormatter:
             # Try to get workshop URL
             if upload_results and i < len(upload_results):
                 result = upload_results[i]
-                if result.success and result.public_url:
+                if result and result.success and result.public_url:
                     workshop_url = result.public_url
             
             # Try to get local file URL
@@ -179,7 +179,7 @@ class TTSFormatter:
             # Try to get workshop URL
             if upload_results and i < len(upload_results):
                 result = upload_results[i]
-                if result.success and result.public_url:
+                if result and result.success and result.public_url:
                     workshop_url = result.public_url
             
             # Try to get local file URL
@@ -556,27 +556,8 @@ return {object_name}"""
         
         saved_files = {}
         
-        # Save Lua script
-        lua_script = self.generate_lua_script(music_player)
-        lua_path = self.output_path / f"{base_filename}.lua"
-        with open(lua_path, 'w', encoding='utf-8') as f:
-            f.write(lua_script)
-        saved_files['lua'] = str(lua_path)
-        
-        # Save simple playlist Lua script
-        simple_lua_script = self.generate_simple_playlist_lua(music_player)
-        simple_lua_path = self.output_path / f"{base_filename}_simple.lua"
-        with open(simple_lua_path, 'w', encoding='utf-8') as f:
-            f.write(simple_lua_script)
-        saved_files['simple_lua'] = str(simple_lua_path)
-        
-        # Save JSON data
-        json_data = self.generate_json_data(music_player)
-        json_path = self.output_path / f"{base_filename}_data.json"
-        with open(json_path, 'w', encoding='utf-8') as f:
-            f.write(json_data)
-        saved_files['json'] = str(json_path)        
-        # Save TTS save file
+        # Save the Tabletop Simulator save object. This is the only output that
+        # loads directly into TTS, so it is the sole file produced.
         save_data = self.generate_save_file(music_player, nickname=nickname, 
                                           description=description, 
                                           use_simple_format=use_simple_format,
@@ -586,13 +567,6 @@ return {object_name}"""
         with open(save_path, 'w', encoding='utf-8') as f:
             json.dump(save_data, f, indent=2, ensure_ascii=False)
         saved_files['save_file'] = str(save_path)
-        
-        # Save text summary
-        summary = self.generate_text_summary(music_player)
-        txt_path = self.output_path / f"{base_filename}_summary.txt"
-        with open(txt_path, 'w', encoding='utf-8') as f:
-            f.write(summary)
-        saved_files['summary'] = str(txt_path)
         
         return saved_files
     

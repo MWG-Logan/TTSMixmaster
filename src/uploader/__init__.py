@@ -1,5 +1,5 @@
 """Uploader module initialization"""
 
-from .steam_uploader import SteamWorkshopUploader, UploadResult
+from .azure_uploader import AzureBlobUploader, UploadResult
 
-__all__ = ['SteamWorkshopUploader', 'UploadResult']
+__all__ = ['AzureBlobUploader', 'UploadResult']

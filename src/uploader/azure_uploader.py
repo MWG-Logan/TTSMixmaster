@@ -6,22 +6,23 @@ for use with Tabletop Simulator. Files uploaded here get public URLs that
 TTS can access directly.
 """
 import os
-import hashlib
 import mimetypes
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 try:
     from azure.storage.blob import BlobServiceClient, ContainerClient, PublicAccess
     from azure.storage.blob import ContentSettings
-    from azure.core.exceptions import AzureError
+    from azure.core.exceptions import AzureError, ResourceNotFoundError
     AZURE_AVAILABLE = True
 except ImportError:
     AZURE_AVAILABLE = False
     ContentSettings = None
+    class AzureError(Exception): pass
+    class ResourceNotFoundError(AzureError): pass
     logging.warning("Azure SDK not available. Please install azure-storage-blob to enable uploads.")
 
 from ..api.lastfm_client import Track
@@ -38,13 +39,15 @@ class UploadResult:
     upload_time: Optional[datetime] = None
     error_message: Optional[str] = None
     metadata: Optional[Dict[str, str]] = None
+    skipped: bool = False  # True when an up-to-date blob was left untouched
 
 
 class AzureBlobUploader:
     """Uploads audio files to Azure Blob Storage for TTS integration"""
     
     def __init__(self, connection_string: Optional[str] = None, account_name: Optional[str] = None, 
-                 account_key: Optional[str] = None, container_name: str = "tts-audio"):
+                 account_key: Optional[str] = None, container_name: str = "tts-audio",
+                 freshness_days: float = 1.0):
         """
         Initialize the Azure Blob uploader
         
@@ -53,8 +56,12 @@ class AzureBlobUploader:
             account_name: Azure Storage account name (if not using connection string)
             account_key: Azure Storage account key (if not using connection string)
             container_name: Name of the container to upload to
+            freshness_days: Skip re-uploading a blob when it was last modified
+                within this many days. Kept short by default so most files get
+                replaced; the blob name/URL is always preserved on replacement.
         """
         self.container_name = container_name
+        self.freshness_days = freshness_days
         self.logger = logging.getLogger(__name__)
         self.blob_service_client = None
         self.account_name = account_name or "unknown"
@@ -114,7 +121,8 @@ class AzureBlobUploader:
             raise
     
     def upload_audio_file(self, file_path: str, track: Optional[Track] = None, 
-                         custom_blob_name: Optional[str] = None) -> UploadResult:
+                         custom_blob_name: Optional[str] = None,
+                         force: bool = False) -> UploadResult:
         """
         Upload an audio file to Azure Blob Storage
         
@@ -122,6 +130,7 @@ class AzureBlobUploader:
             file_path: Path to the audio file to upload
             track: Track object for metadata (optional)
             custom_blob_name: Custom blob name (optional, will generate if not provided)
+            force: Upload even if an up-to-date blob already exists
             
         Returns:
             UploadResult object
@@ -141,35 +150,35 @@ class AzureBlobUploader:
             )
         
         try:
-            # Generate blob name (no hash-based uniqueness - ONE FILE PER SONG)
+            # Generate blob name (stable, no hash - preserves the standing URL)
             blob_name = custom_blob_name or self._generate_blob_name(file_path_obj, track)
             
-            # Check if blob already exists - if so, skip upload
             blob_client = self.blob_service_client.get_blob_client(  # type: ignore
                 container=self.container_name, 
                 blob=blob_name
             )
             
-            try:
-                # Check if blob exists
-                blob_properties = blob_client.get_blob_properties()  # type: ignore
-                if blob_properties:
-                    # Blob exists, generate public URL and return success
-                    public_url = f"https://{self.account_name}.blob.core.windows.net/{self.container_name}/{blob_name}"
-                    self.logger.info(f"Blob already exists, skipping upload: {blob_name}")
-                    
+            public_url = f"https://{self.account_name}.blob.core.windows.net/{self.container_name}/{blob_name}"
+            
+            # Delta check: only skip an existing blob when it was modified
+            # recently enough to be considered up to date. Older (stale) blobs
+            # are replaced in place, keeping the same blob name and public URL.
+            if not force:
+                is_fresh, last_modified = self._blob_is_fresh(blob_client)
+                if is_fresh:
+                    self.logger.info(
+                        f"Skipping up-to-date blob (modified {last_modified}): {blob_name}"
+                    )
                     return UploadResult(
                         success=True,
                         file_path=str(file_path_obj),
                         public_url=public_url,
                         blob_name=blob_name,
                         file_size=file_path_obj.stat().st_size,
-                        upload_time=datetime.utcnow(),
-                        metadata=self._prepare_metadata(file_path_obj, track)
+                        upload_time=last_modified,
+                        metadata=self._prepare_metadata(file_path_obj, track),
+                        skipped=True
                     )
-            except Exception:
-                # Blob doesn't exist, continue with upload
-                pass
             
             # Prepare metadata
             metadata = self._prepare_metadata(file_path_obj, track)
@@ -200,9 +209,6 @@ class AzureBlobUploader:
                     metadata=metadata
                 )
             
-            # Generate public URL
-            public_url = f"https://{self.account_name}.blob.core.windows.net/{self.container_name}/{blob_name}"
-            
             self.logger.info(f"Successfully uploaded to: {public_url}")
             
             return UploadResult(
@@ -211,7 +217,7 @@ class AzureBlobUploader:
                 public_url=public_url,
                 blob_name=blob_name,
                 file_size=file_size,
-                upload_time=datetime.utcnow(),
+                upload_time=datetime.now(timezone.utc),
                 metadata=metadata
             )
             
@@ -234,48 +240,62 @@ class AzureBlobUploader:
                 file_path=file_path,                error_message=error_msg
             )
     
+    def _blob_is_fresh(self, blob_client) -> tuple:
+        """
+        Determine whether an existing blob is recent enough to skip re-uploading.
+
+        A blob is "fresh" when it exists and was last modified within
+        ``self.freshness_days``. Missing or older blobs are treated as stale so
+        they get replaced.
+
+        Args:
+            blob_client: BlobClient for the target blob
+
+        Returns:
+            Tuple of (is_fresh, last_modified). last_modified is None when the
+            blob does not exist.
+        """
+        # A non-positive window means "always replace".
+        if self.freshness_days is None or self.freshness_days <= 0:
+            return False, None
+
+        try:
+            props = blob_client.get_blob_properties()  # type: ignore
+        except ResourceNotFoundError:
+            return False, None
+        except Exception as e:
+            # If properties can't be read, fall back to uploading.
+            self.logger.warning(f"Could not read blob properties, will upload: {e}")
+            return False, None
+
+        last_modified = getattr(props, 'last_modified', None)
+        if last_modified is None:
+            return False, None
+
+        # Normalize to an aware UTC datetime for comparison.
+        if last_modified.tzinfo is None:
+            last_modified = last_modified.replace(tzinfo=timezone.utc)
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self.freshness_days)
+        return last_modified >= cutoff, last_modified
+
     def _generate_blob_name(self, file_path: Path, track: Optional[Track] = None) -> str:
         """
-        Generate a consistent blob name for the file (no hash for uniqueness)
-        
+        Generate a stable blob name for the file.
+
+        The name is derived from the on-disk filename (spaces preserved) so that
+        re-uploading the same track keeps the exact same blob path, and therefore
+        the same public URL (e.g. ``audio/Staind - For You.mp3``). No hash is
+        appended because the URL must stay stable across replacements.
+
         Args:
             file_path: Path to the file
-            track: Track object for metadata
-            
+            track: Track object (unused for naming; kept for API compatibility)
+
         Returns:
             Generated blob name
         """
-        if track:
-            # Use track info for meaningful names
-            safe_artist = self._sanitize_filename(track.artist)
-            safe_title = self._sanitize_filename(track.title)
-            base_name = f"{safe_artist} - {safe_title}"
-        else:
-            # Use original filename
-            base_name = file_path.stem
-        
-        extension = file_path.suffix.lower()
-        
-        # Create blob name with folder structure for organization (no hash)
-        blob_name = f"audio/{base_name}{extension}"
-        
-        return blob_name
-    
-    def _sanitize_filename(self, filename: str) -> str:
-        """Sanitize filename for use in blob names"""
-        import re
-        # Remove invalid characters and limit length
-        filename = re.sub(r'[<>:"/\\|?*\[\]]', '', filename)
-        filename = re.sub(r'\s+', '_', filename.strip())
-        return filename[:50]  # Limit length
-    
-    def _get_file_hash(self, file_path: Path) -> str:
-        """Get SHA256 hash of file for uniqueness"""
-        hash_sha256 = hashlib.sha256()
-        with open(file_path, 'rb') as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_sha256.update(chunk)
-        return hash_sha256.hexdigest()
+        return f"audio/{file_path.name}"
     
     def _prepare_metadata(self, file_path: Path, track: Optional[Track] = None) -> Dict[str, str]:
         """Prepare metadata for the blob"""
@@ -403,8 +423,3 @@ class AzureBlobUploader:
             'last_upload': last_upload,
             'container_name': self.container_name
         }
-
-
-# Backward compatibility aliases
-SteamUploader = AzureBlobUploader
-CloudUploader = AzureBlobUploader

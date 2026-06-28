@@ -10,7 +10,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, fields
 import configparser
 
 
@@ -41,10 +41,13 @@ class AppConfig:
     # Azure Storage Settings
     azure_storage_connection_string: str = ""
     azure_container_name: str = "tts-audio"
+    # Delta upload: skip re-uploading a blob if it was last modified within this
+    # many days. Kept short by default so most files get replaced; raise it to
+    # avoid re-uploading recently refreshed audio.
+    azure_blob_freshness_days: float = 1.0
     
     # Path Settings
     download_path: str = "./downloads"
-    upload_path: str = "./uploads"
     tts_output_path: str = "./tts_formatted"
     
     # Audio Settings
@@ -61,8 +64,10 @@ class AppConfig:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AppConfig':
-        """Create from dictionary"""
-        return cls(**data)
+        """Create from dictionary, ignoring unknown/legacy keys"""
+        valid_keys = {f.name for f in fields(cls)}
+        filtered = {k: v for k, v in data.items() if k in valid_keys}
+        return cls(**filtered)
 
 
 class ConfigManager:
@@ -144,7 +149,6 @@ def create_directories(config: AppConfig):
     """
     directories = [
         config.download_path,
-        config.upload_path,
         config.tts_output_path
     ]
     
@@ -352,7 +356,6 @@ def create_playlist_directories(config: AppConfig, playlist_name: str) -> Dict[s
     """
     playlist_paths = {
         'download': get_playlist_folder_path(config.download_path, playlist_name),
-        'upload': get_playlist_folder_path(config.upload_path, playlist_name), 
         'tts_output': get_playlist_folder_path(config.tts_output_path, playlist_name)
     }
     
