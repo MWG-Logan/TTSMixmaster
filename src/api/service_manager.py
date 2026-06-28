@@ -63,7 +63,9 @@ class MusicServiceManager:
                 service = SpotifyService(
                     client_id=credentials.get('client_id', ''),
                     client_secret=credentials.get('client_secret', ''),
-                    user_id=credentials.get('user_id', '')
+                    user_id=credentials.get('user_id', ''),
+                    redirect_uri=credentials.get('redirect_uri', 'http://127.0.0.1:8888/callback'),
+                    use_oauth=credentials.get('use_oauth', True)
                 )
             else:
                 return False

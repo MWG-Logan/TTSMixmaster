@@ -47,9 +47,16 @@ pip install python-dotenv
 
 ### Spotify Connection Failed
 - Confirm your Client ID and Client Secret in the Spotify Developer Dashboard
-- Verify the app is not in development mode restrictions
-- Check that redirect URIs are properly configured (if using authentication)
-- Ensure the app has the necessary scopes enabled
+- **For OAuth Authentication (default)**: 
+  - Ensure `http://127.0.0.1:8888/callback` is added to your Redirect URIs in the Spotify app settings
+  - For apps in development mode, make sure your Spotify account email is whitelisted in "User Management"
+  - If the browser doesn't open automatically, check the console for the authentication URL
+  - Tokens are cached in `~/.ttsmixmaster/.spotify_cache` - delete this file if you encounter authentication issues
+- **For Client Credentials (public data only)**:
+  - Set `spotify_use_oauth` to `false` in your configuration
+  - Note: This mode cannot access user playlists or private data
+- Check that the redirect URI matches exactly (including protocol and port)
+- Verify network connectivity and that no firewall is blocking localhost connections
 
 ### Azure Connection Failed
 - Verify your connection string format
