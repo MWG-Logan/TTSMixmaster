@@ -212,7 +212,7 @@ jobs:
         # Build using MSBuild with the .wixproj file
         # This will automatically harvest files using HarvestDirectory
         cd installer
-        dotnet build TTSMixmaster.wixproj -c Release -p:Version=$wixVersion -p:PyInstallerOutputDir="..\dist_installer\TTSMixmaster-installer" -v:normal
+        dotnet build TTSMixmaster.wixproj -c Release -p:Version=$wixVersion -p:OutputVersion=$version -p:PyInstallerOutputDir="..\dist_installer\TTSMixmaster-installer" -v:normal
         
         # Move the MSI to the expected location
         $msiFile = "bin\Release\TTSMixmaster-v$version-Setup.msi"

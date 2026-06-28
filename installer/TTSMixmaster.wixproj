@@ -1,6 +1,8 @@
 <Project Sdk="WixToolset.Sdk/4.0.5">
   <PropertyGroup>
-    <OutputName>TTSMixmaster-v$(Version)-Setup</OutputName>
+    <!-- File-name version (e.g. 1.0.3); falls back to the WiX Version if not provided -->
+    <OutputVersion Condition="'$(OutputVersion)' == ''">$(Version)</OutputVersion>
+    <OutputName>TTSMixmaster-v$(OutputVersion)-Setup</OutputName>
     <OutputType>Package</OutputType>
     <PlatformTarget>x64</PlatformTarget>
     <!-- Version will be passed from GitHub Actions -->
@@ -8,11 +10,6 @@
     <!-- Define preprocessor variables for WiX -->
     <DefineConstants>Version=$(Version);PyInstallerOutputDir=$(PyInstallerOutputDir);SourceDir=$(PyInstallerOutputDir)</DefineConstants>
   </PropertyGroup>
-
-  <ItemGroup>
-    <!-- Reference our main WiX source file -->
-    <Compile Include="TTSMixmaster.wxs" />
-  </ItemGroup>
 
   <ItemGroup>
     <!-- Harvest the PyInstaller output directory -->

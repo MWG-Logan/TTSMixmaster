@@ -26,41 +26,46 @@
   </Fragment>
 
   <Fragment>
-    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
-      <Component Id="MainExecutable" Guid="*">
+    <ComponentGroup Id="ProductComponents">
+      <!-- Main executable (per-machine), file is the KeyPath -->
+      <Component Id="MainExecutable" Directory="INSTALLFOLDER" Guid="*">
         <File Id="TTSMixmasterExe" 
               Source="$(var.SourceDir)\TTSMixmaster-installer.exe" 
               Name="TTSMixmaster.exe"
               KeyPath="yes" />
-        
-        <!-- Start Menu Shortcut -->
+      </Component>
+
+      <!-- Start Menu shortcut (per-user), HKCU registry value is the KeyPath -->
+      <Component Id="StartMenuShortcut" Directory="ApplicationProgramsFolder" Guid="*">
         <Shortcut Id="StartMenuShortcut" 
                   Name="TTSMixmaster" 
                   Target="[INSTALLFOLDER]TTSMixmaster.exe" 
-                  Directory="ApplicationProgramsFolder"
                   Description="TTSMixmaster - Last.fm to Tabletop Simulator Integration"
                   WorkingDirectory="INSTALLFOLDER" />
-        
-        <!-- Desktop Shortcut -->
-        <Shortcut Id="DesktopShortcut" 
-                  Name="TTSMixmaster" 
-                  Target="[INSTALLFOLDER]TTSMixmaster.exe" 
-                  Directory="DesktopFolder"
-                  Description="TTSMixmaster - Last.fm to Tabletop Simulator Integration"
-                  WorkingDirectory="INSTALLFOLDER" />
-        
-        <!-- Registry entry for uninstaller -->
-        <RegistryValue Root="HKCU" 
-                       Key="Software\TTSMixmaster" 
-                       Name="Installed" 
-                       Type="string" 
-                       Value="yes" 
-                       KeyPath="no"/>
-        
-        <!-- Clean up shortcuts on uninstall -->
         <RemoveFolder Id="RemoveProgramsFolder" 
                       Directory="ApplicationProgramsFolder" 
                       On="uninstall"/>
+        <RegistryValue Root="HKCU" 
+                       Key="Software\TTSMixmaster" 
+                       Name="StartMenuShortcut" 
+                       Type="integer" 
+                       Value="1" 
+                       KeyPath="yes"/>
+      </Component>
+
+      <!-- Desktop shortcut (per-user), HKCU registry value is the KeyPath -->
+      <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="*">
+        <Shortcut Id="DesktopShortcut" 
+                  Name="TTSMixmaster" 
+                  Target="[INSTALLFOLDER]TTSMixmaster.exe" 
+                  Description="TTSMixmaster - Last.fm to Tabletop Simulator Integration"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" 
+                       Key="Software\TTSMixmaster" 
+                       Name="DesktopShortcut" 
+                       Type="integer" 
+                       Value="1" 
+                       KeyPath="yes"/>
       </Component>
     </ComponentGroup>
   </Fragment>
