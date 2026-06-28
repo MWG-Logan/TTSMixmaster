@@ -495,26 +495,39 @@ class TTSMixmasterApp:
     def _load_config_to_gui(self):
         """Load configuration values to GUI elements"""
         # Last.fm settings
+        self.lastfm_api_key_entry.delete(0, tk.END)
         self.lastfm_api_key_entry.insert(0, self.config.lastfm_api_key)
+        self.lastfm_api_secret_entry.delete(0, tk.END)
         self.lastfm_api_secret_entry.insert(0, self.config.lastfm_api_secret)
+        self.lastfm_username_entry.delete(0, tk.END)
         self.lastfm_username_entry.insert(0, self.config.lastfm_username)
         
         # YouTube settings
+        self.youtube_api_key_entry.delete(0, tk.END)
         self.youtube_api_key_entry.insert(0, self.config.youtube_api_key)
+        self.youtube_channel_id_entry.delete(0, tk.END)
         self.youtube_channel_id_entry.insert(0, self.config.youtube_channel_id)
         
         # Spotify settings
+        self.spotify_client_id_entry.delete(0, tk.END)
         self.spotify_client_id_entry.insert(0, self.config.spotify_client_id)
+        self.spotify_client_secret_entry.delete(0, tk.END)
         self.spotify_client_secret_entry.insert(0, self.config.spotify_client_secret)
+        self.spotify_user_id_entry.delete(0, tk.END)
         self.spotify_user_id_entry.insert(0, self.config.spotify_user_id)
         
         # Azure settings
+        self.azure_connection_entry.delete(0, tk.END)
         self.azure_connection_entry.insert(0, self.config.azure_storage_connection_string)
+        self.azure_container_entry.delete(0, tk.END)
         self.azure_container_entry.insert(0, self.config.azure_container_name)
         
         # Path settings
+        self.download_path_entry.delete(0, tk.END)
         self.download_path_entry.insert(0, self.config.download_path)
+        self.upload_path_entry.delete(0, tk.END)
         self.upload_path_entry.insert(0, self.config.upload_path)
+        self.tts_path_entry.delete(0, tk.END)
         self.tts_path_entry.insert(0, self.config.tts_output_path)
         
         # Audio settings
