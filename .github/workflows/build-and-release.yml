@@ -120,7 +120,7 @@ jobs:
         }
         
         # Also build directory version for installer
-        pyinstaller main.py --name 'TTSMixmaster-installer' --clean --noconfirm --distpath dist_installer
+        pyinstaller main.py --name 'TTSMixmaster-installer' --clean --noconfirm --distpath dist_installer --collect-data customtkinter --collect-data imageio_ffmpeg --collect-binaries imageio_ffmpeg
         if (-not (Test-Path "dist_installer\TTSMixmaster-installer\TTSMixmaster-installer.exe")) {
           throw "Installer build failed - executable not found"
         }

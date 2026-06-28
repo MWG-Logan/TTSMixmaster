@@ -2,41 +2,32 @@
 import os
 import sys
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 # Get the current directory
 current_dir = Path('.').resolve()
 
 block_cipher = None
 
-# Exclude unnecessary modules to reduce size
-excludes = [
-    'tkinter.test',
-    'unittest',
-    'email',
-    'http',
-    'urllib',
-    'xml',
-    'xmlrpc',
-    'pydoc',
-    'doctest',
-    'zipfile',
-    'tarfile',
-    'calendar',
-    'pdb',
-    'inspect',
-    'dis',
-    'pickle',
-    'subprocess',
-    'multiprocessing'
-]
+# CustomTkinter ships theme/asset JSON files and imageio_ffmpeg bundles an
+# ffmpeg binary; both must be collected explicitly or the app crashes at runtime.
+ctk_datas = collect_data_files('customtkinter')
+ffmpeg_datas = collect_data_files('imageio_ffmpeg')
+ffmpeg_bins = collect_dynamic_libs('imageio_ffmpeg')
+
+# Excluding stdlib modules here previously broke the build at runtime:
+# urllib, http, email, xml, subprocess, pickle, inspect, etc. are required
+# transitively by pathlib, requests, yt_dlp, spotipy and the Google/Azure SDKs.
+# Keep this empty so PyInstaller bundles everything the dependencies need.
+excludes = []
 
 a = Analysis(
     ['main.py'],
     pathex=[str(current_dir)],
-    binaries=[],
+    binaries=ffmpeg_bins,
     datas=[
         ('config.json.template', '.'),  # Include template, not actual config
-    ],
+    ] + ctk_datas + ffmpeg_datas,
     hiddenimports=[
         'tkinter',
         'customtkinter',
