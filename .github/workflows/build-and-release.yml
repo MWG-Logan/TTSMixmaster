@@ -32,6 +32,13 @@ jobs:
       version: ${{ steps.get_version.outputs.version }}
     
     steps:
+    - name: Azure login
+      uses: azure/login@v3
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
     - name: Checkout code
       uses: actions/checkout@v4
       with:
@@ -124,11 +131,8 @@ jobs:
     - name: Sign executable with Azure Trusted Signing
       uses: azure/artifact-signing-action@v2
       with:
-        azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
         endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-        trusted-signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+        signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
         certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}
         files-folder: dist
         files-folder-filter: exe
@@ -141,11 +145,8 @@ jobs:
     - name: Sign installer executable with Azure Trusted Signing
       uses: azure/artifact-signing-action@v2
       with:
-        azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
         endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-        trusted-signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+        signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
         certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}
         files-folder: dist_installer\TTSMixmaster-installer
         files-folder-filter: exe
@@ -213,11 +214,8 @@ jobs:
     - name: Sign MSI with Azure Trusted Signing
       uses: azure/artifact-signing-action@v2
       with:
-        azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
         endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-        trusted-signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+        signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
         certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}
         files-folder: dist
         files-folder-filter: msi
