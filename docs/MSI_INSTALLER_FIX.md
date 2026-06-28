@@ -17,7 +17,7 @@ The MSI installer was failing to open because it was missing the `_internal` dir
 ### Prerequisites
 - Windows 10/11 with Python 3.8+
 - PyInstaller installed (`pip install pyinstaller`)
-- All project dependencies installed (`pip install -r requirements.txt`)
+- All project dependencies installed (`pip install .`)
 
 ### Build Testing
 ```bash
@@ -66,7 +66,7 @@ After the fix:
 ## Common Issues
 
 - **Permission errors**: Run build commands as Administrator if needed
-- **Missing dependencies**: Ensure all requirements.txt packages are installed
+- **Missing dependencies**: Ensure dependencies are installed (`pip install .`)
 - **Path issues**: Use full paths if relative paths don't work
 - **Windows Defender**: May quarantine executable during build/test
 

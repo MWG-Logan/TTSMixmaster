@@ -39,11 +39,11 @@ We're actively looking for contributions in the following areas:
    ```
 4. **Install dependencies**:
    ```bash
-   pip install -r requirements.txt
+   pip install .
    ```
-5. **Install development dependencies** (if available):
+5. **Install development dependencies**:
    ```bash
-   pip install -r requirements-dev.txt  # If this file exists
+   pip install -e ".[dev]"
    ```
 6. **Set up your environment**:
    ```bash

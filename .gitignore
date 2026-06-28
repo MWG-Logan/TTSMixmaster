@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Generated at build time from pyproject.toml version (single source of truth)
+src/_version.py
+
 # C extensions
 *.so
 

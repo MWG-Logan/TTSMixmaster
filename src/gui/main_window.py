@@ -470,7 +470,8 @@ class TTSMixmasterApp:
         self.status_label.pack(side="left", padx=10, pady=5)
         
         # Add version info
-        version_label = ctk.CTkLabel(self.status_frame, text="TTSMixmaster v1.0")
+        from .. import __version__
+        version_label = ctk.CTkLabel(self.status_frame, text=f"TTSMixmaster v{__version__}")
         version_label.pack(side="right", padx=10, pady=5)
     
     def _load_config_to_gui(self):

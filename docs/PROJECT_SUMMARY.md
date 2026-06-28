@@ -64,7 +64,7 @@ TTSMixmaster/
 - `main.py` - Application entry point
 - `setup.py` - Dependency installation and setup script
 - `simple_example.py` - Working example without complex imports
-- `requirements.txt` - Python dependencies
+- `pyproject.toml` - Project metadata and Python dependencies
 - `.env.template` - Environment configuration template
 - `README.md` - Comprehensive documentation
 - `.gitignore` - Git ignore rules
