@@ -30,13 +30,20 @@ dotnet publish src/TTSMixmaster.App -c Release -p:Platform=x64   # self-containe
 
 Always pass `-p:Platform=x64` (or ARM64) when building the solution or the App; the solution has no AnyCPU config.
 
-**Running the app locally is currently blocked on the owner's machine.** A Defender ASR rule
-("block executables unless prevalence/age/trusted", 01443614-…) denies both executing and *reading*
-freshly built unsigned `TTSMixmaster.exe`, so `winapp run`, `winapp run --on sandbox`, and
-`winapp ui` against the app all fail. `dotnet TTSMixmaster.dll` does not work either: WinUI self-contained
-needs the app's own exe manifest. Do not try to evade the rule. Verify UI with build + WinUI analyzer +
-`winui-code-review`. If you get a launch to work because an exclusion was added, use
-`winui-ui-testing` / `winapp-ui-automation` for screenshots.
+**Run and verify the UI in Windows Sandbox, not on the owner's desktop:**
+
+```powershell
+cd src/TTSMixmaster.App
+winapp run . --on sandbox --detach --json
+winapp ui screenshot --on sandbox -a TTSMixmaster -o <scratch>\shot.png
+```
+
+Keep `--on sandbox` on every `winapp ui` command (see `winapp-sandbox`, `winui-ui-testing`). There is one
+shared Sandbox: don't stop or close it, and don't assume other workers' apps aren't in it too.
+The owner's machine has a Defender ASR rule (01443614-…) that blocks executing or reading freshly built
+unsigned exes. The main checkout is excluded, but **Orca child worktrees may not be**. If you hit
+"Access denied" on `TTSMixmaster.exe`, report it; don't try to evade the rule. `dotnet TTSMixmaster.dll`
+is not a workaround (WinUI self-contained needs the app's own exe manifest).
 
 ## Agent tooling (vendored, same for Claude and Codex)
 
