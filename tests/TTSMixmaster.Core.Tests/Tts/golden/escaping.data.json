@@ -1,0 +1,32 @@
+{
+  "name": "Café \"mix\"\\night\n次",
+  "playlist": [
+    {
+      "name": "Björk \"A\" - Back\\slash\nNew\rLine\tTab 🎵 (日本 \"盤\")",
+      "url": "https://example.com/a%20b.mp3?x=\"q\"&y=\\z",
+      "volume": 0.8,
+      "pitch": 1.0,
+      "loop": false,
+      "loopstart": 0.0
+    },
+    {
+      "name": "Same - Title",
+      "url": "https://example.com/other.mp3",
+      "volume": 0.8,
+      "pitch": 1.0,
+      "loop": false,
+      "loopstart": 0.0
+    },
+    {
+      "name": "Same - Title (Other)",
+      "url": "",
+      "volume": 0.8,
+      "pitch": 1.0,
+      "loop": false,
+      "loopstart": 0.0
+    }
+  ],
+  "currentTrack": 0,
+  "shuffle": false,
+  "repeat": false
+}
