@@ -11,39 +11,48 @@ public enum TtsExportConflict
     /// <summary>Write nothing; return <see cref="TtsExportOutcome.Conflict"/> so the UI can ask.</summary>
     Ask,
 
-    /// <summary>Overwrite the changed file.</summary>
+    /// <summary>Overwrite the changed files.</summary>
     Replace,
 
-    /// <summary>Leave the changed file alone and export to a new numbered name, which becomes ours.</summary>
+    /// <summary>Leave the changed files alone and export to a new numbered name, which becomes ours.</summary>
     KeepBoth,
 }
 
 public enum TtsExportOutcome
 {
-    /// <summary>A new saved object was written.</summary>
+    /// <summary>A new saved object was written. A non-null Message is a warning (see <see cref="TtsExportResult"/>).</summary>
     Created,
 
-    /// <summary>This collection's existing saved object was replaced in place.</summary>
+    /// <summary>This collection's saved object was replaced in place. A non-null Message is a warning.</summary>
     Updated,
 
-    /// <summary>Nothing written: the file at <see cref="TtsExportResult.Path"/> was changed outside the app. Ask: Replace / Keep both / Cancel.</summary>
+    /// <summary>
+    /// Nothing written: the .json or .png at <see cref="TtsExportResult.Path"/> was changed outside the app, or appeared
+    /// while exporting. Ask: Replace / Keep both / Cancel.
+    /// </summary>
     Conflict,
 
     /// <summary>Nothing written: Tabletop Simulator's Saves folder (or the configured override) wasn't found.</summary>
     TtsNotFound,
 
-    /// <summary>Nothing usable written (I/O error); see <see cref="TtsExportResult.Message"/>.</summary>
+    /// <summary>
+    /// The export didn't complete (I/O error); see Message. Usually nothing changed. If it failed between the
+    /// two renames, the thumbnail may be new; the next export recognizes it as ours.
+    /// </summary>
     Failed,
 }
 
 /// <param name="Path">The saved-object .json written (or, for a conflict, the one that was changed).</param>
-/// <param name="Message">User-readable detail for Conflict, TtsNotFound and Failed.</param>
+/// <param name="Message">
+/// User-readable detail for Conflict, TtsNotFound and Failed. On Created/Updated it is a warning: the object
+/// was exported, but its bookkeeping couldn't be saved (the next export still recognizes it).
+/// </param>
 public sealed record TtsExportResult(TtsExportOutcome Outcome, string? Path, string? Message = null);
 
 /// <summary>
 /// Writes a collection's music player straight into Tabletop Simulator's Saved Objects, in a
-/// <c>TTSMixmaster</c> subfolder: <c>&lt;Name&gt;.json</c> plus a same-named 256×256 <c>.png</c> thumbnail.
-/// Identity, naming and conflicts follow docs/adr/0001-library-layout.md.
+/// <c>TTSMixmaster</c> subfolder: <c>&lt;Name&gt;.json</c> plus a same-named 256×256 <c>.png</c> thumbnail,
+/// treated as one object. Identity, naming and conflicts follow docs/adr/0001-library-layout.md.
 /// </summary>
 /// <param name="http">Used only to fetch the collection's thumbnail; null always uses the placeholder.</param>
 public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjects, HttpClient? http = null, TimeProvider? clock = null)
@@ -51,6 +60,11 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
     private const long MaxThumbnailBytes = 5 * 1024 * 1024;
     private static readonly TimeSpan ThumbnailTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// Renders, fetches the thumbnail and stages both files first; then, holding the Saved Objects folder's
+    /// mutex with no awaits, checks ownership, records the pending object, publishes (.png, then .json) and
+    /// commits the record. Never throws except for cancellation: every failure is a result.
+    /// </summary>
     public async Task<TtsExportResult> ExportToTtsAsync(MusicCollection collection, IReadOnlyList<UploadedTrack> uploads,
         TtsOutputOptions options, TtsExportConflict onConflict = TtsExportConflict.Ask, CancellationToken ct = default)
     {
@@ -59,75 +73,155 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
         if (!location.IsFound)
             return new(TtsExportOutcome.TtsNotFound, null, location.Error);
 
-        string? target = null;
+        var folder = Path.GetFullPath(Path.Combine(location.Folder!, TtsSavedObjects.AppFolderName));
+        var temps = new List<string>();
         try
         {
-            var folder = Path.Combine(location.Folder!, TtsSavedObjects.AppFolderName);
-            var stateFolder = layout.PrepareAudioFolder(collection);
-            var (path, existed, changed) = ChooseTarget(folder, collection, layout.ReadState(stateFolder).TtsExport);
-            target = path;
-            if (changed)
-            {
-                switch (onConflict)
-                {
-                    case TtsExportConflict.Ask:
-                        return new(TtsExportOutcome.Conflict, target,
-                            $"\"{Path.GetFileName(target)}\" was changed outside TTSMixmaster since it was last exported.");
-                    case TtsExportConflict.KeepBoth:
-                        target = FreeName(folder, Path.GetFileNameWithoutExtension(target));
-                        existed = false;
-                        break;
-                }
-            }
-
+            // 1. Slow work first. Nothing visible changes yet.
             var json = new UTF8Encoding(false).GetBytes(new TtsFormatter(layout).GenerateSavedObject(collection, uploads, options));
-            var thumbnail = await ThumbnailAsync(collection.Summary.ThumbnailUrl, ct);
-            // Both files are staged before either is renamed. The .json is renamed last (it is the commit point),
-            // and the state is recorded only after it is final; a failure before that leaves the old .json and record.
-            try { await layout.WriteFilesAsync([(Path.ChangeExtension(target, ".png"), thumbnail), (target, json)], ct); }
-            // TTS lists folders in Saved Objects: don't leave our reserved temp folder behind.
-            finally { LibraryLayout.RemoveEmptyReservedFolder(folder); }
-            var exported = target;
-            layout.UpdateState(stateFolder, state => state.TtsExport = new TtsExportRecord
-            {
-                Path = exported,
-                Sha256 = Sha256(json),
-                ExportedUtc = (clock ?? TimeProvider.System).GetUtcNow(),
-            });
-            return new(existed ? TtsExportOutcome.Updated : TtsExportOutcome.Created, target);
+            var png = await ThumbnailAsync(collection.Summary.ThumbnailUrl, ct);
+            Directory.CreateDirectory(folder);
+            var staged = new Staged(
+                Json: await LibraryLayout.StageAsync(folder, json, ct), JsonSha: Sha256(json),
+                Png: await LibraryLayout.StageAsync(folder, png, ct), PngSha: Sha256(png));
+            temps.AddRange([staged.Json, staged.Png]);
+            ct.ThrowIfCancellationRequested();
+            var stateFolder = layout.PrepareAudioFolder(collection);
+
+            // 2. Check and publish immediately, serialized with other exports into this shared folder.
+            return LibraryLayout.WithFolderLock(folder, () => CheckAndPublish(folder, stateFolder, collection.Summary, staged, onConflict));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            return new(TtsExportOutcome.Failed, null, $"Could not export to Tabletop Simulator's Saved Objects: {ex.Message}");
+        }
+        finally
+        {
+            foreach (var temp in temps)
+                LibraryLayout.DeleteQuietly(temp);
+            // TTS lists folders in Saved Objects: don't leave our reserved temp folder behind.
+            LibraryLayout.RemoveEmptyReservedFolder(folder);
+        }
+    }
+
+    private sealed record Staged(string Json, string JsonSha, string Png, string PngSha);
+
+    private TtsExportResult CheckAndPublish(string folder, string stateFolder, CollectionSummary summary, Staged staged, TtsExportConflict onConflict)
+    {
+        var state = layout.ReadState(stateFolder);
+        var (target, known) = RecordedTarget(state, folder);
+        if (target is null)
+        {
+            // Never claim a pair we have no record of writing: friendly name, else the identity-suffixed one.
+            var (friendly, byIdentity) = LibraryLayout.SavedObjectBaseNames(summary);
+            target = new[] { friendly, byIdentity }.Where(name => IsFree(folder, name))
+                .Select(name => Path.Combine(folder, name + ".json")).FirstOrDefault() ?? Path.Combine(folder, byIdentity + ".json");
+        }
+        var pngTarget = Path.ChangeExtension(target, ".png");
+        var jsonNow = LibraryLayout.FileSha256(target);
+        var pngNow = LibraryLayout.FileSha256(pngTarget);
+        // Each member of the pair must be absent or exactly bytes we wrote (committed or pending) at this path.
+        var changed = !Ours(jsonNow, known.Select(r => r.Sha256)) || !Ours(pngNow, known.Select(r => r.PngSha256));
+        var replace = false;
+        if (changed)
+        {
+            switch (onConflict)
+            {
+                case TtsExportConflict.Ask:
+                    return new(TtsExportOutcome.Conflict, target,
+                        $"\"{Path.GetFileNameWithoutExtension(target)}\" was changed outside TTSMixmaster since it was last exported.");
+                case TtsExportConflict.KeepBoth:
+                    target = FreeName(folder, Path.GetFileNameWithoutExtension(target));
+                    pngTarget = Path.ChangeExtension(target, ".png");
+                    (jsonNow, pngNow) = (null, null);
+                    break;
+                default:
+                    replace = true;
+                    break;
+            }
+        }
+        var existed = jsonNow is not null || pngNow is not null;
+
+        // Record what we are about to publish. If this fails, nothing has been published.
+        var pending = new TtsExportRecord
+        {
+            Path = target, Sha256 = staged.JsonSha, PngSha256 = staged.PngSha,
+            ExportedUtc = (clock ?? TimeProvider.System).GetUtcNow(),
+        };
+        layout.UpdateState(stateFolder, s => s.TtsExportPending = pending);
+
+        // The .png first; the .json last is the commit point TTS sees.
+        if (!Publish(staged.Png, pngTarget, pngNow, replace))
+            return Appeared(pngTarget);
+        if (!Publish(staged.Json, target, jsonNow, replace))
+        {
+            if (pngNow is null && LibraryLayout.FileSha256(pngTarget) == staged.PngSha)
+                LibraryLayout.DeleteQuietly(pngTarget);   // we created it a moment ago; don't leave half a pair
+            return Appeared(target);
+        }
+
+        var outcome = existed ? TtsExportOutcome.Updated : TtsExportOutcome.Created;
+        try
+        {
+            layout.UpdateState(stateFolder, s => { s.TtsExport = pending; s.TtsExportPending = null; });
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return new(TtsExportOutcome.Failed, target, $"Could not write to Tabletop Simulator's Saved Objects: {ex.Message}");
+            return new(outcome, target, $"Exported, but TTSMixmaster couldn't save its bookkeeping ({ex.Message}). " +
+                "It will still recognize this saved object next time.");
         }
+        return new(outcome, target);
     }
 
     /// <summary>
-    /// The recorded file when it's in the current export folder (changed = its hash differs from what we wrote).
-    /// Otherwise the friendly name, or the identity-suffixed name when the friendly one is taken; an existing
-    /// file we have no record of writing is never claimed silently.
+    /// The .json path recorded for this collection in the current export folder, with every record that
+    /// describes bytes we wrote there: the committed export, and a pending one whose publish wasn't committed.
     /// </summary>
-    private static (string Path, bool Existed, bool Changed) ChooseTarget(string folder, MusicCollection collection, TtsExportRecord? recorded)
+    private static (string? Target, TtsExportRecord[] Known) RecordedTarget(CollectionState state, string folder)
     {
-        var folderFull = Path.GetFullPath(folder);
-        if (recorded is not null && recorded.Path.EndsWith(".json", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(Path.GetDirectoryName(Path.GetFullPath(recorded.Path)), folderFull, StringComparison.OrdinalIgnoreCase))
-        {
-            if (!File.Exists(recorded.Path))
-                return (recorded.Path, false, false);
-            var current = Sha256(File.ReadAllBytes(recorded.Path));
-            return (recorded.Path, true, !string.Equals(current, recorded.Sha256, StringComparison.OrdinalIgnoreCase));
-        }
-
-        var (friendly, byIdentity) = LibraryLayout.SavedObjectBaseNames(collection.Summary);
-
-        foreach (var name in new[] { friendly, byIdentity })
-            if (IsFree(folderFull, name))
-                return (Path.Combine(folderFull, name + ".json"), false, false);
-        // Our identity-named file exists but nothing records that we wrote it (e.g. state lost): ask.
-        return (Path.Combine(folderFull, byIdentity + ".json"), true, true);
+        bool InFolder(TtsExportRecord? record) => record is not null &&
+            string.Equals(Path.GetDirectoryName(record.Path), folder, StringComparison.OrdinalIgnoreCase);
+        var pending = InFolder(state.TtsExportPending) ? state.TtsExportPending : null;
+        var committed = InFolder(state.TtsExport) ? state.TtsExport : null;
+        // A pending export whose .json is in place was published; it supersedes the committed one.
+        var target = pending is not null && LibraryLayout.FileSha256(pending.Path) == pending.Sha256 ? pending.Path : committed?.Path ?? pending?.Path;
+        if (target is null)
+            return (null, []);
+        return (target, new[] { committed, pending }
+            .OfType<TtsExportRecord>().Where(r => string.Equals(r.Path, target, StringComparison.OrdinalIgnoreCase)).ToArray());
     }
+
+    private static bool Ours(string? current, IEnumerable<string> known) =>
+        current is null || known.Any(hash => string.Equals(hash, current, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Renames a staged file into place. A file that was absent at the check is published without overwrite, so
+    /// one that appeared since is never replaced (returns false). A file we checked is re-verified just before
+    /// it is replaced, unless the user chose Replace.
+    /// </summary>
+    private bool Publish(string temp, string destination, string? checkedSha, bool replace)
+    {
+        if (checkedSha is null)
+        {
+            try
+            {
+                layout.PublishStaged(temp, destination, overwrite: false);
+                return true;
+            }
+            catch (IOException) when (File.Exists(destination))
+            {
+                return false;
+            }
+        }
+        if (!replace && LibraryLayout.FileSha256(destination) is { } now && now != checkedSha)
+            return false;
+        layout.PublishStaged(temp, destination, overwrite: true);
+        return true;
+    }
+
+    private static TtsExportResult Appeared(string path) => new(TtsExportOutcome.Conflict, path,
+        $"\"{Path.GetFileName(path)}\" appeared or changed while exporting. It was left unchanged.");
 
     private static string FreeName(string folder, string baseName)
     {
@@ -140,7 +234,8 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
         !File.Exists(Path.Combine(folder, baseName + ".json")) && !File.Exists(Path.Combine(folder, baseName + ".png"));
 
     /// <summary>
-    /// The collection's own thumbnail when it downloads as PNG or JPEG (TTS loads either by content), else a placeholder.
+    /// The collection's own thumbnail only when it downloads as a complete, decodable 256×256 PNG; anything else
+    /// (JPEG, another size, truncated or corrupt data, errors) uses the generated placeholder.
     /// </summary>
     private async Task<byte[]> ThumbnailAsync(string url, CancellationToken ct)
     {
@@ -164,7 +259,7 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
                     return PlaceholderThumbnail.Png;
             }
             var bytes = buffer.ToArray();
-            return PlaceholderThumbnail.IsPngOrJpeg(bytes) ? bytes : PlaceholderThumbnail.Png;
+            return PlaceholderThumbnail.IsValid256Png(bytes) ? bytes : PlaceholderThumbnail.Png;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         // Timeouts, network and HTTP errors only cost the real thumbnail.

@@ -51,7 +51,7 @@ public sealed class AudioDownloaderTests : IDisposable
     {
         var collection = Collection(Song);
         var path = FinalPath(collection, Song);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        _layout.PrepareAudioFolder(collection); // claim first: an unclaimed non-empty folder is refused
         File.WriteAllText(path, "a file someone put here");
 
         var result = Assert.Single(await _downloader.DownloadAsync(collection));
@@ -192,7 +192,7 @@ public sealed class AudioDownloaderTests : IDisposable
     {
         var collection = Collection(Song);
         var path = FinalPath(collection, Song);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        _layout.PrepareAudioFolder(collection); // claim first: an unclaimed non-empty folder is refused
         File.WriteAllBytes(path, []);
         Assert.Equal(TrackStatus.Done, Assert.Single(await _downloader.DownloadAsync(collection)).Status);
         Assert.True(new FileInfo(path).Length > 0);

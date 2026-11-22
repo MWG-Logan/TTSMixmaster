@@ -122,23 +122,34 @@ public sealed class TtsExportTests : IDisposable
     }
 
     [Fact]
-    public async Task Downloadable_collection_thumbnail_is_used_and_anything_else_falls_back_to_the_placeholder()
+    public async Task Only_a_decodable_256px_png_thumbnail_is_used_and_anything_else_gets_the_placeholder()
     {
-        byte[] jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
-        using var http = new HttpClient(new StubHandler(uri => uri.AbsolutePath switch
+        var cover = PlaceholderThumbnail.Encode(256, 256, Enumerable.Repeat((byte)0x7F, 256 * 256 * 3).ToArray());
+        var small = PlaceholderThumbnail.Encode(64, 64, new byte[64 * 64 * 3]);
+        var truncated = cover[..(cover.Length - 20)];
+        var badCrc = cover.ToArray();
+        badCrc[40] ^= 0xFF;
+        byte[] jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0, 16, (byte)'J', (byte)'F', (byte)'I', (byte)'F', 0, 0xFF, 0xD9];
+        var responses = new Dictionary<string, byte[]>
         {
-            "/cover.jpg" => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(jpeg) },
-            "/page.html" => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<html>") },
-            _ => new HttpResponseMessage(HttpStatusCode.NotFound),
-        }));
+            ["/cover.png"] = cover, ["/small.png"] = small, ["/truncated.png"] = truncated,
+            ["/badcrc.png"] = badCrc, ["/cover.jpg"] = jpeg, ["/page.html"] = "<html>"u8.ToArray(),
+        };
+        using var http = new HttpClient(new StubHandler(uri => responses.TryGetValue(uri.AbsolutePath, out var bytes)
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) }
+            : new HttpResponseMessage(HttpStatusCode.NotFound)));
 
-        var cover = await Exporter(http: http).ExportToTtsAsync(Collection("a", thumbnail: "https://img.example/cover.jpg"), [], new());
-        var html = await Exporter(http: http).ExportToTtsAsync(Collection("b", thumbnail: "https://img.example/page.html"), [], new());
-        var missing = await Exporter(http: http).ExportToTtsAsync(Collection("c", thumbnail: "https://img.example/gone.png"), [], new());
+        async Task<byte[]> Thumbnail(string id, string path)
+        {
+            var result = await Exporter(http: http).ExportToTtsAsync(Collection(id, thumbnail: "https://img.example" + path), [], new());
+            return File.ReadAllBytes(Path.ChangeExtension(result.Path!, ".png"));
+        }
 
-        Assert.Equal(jpeg, File.ReadAllBytes(Path.ChangeExtension(cover.Path!, ".png")));
-        AssertPng256(Path.ChangeExtension(html.Path!, ".png"));
-        AssertPng256(Path.ChangeExtension(missing.Path!, ".png"));
+        Assert.Equal(cover, await Thumbnail("a", "/cover.png"));
+        foreach (var (id, path) in new[] { ("b", "/small.png"), ("c", "/truncated.png"), ("d", "/badcrc.png"),
+                     ("e", "/cover.jpg"), ("f", "/page.html"), ("g", "/gone.png") })
+            Assert.Equal(PlaceholderThumbnail.Png, await Thumbnail(id, path));
+        Assert.True(PlaceholderThumbnail.IsValid256Png(PlaceholderThumbnail.Png));
     }
 
     // ---- Identity and re-export --------------------------------------------------------------
