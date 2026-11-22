@@ -52,4 +52,25 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal("", settings.LastfmApiKey);
         Assert.True(File.Exists(path + ".corrupt"));
     }
+
+    [Fact]
+    public void Azure_picker_settings_round_trip_and_default_empty_for_legacy_files()
+    {
+        var store = new SettingsStore(Path.Combine(_dir, "azure.json"));
+        var defaults = store.Load();
+        Assert.Equal("", defaults.AzureTenantId);
+        Assert.Equal("", defaults.AzureSubscriptionId);
+        Assert.Equal("", defaults.AzureStorageAccount);
+        Assert.Equal("", defaults.AzureClientId);
+        store.Save(new AppSettings { AzureTenantId = "tenant", AzureSubscriptionId = "subscription",
+            AzureStorageAccount = "account", AzureClientId = "client" });
+        var json = File.ReadAllText(store.FilePath);
+        foreach (var key in new[] { "azure_tenant_id", "azure_subscription_id", "azure_storage_account", "azure_client_id" })
+            Assert.Contains('"' + key + '"', json);
+        var loaded = store.Load();
+        Assert.Equal("tenant", loaded.AzureTenantId);
+        Assert.Equal("subscription", loaded.AzureSubscriptionId);
+        Assert.Equal("account", loaded.AzureStorageAccount);
+        Assert.Equal("client", loaded.AzureClientId);
+    }
 }

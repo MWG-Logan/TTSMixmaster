@@ -1,8 +1,10 @@
 using System.Globalization;
 using Azure;
+using Azure.Core;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using TTSMixmaster.Core.Configuration;
+using TTSMixmaster.Core.Azure;
 
 namespace TTSMixmaster.Core.Upload;
 
@@ -10,34 +12,63 @@ namespace TTSMixmaster.Core.Upload;
 public sealed class AzureBlobUploader(
     Func<AppSettings> settings,
     TimeProvider? timeProvider = null,
-    Func<AppSettings, BlobContainerClient>? clientFactory = null) : IAudioUploader
+    Func<AppSettings, BlobContainerClient>? clientFactory = null,
+    Func<string, TokenCredential>? credentialProvider = null,
+    Func<BlobContainerClient, CancellationToken, Task<bool?>>? anonymousReadProbe = null) : IAudioUploader
 {
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
     private readonly Func<AppSettings, BlobContainerClient> _clientFactory = clientFactory ??
-        (s => new BlobContainerClient(s.AzureStorageConnectionString, s.AzureContainerName));
+        (s => AzureUploadAuthentication.CreateClient(s, credentialProvider));
+
+    public AzureConnectionTestResult? LastConnectionTest { get; private set; }
 
     public bool IsConfigured => IsConfiguredSettings(settings());
 
     private static bool IsConfiguredSettings(AppSettings s) =>
-        !string.IsNullOrWhiteSpace(s.AzureStorageConnectionString) &&
-        s.AzureStorageConnectionString != "your_azure_storage_connection_string_here" &&
+        AzureUploadAuthentication.SelectMode(s) != AzureUploadMode.Unconfigured &&
         !string.IsNullOrWhiteSpace(s.AzureContainerName);
 
     public async Task<string?> TestConnectionAsync(CancellationToken ct = default)
     {
+        var result = await TestConnectionDetailsAsync(ct);
+        return result.Error is null ? null : $"{result.Mode}: {result.Error}";
+    }
+
+    public async Task<AzureConnectionTestResult> TestConnectionDetailsAsync(CancellationToken ct = default)
+    {
         ct.ThrowIfCancellationRequested();
         var configuration = settings();
+        var mode = AzureUploadAuthentication.SelectMode(configuration);
         if (!IsConfiguredSettings(configuration))
-            return "Configure an Azure Storage connection string and container name first.";
+            return LastConnectionTest = new(mode, null, "Configure an Azure account and container, or an Advanced connection string first.");
         try
         {
             var container = _clientFactory(configuration);
-            await container.CreateIfNotExistsAsync(PublicAccessType.Blob, cancellationToken: ct);
-            await container.GetPropertiesAsync(cancellationToken: ct);
-            return null;
+            var properties = await container.GetPropertiesAsync(cancellationToken: ct);
+            var readable = properties.Value.PublicAccess == PublicAccessType.None ? false :
+                await (anonymousReadProbe ?? ProbeAnonymousReadAsync)(container, ct);
+            return LastConnectionTest = new(mode, readable, readable == false
+                ? "The container is not anonymously readable. TTS needs public blob read; check account/container public access and network rules." : null);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-        catch (Exception error) { return DescribeError(error); }
+        catch (Exception error) { return LastConnectionTest = new(mode, null, DescribeError(error)); }
+    }
+
+    private static async Task<bool?> ProbeAnonymousReadAsync(BlobContainerClient container, CancellationToken ct)
+    {
+        await foreach (var page in container.GetBlobsAsync(cancellationToken: ct).AsPages(pageSizeHint: 1))
+        {
+            if (page.Values.Count == 0) continue;
+            var uri = container.GetBlobClient(page.Values[0].Name).Uri.GetLeftPart(UriPartial.Path);
+            try
+            {
+                // Separate unsigned client: account keys, bearer tokens and SAS queries are never used by this probe.
+                await new BlobClient(new Uri(uri)).GetPropertiesAsync(cancellationToken: ct);
+                return true;
+            }
+            catch (RequestFailedException e) when (e.Status is 401 or 403 or 404) { return false; }
+        }
+        return null;
     }
 
     public async Task<IReadOnlyList<UploadedTrack>> UploadAsync(
@@ -64,7 +95,6 @@ public sealed class AzureBlobUploader(
                 if (container is null)
                 {
                     var candidate = _clientFactory(configuration);
-                    await candidate.CreateIfNotExistsAsync(PublicAccessType.Blob, cancellationToken: ct);
                     container = candidate;
                 }
 
@@ -148,11 +178,13 @@ public sealed class AzureBlobUploader(
     // bounded diagnostics without copying those messages into UI progress or logs.
     private static string DescribeError(Exception error) => error switch
     {
+        AzureAccountException safe => safe.Message,
+        global::Azure.Identity.AuthenticationFailedException => "Azure authentication failed. Sign in again for the selected tenant.",
         RequestFailedException azure => $"Azure Storage request failed (HTTP {azure.Status}). Check credentials, container permissions, and public blob access.",
         FileNotFoundException => "No downloaded audio file is available.",
         IOException => "Could not read the audio file. Check its location and access permissions.",
         UnauthorizedAccessException => "Access to the audio file was denied.",
-        ArgumentException or FormatException or InvalidOperationException => "Check the Azure Storage connection string and container name.",
+        ArgumentException or FormatException or InvalidOperationException => "Check the Azure Storage account, tenant, connection string and container name.",
         _ => "Azure upload failed. Check the network connection and Azure Storage settings."
     };
 }

@@ -7,6 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="Azure.Identity.Broker" Version="1.7.0" />
+    <PackageReference Include="Azure.ResourceManager" Version="1.14.0" />
+    <PackageReference Include="Azure.ResourceManager.Storage" Version="1.9.0" />
+    <PackageReference Include="Azure.ResourceManager.Authorization" Version="1.1.7" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.30.2" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="11.0.0" />
     <PackageReference Include="TagLibSharp" Version="2.3.0" />

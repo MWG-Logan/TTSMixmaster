@@ -26,6 +26,10 @@ public sealed class AppSettings
     public bool SpotifyUseOauth { get; set; } = true;
 
     // Azure Blob Storage
+    public string AzureTenantId { get; set; } = "";
+    public string AzureSubscriptionId { get; set; } = "";
+    public string AzureStorageAccount { get; set; } = "";
+    public string AzureClientId { get; set; } = "";
     public string AzureStorageConnectionString { get; set; } = "";
     public string AzureContainerName { get; set; } = "tts-audio";
 
