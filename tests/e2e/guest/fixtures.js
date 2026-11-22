@@ -1,6 +1,7 @@
 // Guest-side fixtures for tests/e2e/ui-smoke.ps1 -DevSource. Runs inside Windows Sandbox with the host's node.exe.
 //
-//   node fixtures.js serve <folder> <port>          serve <folder> on http://127.0.0.1:<port>/ (the dev collection's audio)
+//   node fixtures.js serve <folder> <port>          serve <folder> on http://127.0.0.1:<port>/ (the dev collection's audio);
+//                                                   ?delay=<ms> holds the response that long (a build that is still running)
 //   node fixtures.js container <blobEndpoint> <name> create a public-read container in Azurite (well-known dev key)
 //
 // Loopback only: nothing listens on another interface and nothing leaves the guest.
@@ -15,13 +16,17 @@ const [mode, a, b] = process.argv.slice(2);
 if (mode === 'serve') {
   const root = path.resolve(a);
   http.createServer((req, res) => {
-    const file = path.join(root, decodeURIComponent(new URL(req.url, 'http://x').pathname));
+    const url = new URL(req.url, 'http://x');
+    const file = path.join(root, decodeURIComponent(url.pathname));
     if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
       res.writeHead(404).end();
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Content-Length': fs.statSync(file).size });
-    fs.createReadStream(file).pipe(res);
+    const delay = Math.min(Number(url.searchParams.get('delay')) || 0, 60000);
+    setTimeout(() => {
+      res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Content-Length': fs.statSync(file).size });
+      fs.createReadStream(file).pipe(res);
+    }, delay);
   }).listen(Number(b), '127.0.0.1', () => console.log(`serving ${root} on ${b}`));
 } else if (mode === 'container') {
   // Azurite's published development account; not a secret.

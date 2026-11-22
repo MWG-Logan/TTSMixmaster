@@ -9,7 +9,8 @@
 #
 # Checks: every page opens; Settings shows an unconfigured service as "Not set up" with Test connection disabled,
 # a failing Azure Test connection shows the error InfoBar, an edited value is saved to config.json and survives
-# leaving the page. With -DevSource (Sandbox only) it also builds the dev collection end to end and exports it:
+# leaving the page. With -DevSource (Sandbox only) it also builds the dev collection end to end (navigating away
+# mid-build and finding it under Builds > In progress) and exports it:
 #   dotnet publish src/TTSMixmaster.App -c Release -p:Platform=x64 -p:TtsmDevSource=true -o <folder>
 #   copy tests/.tools/{yt-dlp,ffmpeg,ffprobe}.exe into <folder>   (scripts/fetch-tools.ps1 -OutputFolder tests/.tools)
 # and needs node (with `npm install -g azurite`) on the host: node.exe and Azurite are copied into the guest, where
@@ -323,9 +324,22 @@ try {
             Invoke-Ui @('wait-for', 'CollectionTitle', '--value', 'E2E Tavern', '-t', '15000') | Out-Null
             Invoke-Ui @('wait-for', 'Opening Tone', '--type', 'ListItem', '--root', 'TrackList', '-t', '15000') | Out-Null
         }
-        Test-UI 'Build downloads, uploads and generates' {
+        # A build keeps running on other pages: Builds lists it under In progress (the Slow Tone track is served
+        # with a 15 s delay, so it is still running) and the row leads back to the same collection page.
+        Test-UI 'Navigate away mid-build, find it in Builds' {
             Invoke-Ui @('invoke', 'BuildButton') | Out-Null
             Invoke-Ui @('wait-for', 'CancelBuildButton', '-t', '10000') | Out-Null
+            Save-Screenshot '08a-build-running.png'
+            Invoke-Ui @('invoke', 'NavBuilds') | Out-Null
+            Invoke-Ui @('wait-for', 'InProgressList', '-t', '10000') | Out-Null
+            Invoke-Ui @('wait-for', 'CancelActiveBuild-E2E Tavern', '-t', '10000') | Out-Null
+            $nav = Get-UiProperty 'NavBuilds' 'Name'
+            if ($nav -ne 'Builds, 1 running') { throw "The Builds nav item reads '$nav', not 'Builds, 1 running' (the badge)." }
+            Save-Screenshot '08b-builds-in-progress.png'
+            Invoke-ListItem 'InProgressList' 'E2E Tavern'
+            Invoke-Ui @('wait-for', 'CollectionTitle', '--value', 'E2E Tavern', '-t', '10000') | Out-Null
+        }
+        Test-UI 'Build downloads, uploads and generates' {
             Invoke-Ui @('wait-for', 'Ready for Tabletop Simulator', '--root', 'BuildResult', '-t', '240000') | Out-Null
             Invoke-Ui @('wait-for', 'ExportToTtsButton', '-t', '10000') | Out-Null
             Save-Screenshot '08-build-done.png'
@@ -342,6 +356,11 @@ try {
         Test-UI 'The build is listed on the Builds page' {
             Open-Page 'NavBuilds' 'BuildsList' '10-builds-after.png' | Out-Null
             Invoke-Ui @('wait-for', 'E2E Tavern', '--root', 'BuildsList', '-t', '10000') | Out-Null
+            # Finished: out of In progress (the section is collapsed) and off the nav badge.
+            $nav = Get-UiProperty 'NavBuilds' 'Name'
+            if ($nav -ne 'Builds') { throw "The Builds nav item still reads '$nav' after the build finished." }
+            try { Invoke-Ui @('wait-for', 'InProgressList', '-t', '1000') | Out-Null; $listed = $true } catch { $listed = $false }
+            if ($listed) { throw 'The finished build is still listed under In progress.' }
         }
     }
     Test-UI 'Final screenshot delivered' { Save-Screenshot '99-final.png' }

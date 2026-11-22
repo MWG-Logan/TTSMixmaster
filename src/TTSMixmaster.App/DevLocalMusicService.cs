@@ -14,7 +14,7 @@ namespace TTSMixmaster.App;
 internal sealed class DevLocalMusicService(string file) : IMusicService
 {
     private sealed record DevTrack(string Title, string Artist, string Album, double DurationSeconds, string SourceUrl);
-    private sealed record DevCollection(string Id, string Name, string Description, string ThumbnailUrl, DevTrack[] Tracks);
+    private sealed record DevCollection(string Id, string Name, string Description, string ThumbnailUrl, DevTrack[] Tracks, string? Owner = null);
 
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
 
@@ -47,7 +47,7 @@ internal sealed class DevLocalMusicService(string file) : IMusicService
             Summary = new CollectionSummary
             {
                 Id = dev.Id, Name = dev.Name, Service = ServiceKind.YouTube, Kind = CollectionKind.Playlist,
-                Owner = "local test", Description = dev.Description, ThumbnailUrl = dev.ThumbnailUrl, TrackCount = tracks.Count,
+                Owner = dev.Owner ?? "local test", Description = dev.Description, ThumbnailUrl = dev.ThumbnailUrl, TrackCount = tracks.Count,
             },
             Tracks = tracks,
         };
