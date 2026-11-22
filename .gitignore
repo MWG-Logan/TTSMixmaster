@@ -188,6 +188,8 @@ backups/
 *.userosscache
 *.sln.docstates
 artifacts/
+# Local release-artifact testing copy (Defender ASR-excluded path on the dev box)
+artifacts-local/
 
 # Build logs
 [Ll]og/
