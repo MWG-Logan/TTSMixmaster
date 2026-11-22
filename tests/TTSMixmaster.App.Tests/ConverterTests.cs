@@ -103,6 +103,19 @@ public sealed class ConverterTests
     }
 
     [TestMethod]
+    [DataRow("YouTube")]
+    [DataRow("youtube")]
+    [DataRow(" YOUTUBE ")]
+    [DataRow("")]
+    public void An_owner_that_is_just_the_service_name_is_not_repeated(string owner)
+    {
+        // YouTube Music's generated album playlists are owned by "YouTube".
+        var album = new CollectionSummary { Id = "c", Name = "Album", Service = ServiceKind.YouTube, Kind = CollectionKind.Playlist, TrackCount = 32, Owner = owner };
+        Assert.AreEqual("YouTube · Playlist · 32 tracks", Display.SummaryLine(album));
+        Assert.AreEqual("YouTube · Playlist · 32 tracks · YouTube Music fan", Display.SummaryLine(album with { Owner = "YouTube Music fan" }));
+    }
+
+    [TestMethod]
     public void Track_row_messages_are_short_and_spoken_with_the_status()
     {
         var row = new TrackRowViewModel(2, new Track { Title = "Battle", Artist = "Bard" });

@@ -32,8 +32,15 @@ public static class Display
         _ => $"{count:N0} tracks",
     };
 
-    /// <summary>"Last.fm · Chart · 18 tracks · logan" with empty parts dropped.</summary>
-    public static string SummaryLine(CollectionSummary s) =>
-        string.Join(" · ", new[] { ServiceName(s.Service), KindName(s.Kind), TrackCount(s.TrackCount), s.Owner }
+    /// <summary>
+    /// "Last.fm · Chart · 18 tracks · logan" with empty parts dropped. An owner that is just the service's
+    /// name (YouTube Music's generated album playlists are owned by "YouTube") isn't repeated.
+    /// </summary>
+    public static string SummaryLine(CollectionSummary s)
+    {
+        var service = ServiceName(s.Service);
+        var owner = string.Equals(s.Owner.Trim(), service, StringComparison.OrdinalIgnoreCase) ? "" : s.Owner;
+        return string.Join(" · ", new[] { service, KindName(s.Kind), TrackCount(s.TrackCount), owner }
             .Where(p => !string.IsNullOrWhiteSpace(p)));
+    }
 }
