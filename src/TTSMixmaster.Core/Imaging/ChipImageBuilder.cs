@@ -112,8 +112,7 @@ public sealed class ChipImageBuilder(HttpClient http)
 
     private async Task<byte[]?> TryDownloadAsync(string url, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) ||
-            (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
+        if (ArtUri(url) is not { } uri)
             return null;
         try
         {
@@ -137,6 +136,39 @@ public sealed class ChipImageBuilder(HttpClient http)
             // Network errors, timeouts, bad responses: any art problem just means the generated background.
             return null;
         }
+    }
+
+    /// <summary>
+    /// The art URL to fetch, https only: a plain-http thumbnail (older service CDNs) is upgraded to https
+    /// rather than fetched in the clear. Anything else (no URL, other schemes) is null.
+    /// </summary>
+    internal static Uri? ArtUri(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri))
+            return null;
+        if (uri.Scheme == Uri.UriSchemeHttps)
+            return uri;
+        return uri.Scheme == Uri.UriSchemeHttp
+            ? new UriBuilder(uri) { Scheme = Uri.UriSchemeHttps, Port = uri.IsDefaultPort ? -1 : uri.Port }.Uri
+            : null;
+    }
+
+    /// <summary>
+    /// A square thumbnail of a rendered chip as PNG (TTS's Saved Objects thumbnail is 256×256).
+    /// </summary>
+    public static byte[] Thumbnail(ChipImage chip, int size = 256)
+    {
+        ArgumentNullException.ThrowIfNull(chip);
+        ArgumentOutOfRangeException.ThrowIfLessThan(size, 16);
+        using var source = SKBitmap.Decode(chip.Png) ?? throw new InvalidOperationException("The chip image is not a valid PNG.");
+        using var surface = SKSurface.Create(new SKImageInfo(size, size, SKColorType.Rgba8888, SKAlphaType.Premul))
+            ?? throw new InvalidOperationException("Could not create a drawing surface.");
+        surface.Canvas.Clear(SKColors.Transparent);
+        using var image = SKImage.FromBitmap(source);
+        surface.Canvas.DrawImage(image, new SKRect(0, 0, size, size), new SKSamplingOptions(SKCubicResampler.Mitchell), null);
+        using var snapshot = surface.Snapshot();
+        using var png = snapshot.Encode(SKEncodedImageFormat.Png, 100) ?? throw new InvalidOperationException("PNG encoding failed.");
+        return png.ToArray();
     }
 
     private static ChipImage BackFromAssets()

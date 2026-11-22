@@ -11,6 +11,12 @@ public sealed record AzureConnectionTestResult(AzureUploadMode Mode, bool? IsAno
     public string Summary => $"Authentication: {Mode}. Anonymous blob read: {(IsAnonymouslyReadable is true ? "verified" : IsAnonymouslyReadable is false ? "unavailable" : Error is null ? "not verified (no blob available)" : "not verified")}.";
 }
 
+/// <summary>An uploaded image: its public URL, or why the upload failed (safe to show).</summary>
+public sealed record UploadedImage(string? PublicUrl, string? Error)
+{
+    public bool Succeeded => PublicUrl is not null;
+}
+
 public static class AzureUploadAuthentication
 {
     public static AzureUploadMode SelectMode(AppSettings settings) =>

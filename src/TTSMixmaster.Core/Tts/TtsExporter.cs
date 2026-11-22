@@ -65,8 +65,14 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
     /// mutex with no awaits, checks ownership, records the pending object, publishes (.png, then .json) and
     /// commits the record. Never throws except for cancellation: every failure is a result.
     /// </summary>
+    /// <param name="thumbnail">
+    /// The saved object's thumbnail as a 256×256 PNG (normally a chip render, see
+    /// <see cref="Imaging.ChipImageBuilder.Thumbnail"/>). Null, or anything that isn't a valid 256×256 PNG,
+    /// falls back to the collection's own thumbnail URL, then to the generated placeholder.
+    /// </param>
     public async Task<TtsExportResult> ExportToTtsAsync(MusicCollection collection, IReadOnlyList<UploadedTrack> uploads,
-        TtsOutputOptions options, TtsExportConflict onConflict = TtsExportConflict.Ask, CancellationToken ct = default)
+        TtsOutputOptions options, TtsExportConflict onConflict = TtsExportConflict.Ask, CancellationToken ct = default,
+        byte[]? thumbnail = null)
     {
         ct.ThrowIfCancellationRequested();
         var location = savedObjects.Locate();
@@ -79,7 +85,9 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
         {
             // 1. Slow work first. Nothing visible changes yet.
             var json = new UTF8Encoding(false).GetBytes(new TtsFormatter(layout).GenerateSavedObject(collection, uploads, options));
-            var png = await ThumbnailAsync(collection.Summary.ThumbnailUrl, ct);
+            var png = thumbnail is not null && PlaceholderThumbnail.IsValid256Png(thumbnail)
+                ? thumbnail
+                : await ThumbnailAsync(collection.Summary.ThumbnailUrl, ct);
             Directory.CreateDirectory(folder);
             var staged = new Staged(
                 Json: await LibraryLayout.StageAsync(folder, json, ct), JsonSha: Sha256(json),
@@ -239,7 +247,7 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
     /// </summary>
     private async Task<byte[]> ThumbnailAsync(string url, CancellationToken ct)
     {
-        if (http is null || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http"))
+        if (http is null || Imaging.ChipImageBuilder.ArtUri(url) is not { } uri)   // https only (http is upgraded)
             return PlaceholderThumbnail.Png;
         try
         {

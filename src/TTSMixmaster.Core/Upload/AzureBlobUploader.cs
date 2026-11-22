@@ -160,6 +160,57 @@ public sealed class AzureBlobUploader(
     }
 
     /// <summary>
+    /// Uploads a PNG (a chip face) to the content-addressed blob <c>images/&lt;prefix&gt;-&lt;sha256&gt;.png</c>, which is
+    /// <c>images/</c> + <see cref="Imaging.ChipImage.FileName"/> for a chip. An existing blob is reused when it records
+    /// the same bytes (identical chips across collections share one); one that doesn't fails and is left unchanged.
+    /// Never throws except for cancellation.
+    /// </summary>
+    /// <returns>The public URL (no SAS query), or the reason it failed.</returns>
+    public async Task<UploadedImage> UploadImageAsync(byte[] png, string prefix = "chip", CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(png);
+        ct.ThrowIfCancellationRequested();
+        var configuration = settings();
+        try
+        {
+            if (!IsConfiguredSettings(configuration))
+                throw new InvalidOperationException("Azure Storage is not configured.");
+            var sha256 = Convert.ToHexStringLower(SHA256.HashData(png));
+            var blobName = $"images/{prefix}-{sha256}.png";
+            var blob = _clientFactory(configuration).GetBlobClient(blobName);
+            var reused = await MatchesExistingAsync(blob, png.Length, sha256, ct);
+            if (reused == false)
+                throw new BlobConflictException(blobName);
+            if (reused is null)
+            {
+                try
+                {
+                    await blob.UploadAsync(new BinaryData(png), new BlobUploadOptions
+                    {
+                        HttpHeaders = new BlobHttpHeaders { ContentType = "image/png", ContentDisposition = "inline" },
+                        Metadata = new Dictionary<string, string>
+                        {
+                            ["source"] = "TTSMixmaster",
+                            ["upload_time"] = _clock.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff", CultureInfo.InvariantCulture),
+                            ["file_size"] = png.Length.ToString(CultureInfo.InvariantCulture),
+                            [HashMetadataKey] = sha256,
+                        },
+                        Conditions = new BlobRequestConditions { IfNoneMatch = ETag.All }
+                    }, ct);
+                }
+                catch (RequestFailedException e) when (e.Status is 409 or 412)
+                {
+                    if (await MatchesExistingAsync(blob, png.Length, sha256, ct) != true)
+                        throw new BlobConflictException(blobName);
+                }
+            }
+            return new(blob.Uri.GetLeftPart(UriPartial.Path), null);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception error) { return new(null, DescribeError(error)); }
+    }
+
+    /// <summary>
     /// True: the blob records exactly these bytes (full SHA-256 metadata and length). False: something else is
     /// there, including a blob without our hash metadata, which is never assumed to match. Null: none (or unreadable).
     /// </summary>

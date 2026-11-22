@@ -73,4 +73,29 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal("account", loaded.AzureStorageAccount);
         Assert.Equal("client", loaded.AzureClientId);
     }
+
+    [Fact]
+    public void Chip_settings_round_trip_and_default_for_legacy_files()
+    {
+        var store = new SettingsStore(Path.Combine(_dir, "chip.json"));
+        var defaults = store.Load();
+        Assert.True(defaults.ChipShowTitle);
+        Assert.Empty(defaults.ChipCustomImages);
+
+        var settings = new AppSettings { ChipShowTitle = false };
+        settings.ChipCustomImages["spotify:37i9dQZF1DX"] = @"C:\Pictures\Cover Art.png";
+        store.Save(settings);
+        var json = File.ReadAllText(store.FilePath);
+        Assert.Contains("\"chip_show_title\": false", json);
+        Assert.Contains("\"chip_custom_images\"", json);
+        Assert.Contains("\"spotify:37i9dQZF1DX\"", json); // keys are collection identities, not renamed
+
+        var loaded = store.Load();
+        Assert.False(loaded.ChipShowTitle);
+        Assert.Equal(@"C:\Pictures\Cover Art.png", loaded.ChipCustomImages["spotify:37i9dQZF1DX"]);
+        Assert.Equal("spotify:37i9dQZF1DX", AppSettings.ChipImageKey(new Models.CollectionSummary
+        {
+            Id = "37i9dQZF1DX", Name = "n", Service = Models.ServiceKind.Spotify, Kind = Models.CollectionKind.Playlist,
+        }));
+    }
 }

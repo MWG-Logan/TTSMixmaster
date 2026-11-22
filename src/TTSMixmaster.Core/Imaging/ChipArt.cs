@@ -9,12 +9,18 @@ internal static class ChipArt
     /// <summary>Larger sources are decoded downscaled (where the codec supports it): the window is only ~415px.</summary>
     private const int MaxDecodeSize = 2048;
 
-    /// <summary>Decodes art, returning null for anything that isn't a usable raster image.</summary>
+    /// <summary>
+    /// Decodes art, returning null for anything that isn't a usable PNG, JPEG or WebP image.
+    /// Art is untrusted internet input, so every other format Skia could decode (GIF, BMP, ICO, WBMP,
+    /// HEIF, AVIF, …) is rejected by its signature before any codec sees it, and again by the codec's
+    /// detected format before any pixels are decoded.
+    /// </summary>
     internal static SKBitmap? Decode(byte[]? bytes)
     {
-        if (bytes is null || bytes.Length == 0) return null;
+        if (bytes is null || !HasAllowedSignature(bytes)) return null;
         using var codec = SKCodec.Create(new SKMemoryStream(bytes));
         if (codec is null || codec.Info.Width <= 0 || codec.Info.Height <= 0) return null;
+        if (codec.EncodedFormat is not (SKEncodedImageFormat.Png or SKEncodedImageFormat.Jpeg or SKEncodedImageFormat.Webp)) return null;
 
         var size = codec.Info.Size;
         var longest = Math.Max(size.Width, size.Height);
@@ -27,6 +33,12 @@ internal static class ChipArt
         bitmap.Dispose();
         return null;
     }
+
+    /// <summary>PNG (89 50 4E 47 0D 0A 1A 0A), JPEG (FF D8 FF) or WebP (RIFF ???? WEBP) magic bytes.</summary>
+    internal static bool HasAllowedSignature(ReadOnlySpan<byte> bytes) =>
+        bytes.StartsWith((ReadOnlySpan<byte>)[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) ||
+        bytes.StartsWith((ReadOnlySpan<byte>)[0xFF, 0xD8, 0xFF]) ||
+        (bytes.Length >= 12 && bytes[..4].SequenceEqual("RIFF"u8) && bytes[8..12].SequenceEqual("WEBP"u8));
 
     /// <summary>
     /// The part of the image worth showing: drops symmetric black letterbox/pillarbox bars, as on

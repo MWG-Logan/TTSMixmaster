@@ -49,6 +49,21 @@ public sealed class AppSettings
     /// </summary>
     public string TtsSavedObjectsPath { get; set; } = "";
 
+    // Chip (the music player's front image)
+
+    /// <summary>Draw the collection name on the chip front.</summary>
+    public bool ChipShowTitle { get; set; } = true;
+
+    /// <summary>
+    /// A user-chosen image file to use as the chip art instead of the collection's own, per collection.
+    /// Keyed by <c>"&lt;service&gt;:&lt;collection id&gt;"</c> (see <see cref="ChipImageKey"/>); missing means the collection's art.
+    /// </summary>
+    public Dictionary<string, string> ChipCustomImages { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>The <see cref="ChipCustomImages"/> key for a collection.</summary>
+    public static string ChipImageKey(Models.CollectionSummary summary) =>
+        $"{Files.LibraryLayout.ServiceSlug(summary.Service)}:{summary.Id}";
+
     // Audio
     public string AudioQuality { get; set; } = "192";
 
