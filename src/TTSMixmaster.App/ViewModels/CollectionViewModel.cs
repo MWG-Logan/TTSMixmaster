@@ -201,6 +201,7 @@ public sealed partial class CollectionViewModel : ObservableObject
             // 2. Upload
             if (!_app.Uploader.IsConfigured)
             {
+                IsAzureMissing = false; // The result below says the same thing; don't show it twice.
                 ShowResult(InfoBarSeverity.Warning, "Audio downloaded, not uploaded",
                     "Tabletop Simulator streams music from the web, so the files need Azure Storage. Set it up in Settings, then build again.");
                 return;

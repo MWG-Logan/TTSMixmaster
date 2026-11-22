@@ -162,7 +162,8 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         if (value is not null)
             _ = LoadLevelAsync(Containers, ct => _azure.ListContainersAsync(value, ct),
                 p => ContainerPlaceholder = p, "Choose a container", "No containers yet. Create one.",
-                one => SelectedContainer = one);
+                one => SelectedContainer = one,
+                preferred: items => items.FirstOrDefault(c => c.Name == _app.Settings.AzureContainerName));
     }
 
     partial void OnSelectedContainerChanged(AzureContainer? value)
@@ -184,7 +185,8 @@ public sealed partial class AzureSetupViewModel : ObservableObject
 
     /// <summary>Loads one picker level: "Loading…" placeholder, then the items or an empty message; auto-picks a lone item.</summary>
     private async Task LoadLevelAsync<T>(ObservableCollection<T> target, Func<CancellationToken, Task<IReadOnlyList<T>>> load,
-        Action<string> setPlaceholder, string chooseText, string emptyText, Action<T> selectOnly, Action<bool>? setEmpty = null)
+        Action<string> setPlaceholder, string chooseText, string emptyText, Action<T> selectOnly, Action<bool>? setEmpty = null,
+        Func<IReadOnlyList<T>, T?>? preferred = null)
         where T : class
     {
         // A newer load of the same picker (the user changed the level above) wins; drop stale results.
@@ -202,8 +204,9 @@ public sealed partial class AzureSetupViewModel : ObservableObject
             setPlaceholder(items.Count == 0 ? emptyText : chooseText);
             NotifyPickers();
             setEmpty?.Invoke(items.Count == 0);
-            if (items.Count == 1)
-                selectOnly(items[0]);
+            // Pick the only choice, or the one the settings already name (e.g. "tts-audio").
+            if ((items.Count == 1 ? items[0] : preferred?.Invoke(items)) is { } pick)
+                selectOnly(pick);
         }
         catch (OperationCanceledException)
         {
