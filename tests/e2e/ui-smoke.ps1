@@ -363,7 +363,9 @@ try {
             Invoke-Ui @('set-value', 'AzureConnectionString', 'DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:9/devstoreaccount1;') | Out-Null
         }
         Invoke-Ui @('set-value', 'AzureContainerName', 'e2e-missing') | Out-Null
-        Invoke-Ui @('wait-for', 'TestAzure', '-t', '5000') | Out-Null
+        # The connection string is used (and testable) only with "Use a connection string" on.
+        if ((Get-UiProperty 'TestAzure' 'IsEnabled') -ne 'True') { Invoke-Ui @('invoke', 'AzureUseConnectionString') | Out-Null }
+        Invoke-Ui @('wait-for', 'TestAzure', '--property', 'IsEnabled', '--value', 'True', '-t', '5000') | Out-Null
         Invoke-Ui @('invoke', 'TestAzure') | Out-Null
         Invoke-Ui @('wait-for', 'AzureTestResult', '-t', '90000') | Out-Null
         Invoke-Ui @('wait-for', "Couldn't connect to Azure Storage", '--root', 'AzureTestResult', '-t', '90000') | Out-Null
