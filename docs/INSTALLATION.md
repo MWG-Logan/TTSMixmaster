@@ -1,43 +1,65 @@
 # Installation Guide
 
-## Prerequisites
-- Python 3.8 or higher
-- Git (for cloning the repository)
+TTSMixmaster runs on Windows 10 (version 1809 or later) and Windows 11, on x64 and ARM64 PCs.
+Everything it needs is included: the .NET runtime, the Windows App SDK, yt-dlp and FFmpeg.
 
-## Complete Setup Guide
+Download it from the [latest release](https://github.com/MWG-Logan/TTSMixmaster/releases/latest).
 
-### 1. Clone the Repository
-```bash
-git clone <repository-url>
-cd TTSMixmaster
+## Install (recommended): App Installer, with automatic updates
+
+1. Download **`TTSMixmaster.appinstaller`** from the release.
+2. Open it. Windows' App Installer shows TTSMixmaster, signed by Morningwood Gaming LLC.
+3. Select **Install**. App Installer downloads the right build for your PC (x64 or ARM64).
+4. Start TTSMixmaster from the Start menu.
+
+TTSMixmaster then keeps itself up to date: it checks for a new release once a day when you start
+it, and in the background, and asks before updating. Updates never block the app from starting.
+
+App Installer ships with Windows 10 and 11. If opening the file does nothing, install or update
+[App Installer from the Microsoft Store](https://apps.microsoft.com/detail/9NBLGGH4NNS1).
+
+## Other ways to install
+
+### MSIX package, without automatic updates
+
+Download **`TTSMixmaster-v<version>.msixbundle`** and open it. It's the same signed package for
+both architectures. Installed this way it doesn't check for updates; install a newer release the
+same way, or open the `.appinstaller` later to switch to automatic updates.
+
+### Portable zip
+
+Download **`TTSMixmaster-v<version>-portable-x64.zip`** (most PCs) or
+**`...-portable-arm64.zip`** (Windows on Arm), unzip it anywhere and run `TTSMixmaster.exe`. Nothing
+is installed and nothing updates itself; delete the folder to remove it.
+
+### winget
+
+Once TTSMixmaster is published to the Windows Package Manager:
+
+```powershell
+winget install MorningwoodGaming.TTSMixmaster
 ```
 
-### 2. Create Virtual Environment (Recommended)
-```bash
-python -m venv venv
-venv\Scripts\activate  # On Windows
-# source venv/bin/activate  # On Linux/Mac
-```
+### IT and enterprise deployment
 
-### 3. Install Dependencies
-```bash
-pip install .
-```
-Note: This automatically includes FFmpeg via the `imageio-ffmpeg` package.
+Deploy the signed `.msixbundle` like any other MSIX app:
 
-### 4. Setup Environment Configuration
-```bash
-# Copy environment template
-cp .env.template .env
-```
+- **Intune:** add it as a *Line-of-business app* (MSIX).
+- **Configuration Manager:** create a *Windows app package (\*.appx, \*.appxbundle, \*.msix, \*.msixbundle)* application.
+- **Every user on a PC:** provision it, so each user gets it at their next sign-in:
+  ```powershell
+  Add-AppxProvisionedPackage -Online -PackagePath .\TTSMixmaster-v2.0.0.msixbundle -SkipLicense
+  ```
 
-Edit `.env` with your API keys (all are optional - use only the services you need):
-- **Last.fm API**: Key and secret (get from https://www.last.fm/api/account/create)
-- **YouTube API**: Data API v3 key (get from Google Cloud Console)
-- **Spotify API**: Client ID and Client Secret (get from Spotify Developer Dashboard)
-- **Azure Storage**: Connection string for cloud uploads (optional)
+## Uninstall
 
-## API Setup Guides
+Open **Settings → Apps → Installed apps**, find **TTSMixmaster** and select **Uninstall**. For the
+portable zip, delete its folder.
+
+## Set up the music services
+
+TTSMixmaster works with whichever services you set up; all of them are optional. Enter the keys in
+the app's settings (see the [Configuration Guide](CONFIGURATION.md)).
 
 ### Last.fm API (for accessing collections)
 1. Visit https://www.last.fm/api/account/create
@@ -60,77 +82,22 @@ Edit `.env` with your API keys (all are optional - use only the services you nee
 4. **Optional**: Add your Spotify User ID for personal playlists access
 5. **Note**: Public playlist search works without User ID
 
-### Azure Storage (Optional)
-- Azure Storage account for cloud uploads
-- Connection string for authentication
-- Container for storing audio files
+### Azure Storage (optional)
+Uploads go to an Azure Storage account; see the [Azure Setup Guide](AZURE_SETUP.md).
 
-## Verification
+## Build from source
 
-### Run the Application
-```bash
-python main.py
+You need the .NET 10 SDK on Windows. From the repository root:
+
+```powershell
+dotnet build TTSMixmaster.slnx -p:Platform=x64
+dotnet test tests/TTSMixmaster.Core.Tests
 ```
 
-### Test Basic Functionality
-```bash
-python tests/test_basic.py
-```
+To build the release artifacts locally (portable zips, MSIX bundle, `.appinstaller`), see
+[RELEASING.md](RELEASING.md).
 
-### Test Multi-Service Integration
-```bash
-python tests/test_multi_service.py
-```
+## Next steps
 
-## Common Setup Issues
-
-### Python Virtual Environment Issues
-```bash
-# If virtual environment creation fails
-python -m pip install --upgrade pip
-python -m pip install virtualenv
-python -m virtualenv venv
-```
-
-### Dependency Installation Problems
-```bash
-# If pip install fails, try upgrading pip first
-python -m pip install --upgrade pip
-
-# Install dependencies one by one if batch install fails
-pip install customtkinter
-pip install yt-dlp
-pip install requests
-pip install python-dotenv
-```
-
-### FFmpeg Error (`'FFmpegPostProcessorPP'`)
-- The `imageio-ffmpeg` package should handle FFmpeg automatically
-- If issues persist, install FFmpeg manually from https://ffmpeg.org/
-
-### Import Errors
-- Ensure you're using the correct virtual environment
-- Verify all dependencies are installed: `pip list`
-- Try running from the project root directory
-
-## Dependencies Not Installing
-If you encounter issues with dependencies:
-```bash
-# For audio processing
-pip install pydub
-
-# For YouTube downloading
-pip install yt-dlp
-
-# For GUI
-pip install customtkinter
-
-# For environment variables
-pip install python-dotenv
-
-# For Azure storage (optional)
-pip install azure-storage-blob
-```
-
-## Next Steps
-Once installation is complete, see the [Usage Guide](USAGE.md) for detailed instructions on using the application.
+See the [Usage Guide](USAGE.md) for how to use the app, and
+[Troubleshooting](TROUBLESHOOTING.md) if something doesn't work.

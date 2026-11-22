@@ -1,9 +1,9 @@
 # Usage Guide
 
 ## Running the Application
-```bash
-python main.py
-```
+
+Start **TTSMixmaster** from the Start menu. With the portable zip, run `TTSMixmaster.exe` from
+the extracted folder. See the [Installation Guide](INSTALLATION.md) to install it.
 
 ## Configuration
 

@@ -16,8 +16,9 @@ TTSMixmaster.slnx
 src/TTSMixmaster.Core/        net10.0 class library: models, services, downloader, uploader, TTS formatter, config, file layout.
                               No UI or WinUI references, so it is unit-testable and agent-friendly.
 src/TTSMixmaster.App/         WinUI 3 app (unpackaged, Windows App SDK self-contained), MVVM via CommunityToolkit.Mvvm.
-tests/TTSMixmaster.Core.Tests/ xUnit tests for Core.
-installer/                    WiX MSI. Harvests the App publish folder.
+tests/                        MSTest (MSTest.Sdk on Microsoft.Testing.Platform); see docs/TESTING.md.
+installer/msix/               MSIX manifest, assets and PRI config. Releases ship an x64+ARM64 .msixbundle with
+                              App Installer auto-update, plus portable zips (scripts/package-release.ps1, docs/RELEASING.md).
 ```
 
 ## Build and test

@@ -1,82 +1,73 @@
 # Azure Blob Storage Setup Guide for TTSMixmaster
 
-## What You Need
+TTSMixmaster uploads your MP3s to Azure Blob Storage so Tabletop Simulator can stream them from
+public URLs. You sign in with your Microsoft account and pick where the files go; there's no
+key to copy.
 
-To use Azure Blob Storage for uploading your audio files, you'll need:
+## What you need
 
-1. **Azure Storage Account** - A storage account in Microsoft Azure
-2. **Connection String** - To authenticate and connect to your storage account
+- An Azure subscription you can sign in to.
+- A **Storage account** in it (or permission to use an existing one).
 
-## Step 1: Create Azure Storage Account
+## Step 1: Create a storage account (once)
 
-1. Go to the [Azure Portal](https://portal.azure.com)
-2. Create a new **Storage Account**:
-   - Choose a unique name (e.g., `ttsmixmaster2024`)
-   - Select a region close to you
-   - Choose **Standard** performance
-   - Select **Locally-redundant storage (LRS)** for cost efficiency
-3. Wait for deployment to complete
+1. Go to the [Azure Portal](https://portal.azure.com) and create a **Storage account**:
+   - choose a unique name (for example `ttsmixmaster2026`) and a region close to you;
+   - **Standard** performance and **Locally-redundant storage (LRS)** keep it cheap.
+2. Wait for the deployment to finish.
 
-## Step 2: Get Your Connection String
+## Step 2: Sign in and pick the storage
 
-1. In your Storage Account, go to **Security + networking** → **Access keys**
-2. Copy the **Connection string** from **key1**
-3. It will look like this:
+1. In TTSMixmaster, open **Settings** and select **Sign in** under Azure. Windows shows its
+   usual Microsoft account sign-in (or your browser opens).
+2. Pick the **tenant**, **subscription**, **storage account** and **container** to upload to.
+   You can create a new container from the picker.
+3. TTSMixmaster checks what that container needs and tells you before it changes anything:
+   - **Upload permission.** Uploading needs the **Storage Blob Data Contributor** role on the
+     container (being the subscription Owner isn't enough by itself). If you're allowed to grant
+     roles (Owner or User Access Administrator), the app can assign that role to you for this
+     container only.
+   - **Public read access.** Tabletop Simulator downloads the files anonymously, so the
+     container must allow public *blob* access (files readable by URL; the container listing
+     stays private). The app can switch this on for the container. Doing so also enables public
+     access on the storage account, which can expose other containers in that account that were
+     already set to allow anonymous access.
+4. Save. Uploads now go to that container, and each file gets a public URL like:
    ```
-   DefaultEndpointsProtocol=https;AccountName=youraccount;AccountKey=abc123...;EndpointSuffix=core.windows.net
+   https://youraccount.blob.core.windows.net/<container>/<file>.mp3
    ```
 
-## Step 3: Configure TTSMixmaster
+TTSMixmaster remembers your sign-in and selection. A new role assignment can take a few minutes to
+take effect; if an upload is denied right after granting access, wait and try again.
 
-1. Edit your `.env` file:
-   ```bash
-   # Replace with your actual connection string
-   AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=youraccount;AccountKey=abc123...;EndpointSuffix=core.windows.net
-   
-   # Optional: Change container name (default is fine)
-   AZURE_CONTAINER_NAME=tts-audio
-   ```
+## Advanced: connection string
 
-2. Save the file
+If you can't use Azure sign-in (for example, a storage account in a tenant you can't sign in
+to), you can paste the storage account's connection string in the advanced Azure settings
+instead. Find it in the portal under **Security + networking → Access keys**. It contains the
+account key, which grants full access to the whole account, so treat it like a password.
 
-## Step 4: Test the Upload
+## How it works
 
-Run the test script to verify everything works:
+1. **Upload:** each audio file is uploaded to the container you picked.
+2. **Public URLs:** the generated Tabletop Simulator objects point at those blob URLs.
+3. **Tabletop Simulator:** players' clients stream the music directly from Azure.
 
-```bash
-python test_azure_upload.py
-```
-
-## How It Works
-
-1. **Container Creation**: TTSMixmaster automatically creates a container called `tts-audio` with public blob access
-2. **File Upload**: Audio files are uploaded to the `audio/` folder in your container
-3. **Public URLs**: Each uploaded file gets a public URL like:
-   ```
-   https://youraccount.blob.core.windows.net/tts-audio/audio/Artist_-_Song_abc12345.mp3
-   ```
-4. **TTS Integration**: These URLs can be used directly in Tabletop Simulator
-
-## Cost Estimation
+## Cost estimation
 
 Azure Blob Storage is very affordable:
 - **Storage**: ~$0.018 per GB per month
 - **Transactions**: ~$0.0004 per 10,000 operations
-- **100 songs (~500 MB)**: Less than $0.01 per month
+- **100 songs (~500 MB)**: less than $0.01 per month
 
-## Benefits
+Downloads by players count as outbound data transfer, which is billed separately once you pass
+the free monthly allowance.
 
-✅ **Reliable**: Enterprise-grade cloud storage  
-✅ **Fast**: Global CDN for fast downloads  
-✅ **Secure**: Private storage with public file access  
-✅ **Scalable**: Unlimited storage capacity  
-✅ **TTS Compatible**: Direct URL access for Tabletop Simulator  
-
-## Next Steps
+## Next steps
 
 Once configured, you can:
-1. Use the GUI to upload playlists
-2. Generate TTS Lua code with real URLs
-3. Load the music directly in Tabletop Simulator
+1. Upload playlists from the app
+2. Generate the Tabletop Simulator objects with real URLs
+3. Load the music in Tabletop Simulator
 
 Happy mixing! 🎵

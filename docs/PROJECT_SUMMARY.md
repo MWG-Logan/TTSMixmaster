@@ -1,5 +1,8 @@
 # TTSMixmaster - Multi-Service Integration Complete! 🎵✅
 
+> **Legacy Python implementation, kept as a reference for the .NET port.** The shipped app is the
+> .NET/WinUI app in `src/TTSMixmaster.App` and `src/TTSMixmaster.Core` (see `AGENTS.md`).
+
 ## Project Overview
 
 **TTSMixmaster** is a comprehensive tool that successfully integrates Last.fm collections, YouTube playlists, and Spotify playlists with Tabletop Simulator. The project has been completely overhauled with multi-service support and provides a complete workflow from multi-service playlist fetching to TTS-ready code generation.

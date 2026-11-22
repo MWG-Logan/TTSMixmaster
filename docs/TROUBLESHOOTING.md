@@ -1,40 +1,35 @@
 # Troubleshooting Guide
 
-## Common Setup Issues
+## Installation Issues
 
-### Python Virtual Environment Issues
-```bash
-# If virtual environment creation fails
-python -m pip install --upgrade pip
-python -m pip install virtualenv
-python -m virtualenv venv
-```
+### Opening `TTSMixmaster.appinstaller` does nothing
+- App Installer may be missing or out of date: install or update
+  [App Installer from the Microsoft Store](https://apps.microsoft.com/detail/9NBLGGH4NNS1)
+- Organization-managed PCs can block sideloaded apps; ask your IT admin, or use the portable zip
 
-### Dependency Installation Problems
-```bash
-# If pip install fails, try upgrading pip first
-python -m pip install --upgrade pip
+### "This app package isn't signed with a trusted certificate" / publisher can't be verified
+- Download the files only from the project's GitHub releases page; official builds are signed by
+  Morningwood Gaming LLC
+- A file that was modified or only partly downloaded fails this check; download it again
 
-# Install dependencies one by one if batch install fails
-pip install customtkinter
-pip install yt-dlp
-pip install requests
-pip install python-dotenv
-```
+### The portable version is blocked by SmartScreen or antivirus
+- Make sure you extracted the whole zip, then run `TTSMixmaster.exe` from the extracted folder
+- `TTSMixmaster.exe` is signed by Morningwood Gaming LLC; `yt-dlp.exe` and `ffmpeg.exe` are the
+  upstream builds and keep their publishers' signatures (or none)
 
-### FFmpeg Error (`'FFmpegPostProcessorPP'`)
-- The `imageio-ffmpeg` package should handle FFmpeg automatically
-- If issues persist, install FFmpeg manually from https://ffmpeg.org/
+### Which download do I need?
+- Use `TTSMixmaster.appinstaller`: it picks x64 or ARM64 for you and keeps the app updated
+- For the portable zip, pick `-arm64` on Windows on Arm (Snapdragon) PCs and `-x64` otherwise
 
-### Import Errors
-- Ensure you're using the correct virtual environment
-- Verify all dependencies are installed: `pip list`
-- Try running from the project root directory
+### The app doesn't update
+- Only installs made by opening `TTSMixmaster.appinstaller` update themselves; a directly
+  opened `.msixbundle`, winget, or a managed (Intune/Configuration Manager) install doesn't
+- Updates are checked at most once a day and installed the next time you start the app
 
 ## API Connection Issues
 
 ### Last.fm Connection Failed
-- Verify your API credentials in the `.env` file
+- Verify your API credentials in the app's settings
 - Check that your username is correct
 - Ensure API key and secret are from https://www.last.fm/api/account/create
 - Verify the username exists and is public
@@ -69,7 +64,7 @@ pip install python-dotenv
 ### Download Failures
 - Verify internet connection and try different search engines
 - Some videos may be region-restricted or unavailable
-- Update yt-dlp if outdated: `pip install --upgrade yt-dlp`
+- Update TTSMixmaster to the latest release, which bundles a current yt-dlp
 - Check for age-restricted or private content
 - Verify the search terms are finding valid results
 
@@ -85,11 +80,12 @@ pip install python-dotenv
 - Verify custom image URLs are valid and publicly accessible (if used)
 - Ensure sufficient disk space for output files
 
-### GUI Not Starting
-- Ensure CustomTkinter is properly installed: `pip install customtkinter`
-- Try running with: `python -m src.gui.main_window` from project root
-- Check for conflicting tkinter installations
-- Verify Python version compatibility (3.8+)
+### App Not Starting
+- Windows 10 version 1809 or later (or Windows 11) is required
+- For the portable version, keep every file from the zip together; `TTSMixmaster.exe` needs the
+  files next to it
+- Reinstall from the latest release; for an installed copy, **Settings → Apps → Installed apps →
+  TTSMixmaster → Advanced options → Repair** often helps
 
 ## Performance Issues
 
@@ -154,9 +150,7 @@ pip install python-dotenv
 
 ### Diagnostic Steps
 1. Check the `ttsmixmaster.log` file for detailed error messages
-2. Run basic functionality test: `python tests/test_basic.py`
-3. Test multi-service integration: `python tests/test_multi_service.py`
-4. Verify configuration using test buttons in the Configuration tab
+2. Verify configuration using the test buttons in the app's settings
 
 ### Configuration Validation
 Use the built-in test buttons in the Configuration tab to validate:
@@ -197,11 +191,6 @@ Check the following log files for detailed error information:
 
 ## Advanced Troubleshooting
 
-### Environment Issues
-- Verify `.env` file formatting
-- Check for hidden characters or encoding issues
-- Ensure environment variables are properly loaded
-
 ### Network Issues
 - Check firewall settings
 - Verify proxy configurations if applicable
@@ -210,19 +199,18 @@ Check the following log files for detailed error information:
 ### System Issues
 - Ensure sufficient system resources (RAM, disk space)
 - Check for conflicting software
-- Verify Python installation integrity
+- Reinstall TTSMixmaster from the latest release
 
 ### Database/Cache Issues
 - Clear application cache if problems persist
 - Reset configuration to defaults if necessary
-- Remove and recreate virtual environment
 
 ## When to Seek Additional Help
 
 If issues persist after following this guide:
 1. Gather error messages and log files
 2. Document the steps that led to the issue
-3. Note your system configuration (OS, Python version, etc.)
+3. Note your system configuration (Windows version, x64 or ARM64, TTSMixmaster version, how you installed it)
 4. Check the project's GitHub issues page for similar problems
 5. Consider filing a new issue with detailed information
 
