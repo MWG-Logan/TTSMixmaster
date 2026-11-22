@@ -40,7 +40,14 @@ public enum ChipArtSource
 /// they came from, or null with whether a download timed out (so the caller can say so and retry later rather than
 /// remember "no art").
 /// </summary>
-public sealed record ChipArtFetch(byte[]? Art, bool TimedOut, ChipArtSource Source = ChipArtSource.Generated);
+public sealed record ChipArtFetch(byte[]? Art, bool TimedOut, ChipArtSource Source = ChipArtSource.Generated)
+{
+    /// <summary>
+    /// True when <see cref="Art"/> is already trimmed and fitted (a composed mosaic): render it with
+    /// <c>ChipImageBuilder.RenderFront(…, artIsPrepared: true)</c>, which skips letterbox detection.
+    /// </summary>
+    public bool IsPrepared => Source == ChipArtSource.Mosaic;
+}
 
 /// <summary>A rendered chip face: PNG bytes and their SHA-256, which doubles as a content-addressed blob name.</summary>
 public sealed record ChipImage(byte[] Png, string Hash, int Width, int Height, ChipArtSource ArtSource)

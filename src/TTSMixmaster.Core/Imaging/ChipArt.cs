@@ -73,24 +73,43 @@ internal static class ChipArt
     internal static SKRectI ContentBounds(SKBitmap bitmap)
     {
         int w = bitmap.Width, h = bitmap.Height;
-        var top = CountBars(h, i => IsBlackLine(bitmap, i, horizontal: true));
-        var bottom = CountBars(h, i => IsBlackLine(bitmap, h - 1 - i, horizontal: true));
-        var left = CountBars(w, i => IsBlackLine(bitmap, i, horizontal: false));
-        var right = CountBars(w, i => IsBlackLine(bitmap, w - 1 - i, horizontal: false));
+        var top = CountBars(h, i => IsDarkLine(bitmap, i, horizontal: true, BarLevel));
+        var bottom = CountBars(h, i => IsDarkLine(bitmap, h - 1 - i, horizontal: true, BarLevel));
+        var left = CountBars(w, i => IsDarkLine(bitmap, i, horizontal: false, BarLevel));
+        var right = CountBars(w, i => IsDarkLine(bitmap, w - 1 - i, horizontal: false, BarLevel));
 
         // Only trim matched pairs of bars that leave a substantial picture; a dark sky is not a letterbox.
         var trimRows = top > 0 && bottom > 0 && Math.Abs(top - bottom) <= h / 50 + 2 && h - top - bottom >= h * 2 / 5;
         var trimCols = left > 0 && right > 0 && Math.Abs(left - right) <= w / 50 + 2 && w - left - right >= w * 2 / 5;
-        // JPEG ringing leaves a dark fringe line or two where a bar meets the picture, just too bright to count as bar;
-        // a trimmed side also drops that fringe.
-        int rowFringe = Fringe(h), colFringe = Fringe(w);
-        return new SKRectI(
-            trimCols ? left + colFringe : 0, trimRows ? top + rowFringe : 0,
-            trimCols ? w - right - colFringe : w, trimRows ? h - bottom - rowFringe : h);
+        if (trimRows)
+        {
+            top += Fringe(h, top, i => IsDarkLine(bitmap, i, horizontal: true, FringeLevel));
+            bottom += Fringe(h, bottom, i => IsDarkLine(bitmap, h - 1 - i, horizontal: true, FringeLevel));
+        }
+        if (trimCols)
+        {
+            left += Fringe(w, left, i => IsDarkLine(bitmap, i, horizontal: false, FringeLevel));
+            right += Fringe(w, right, i => IsDarkLine(bitmap, w - 1 - i, horizontal: false, FringeLevel));
+        }
+        return new SKRectI(trimCols ? left : 0, trimRows ? top : 0, trimCols ? w - right : w, trimRows ? h - bottom : h);
     }
 
-    /// <summary>Lines dropped beyond a trimmed bar: 2 px, or ~0.4% of the side on large art.</summary>
-    private static int Fringe(int length) => Math.Max(2, length / 256);
+    /// <summary>Brightest channel a JPEG-ringing fringe line may have (a bar line may have <see cref="BarLevel"/>).</summary>
+    private const int FringeLevel = 64;
+    private const int BarLevel = 24;
+
+    /// <summary>
+    /// JPEG ringing leaves a dark line or two where a bar meets the picture, just too bright to count as bar. Beyond a
+    /// trimmed bar of <paramref name="bar"/> lines, this many more lines are such near-dark fringe: at most 2 px (or
+    /// ~0.4% of the side on large art), and only lines that really are near-dark, so a bright border survives.
+    /// </summary>
+    private static int Fringe(int length, int bar, Func<int, bool> isFringe)
+    {
+        var limit = Math.Max(2, length / 256);
+        var count = 0;
+        while (count < limit && bar + count < length / 2 && isFringe(bar + count)) count++;
+        return count;
+    }
 
     /// <summary>The centred crop of <paramref name="source"/> with the aspect ratio of <paramref name="target"/>.</summary>
     internal static SKRect CoverCrop(SKRect source, SKRect target)
@@ -108,10 +127,13 @@ internal static class ChipArt
         return new SKRect(source.Left, y, source.Right, y + height);
     }
 
-    /// <summary>Draws the art cover-fitted (centre-cropped) into <paramref name="target"/>.</summary>
-    internal static void DrawCover(SKCanvas canvas, SKBitmap art, SKRect target)
+    /// <summary>
+    /// Draws the art cover-fitted (centre-cropped) into <paramref name="target"/>, first trimming letterbox bars unless
+    /// <paramref name="trimBars"/> is false (art that is already trimmed and fitted, such as a mosaic).
+    /// </summary>
+    internal static void DrawCover(SKCanvas canvas, SKBitmap art, SKRect target, bool trimBars = true)
     {
-        var content = ContentBounds(art);
+        var content = trimBars ? ContentBounds(art) : SKRectI.Create(art.Width, art.Height);
         using var whole = SKImage.FromBitmap(art);
         // Trimmed bars are cut off as a subset, so filtering and mipmaps at the crop's edge can't blend them back in
         // (a dark seam between mosaic tiles).
@@ -175,7 +197,7 @@ internal static class ChipArt
         return count;
     }
 
-    private static bool IsBlackLine(SKBitmap bitmap, int index, bool horizontal)
+    private static bool IsDarkLine(SKBitmap bitmap, int index, bool horizontal, int level)
     {
         var length = horizontal ? bitmap.Width : bitmap.Height;
         var samples = Math.Min(length, 64);
@@ -184,7 +206,7 @@ internal static class ChipArt
         {
             var along = (int)((s + 0.5) * length / samples);
             var c = horizontal ? bitmap.GetPixel(along, index) : bitmap.GetPixel(index, along);
-            if (Math.Max(c.Red, Math.Max(c.Green, c.Blue)) <= 24) dark++;
+            if (Math.Max(c.Red, Math.Max(c.Green, c.Blue)) <= level) dark++;
         }
         return dark >= samples * 0.97;
     }

@@ -16,7 +16,7 @@ ChipImage back  = ChipImageBuilder.BackImage;   // the original chip back, uncha
 ## Pipeline
 
 1. **Art.** `FetchArtAsync` picks it, downloading with the injected `HttpClient` (https only, at most 20 MB
-   each, within the art timeout):
+   each; the whole fetch shares one deadline, the art timeout of 30 s):
    - the collection's own art: `CollectionSummary.ThumbnailUrl` when `ArtKind` is `Own`;
    - otherwise (no URL, a YouTube `ServiceDefault` stand-in, or the download failed) a **mosaic**, as YouTube
      Music and Spotify show playlists: the first four *distinct* track covers in track order, 2x2 (top-left,
@@ -26,15 +26,20 @@ ChipImage back  = ChipImageBuilder.BackImage;   // the original chip back, uncha
      covers the first is used alone, as YouTube Music appears to do (it documents no rule);
    - then the `ServiceDefault` thumbnail itself, then a generated background.
 
-   A failed download, an error status, a timeout or bytes that don't decode all move on to the next candidate.
-   Only cancellation of the caller's token throws. The result depends on which downloads succeed, never on their
-   timing, so the same inputs render the same PNG. The App's "Use custom image…" replaces all of this.
+   A failed download, an error status or bytes that don't decode all move on to the next candidate. When the
+   deadline passes, no further download starts: covers that already loaded are used (the first alone if fewer than
+   four), else the generated background, and the result says it timed out. Only cancellation of the caller's token
+   throws. The result depends on which downloads succeed, never on their timing, so the same inputs render the
+   same PNG. A mosaic is *prepared* art (`ChipArtFetch.IsPrepared`): render it with
+   `RenderFront(…, artIsPrepared: true)`, which skips step 2's bar detection, because the dark edges of separate
+   covers can line up like a letterbox. The App's "Use custom image…" replaces all of this.
 2. **Window.** The art is cover-fitted (centre-cropped) into the window. Symmetric near-black letterbox or
    pillarbox bars are trimmed first: YouTube's 4:3 thumbnails of 16:9 videos, and the bars beside square album art
    in a 16:9 music video thumbnail, so a YouTube track shows its square cover. Only matched, near-uniform dark bars
-   are trimmed (plus a 2 px, or ~0.4%, fringe where JPEG ringing leaves a dark line at the bar's edge); otherwise
+   are trimmed (plus up to 2 px, or ~0.4%, of near-dark fringe where JPEG ringing leaves a dark line at the bar's
+   edge; a bright border survives); otherwise
    the centre square is used, never more. Trimmed bars are cut off as an image subset, so filtering can't blend them
-   back in at the crop edge. Mosaic tiles are fitted the same way. Small art is upscaled with a
+   back in at the crop edge. Mosaic tiles are fitted the same way, once. Small art is upscaled with a
    Mitchell cubic; large art is downscaled with mipmaps. With no art, a dark service-tinted gradient with
    a faint record is drawn (Spotify green, YouTube red, Last.fm crimson, slate otherwise); never the crest.
 3. **Frame.** `Assets/Chip/frame.png` is drawn on top, pixel for pixel at 1x.
