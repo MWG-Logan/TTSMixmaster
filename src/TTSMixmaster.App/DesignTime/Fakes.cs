@@ -98,7 +98,7 @@ internal sealed class FakeAudioDownloader : IAudioDownloader
             ct.ThrowIfCancellationRequested();
             var track = collection.Tracks[i];
             progress?.Report(new TrackProgress(i, total, track, TrackStatus.Working, "Finding audio…"));
-            await Task.Delay(260 + (i * 97) % 240, ct);
+            await Task.Delay(700 + (i * 97) % 400, ct);
 
             DownloadedTrack result = (i % 9) switch
             {

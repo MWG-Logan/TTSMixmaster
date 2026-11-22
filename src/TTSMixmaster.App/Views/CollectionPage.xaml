@@ -63,10 +63,21 @@
                     Command="{x:Bind ViewModel.BuildCommand}"
                     Style="{StaticResource AccentButtonStyle}"
                     ToolTipService.ToolTip="Download the audio, upload it to Azure, and generate the Tabletop Simulator files"
-                    Visibility="{x:Bind ViewModel.IsIdle, Mode=OneWay}">
+                    Visibility="{x:Bind ViewModel.ShowBuild, Mode=OneWay}">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon FontSize="16" Glyph="&#xE768;" />
                         <TextBlock Text="Build for Tabletop Simulator" />
+                    </StackPanel>
+                </Button>
+                <!--  After a build, Copy Lua script is the next step, so rebuilding steps back to a standard button.  -->
+                <Button
+                    AutomationProperties.AutomationId="RebuildButton"
+                    Command="{x:Bind ViewModel.BuildCommand}"
+                    ToolTipService.ToolTip="Build the music player again, for example after changing the Tabletop object options"
+                    Visibility="{x:Bind ViewModel.ShowRebuild, Mode=OneWay}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE72C;" />
+                        <TextBlock Text="Build again" />
                     </StackPanel>
                 </Button>
                 <Button
@@ -80,14 +91,15 @@
         <!--  Live status stays pinned above the scrolling list.  -->
         <StackPanel Grid.Row="1" Spacing="8">
             <Border
-                AutomationProperties.AutomationId="BuildProgress"
-                AutomationProperties.LiveSetting="Polite"
-                AutomationProperties.Name="{x:Bind ViewModel.StepText, Mode=OneWay}"
                 Style="{StaticResource CardBorderStyle}"
                 Visibility="{x:Bind ViewModel.IsBuilding, Mode=OneWay}">
                 <StackPanel Spacing="8">
                     <Grid>
-                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind ViewModel.StepText, Mode=OneWay}" />
+                        <TextBlock
+                            AutomationProperties.AutomationId="BuildStep"
+                            AutomationProperties.LiveSetting="Polite"
+                            Style="{StaticResource BodyStrongTextBlockStyle}"
+                            Text="{x:Bind ViewModel.StepText, Mode=OneWay}" />
                         <TextBlock
                             HorizontalAlignment="Right"
                             Style="{StaticResource SecondaryTextStyle}"
@@ -104,6 +116,7 @@
             <InfoBar
                 AutomationProperties.AutomationId="BuildResult"
                 IsOpen="{x:Bind ViewModel.IsResultOpen, Mode=TwoWay}"
+                Visibility="{x:Bind ViewModel.IsResultOpen, Mode=OneWay}"
                 Message="{x:Bind ViewModel.ResultMessage, Mode=OneWay}"
                 Severity="{x:Bind ViewModel.ResultSeverity, Mode=OneWay}"
                 Title="{x:Bind ViewModel.ResultTitle, Mode=OneWay}" />
@@ -124,6 +137,7 @@
                         AutomationProperties.AutomationId="LoadError"
                         IsClosable="False"
                         IsOpen="{x:Bind ViewModel.HasLoadError, Mode=OneWay}"
+                        Visibility="{x:Bind ViewModel.HasLoadError, Mode=OneWay}"
                         Message="{x:Bind ViewModel.LoadError, Mode=OneWay}"
                         Severity="Error"
                         Title="Couldn't open this collection">
@@ -138,13 +152,15 @@
                         AutomationProperties.AutomationId="ToolsProblem"
                         IsClosable="False"
                         IsOpen="{x:Bind ViewModel.HasToolsProblem, Mode=OneWay}"
+                        Visibility="{x:Bind ViewModel.HasToolsProblem, Mode=OneWay}"
                         Message="{x:Bind ViewModel.ToolsProblem, Mode=OneWay}"
                         Severity="Error"
                         Title="Audio tools are missing" />
                     <InfoBar
                         AutomationProperties.AutomationId="AzureMissing"
                         IsClosable="True"
-                        IsOpen="{x:Bind ViewModel.IsAzureMissing, Mode=OneWay}"
+                        IsOpen="{x:Bind ViewModel.IsAzureMissing, Mode=TwoWay}"
+                        Visibility="{x:Bind ViewModel.IsAzureMissing, Mode=OneWay}"
                         Message="Tabletop Simulator streams music from the web, so builds upload the audio to your Azure Storage account."
                         Severity="Warning"
                         Title="Set up Azure Storage before building">
@@ -158,7 +174,6 @@
 
                     <!--  After a build: get it into the game.  -->
                     <Border
-                        AutomationProperties.AutomationId="OutputCard"
                         Style="{StaticResource CardBorderStyle}"
                         Visibility="{x:Bind ViewModel.HasOutput, Mode=OneWay}">
                         <StackPanel Spacing="12">

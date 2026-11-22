@@ -61,6 +61,7 @@
                     AutomationProperties.AutomationId="SaveError"
                     IsClosable="False"
                     IsOpen="{x:Bind ViewModel.HasSaveError, Mode=OneWay}"
+                    Visibility="{x:Bind ViewModel.HasSaveError, Mode=OneWay}"
                     Message="{x:Bind ViewModel.SaveError, Mode=OneWay}"
                     Severity="Error"
                     Title="Settings weren't saved" />

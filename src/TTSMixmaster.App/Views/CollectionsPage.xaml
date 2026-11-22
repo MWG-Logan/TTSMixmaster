@@ -97,6 +97,7 @@
             AutomationProperties.AutomationId="CollectionsError"
             IsClosable="True"
             IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}"
             Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
             Severity="Warning"
             Title="Some collections couldn't be loaded" />

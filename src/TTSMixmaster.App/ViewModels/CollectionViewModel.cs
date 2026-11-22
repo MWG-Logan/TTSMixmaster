@@ -91,10 +91,12 @@ public sealed partial class CollectionViewModel : ObservableObject
 
     // Build progress
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsIdle))]
+    [NotifyPropertyChangedFor(nameof(IsIdle), nameof(ShowBuild), nameof(ShowRebuild))]
     public partial bool IsBuilding { get; set; }
 
     public bool IsIdle => !IsBuilding;
+    public bool ShowBuild => !IsBuilding && !HasOutput;
+    public bool ShowRebuild => !IsBuilding && HasOutput;
 
     [ObservableProperty] public partial string StepText { get; set; } = "";
     [ObservableProperty] public partial string StepDetail { get; set; } = "";
@@ -109,7 +111,7 @@ public sealed partial class CollectionViewModel : ObservableObject
     [ObservableProperty] public partial string ResultMessage { get; set; } = "";
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasOutput))]
+    [NotifyPropertyChangedFor(nameof(HasOutput), nameof(ShowBuild), nameof(ShowRebuild))]
     public partial TtsOutput? Output { get; set; }
 
     public bool HasOutput => Output is not null;
