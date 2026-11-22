@@ -36,7 +36,7 @@ public sealed class AzureSetupRaceTests
     public void Cleanup()
     {
         _app.Dispose();
-        try { Directory.Delete(_root, recursive: true); } catch (IOException) { }
+        try { Directory.Delete(_root, recursive: true); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     /// <summary>Signed in, two directories listed, nothing selected yet.</summary>

@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using TTSMixmaster.Core.Azure;
-using TTSMixmaster.Core.Upload;
+using TTSMixmaster.Core.Configuration;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace TTSMixmaster.App.ViewModels;
@@ -433,14 +433,17 @@ public sealed partial class AzureSetupViewModel : ObservableObject
 
     /// <summary>One-word summary for the expander header.</summary>
     public string Status =>
-        ShowReady ? "Ready"
+        UsesConnectionString ? (_app.Settings.HasAzureConnectionString ? "Using a connection string" : "Connection string not set")
+        : ShowReady ? "Ready"
         : Access is not null ? "Needs attention"
         : HasNoStorageAccounts ? "No storage account"
         : IsSignedIn ? "Signed in"
-        : AzureUploadAuthentication.SelectMode(_app.Settings) == AzureUploadMode.ConnectionString ? "Using a connection string"
         : "Not signed in";
 
-    /// <summary>The connection-string fallback changed; the header status may too.</summary>
+    /// <summary>The user chose the Advanced connection string instead of signing in (Settings → Advanced).</summary>
+    private bool UsesConnectionString => _app.Settings.ResolveAzureAuthMode() == AzureAuthModes.ConnectionString;
+
+    /// <summary>The connection-string fallback or the upload mode changed; the header status may too.</summary>
     public void RefreshStatus() => OnPropertyChanged(nameof(Status));
 
     [RelayCommand]

@@ -34,6 +34,31 @@ public sealed class AppSettings
     public string AzureContainerName { get; set; } = "tts-audio";
 
     /// <summary>
+    /// How uploads authenticate: <see cref="AzureAuthModes.SignIn"/> (the account/container picked after signing in)
+    /// or <see cref="AzureAuthModes.ConnectionString"/> (the Advanced fallback). Set by the user's choice in Settings,
+    /// never inferred from which other fields happen to be filled in. Empty only in settings that were never
+    /// loaded through <see cref="SettingsStore"/>; <see cref="ResolveAzureAuthMode"/> handles that case.
+    /// </summary>
+    public string AzureAuthMode { get; set; } = "";
+
+    /// <summary>
+    /// The explicit <see cref="AzureAuthMode"/>, or for a config written before it existed: a connection string
+    /// with no signed-in account selected means <see cref="AzureAuthModes.ConnectionString"/>, anything else sign-in.
+    /// </summary>
+    public string ResolveAzureAuthMode() => AzureAuthMode switch
+    {
+        AzureAuthModes.SignIn or AzureAuthModes.ConnectionString => AzureAuthMode,
+        _ => string.IsNullOrWhiteSpace(AzureStorageAccount) && HasAzureConnectionString
+            ? AzureAuthModes.ConnectionString : AzureAuthModes.SignIn,
+    };
+
+    /// <summary>A connection string is filled in (the legacy template's placeholder doesn't count).</summary>
+    [JsonIgnore]
+    public bool HasAzureConnectionString =>
+        !string.IsNullOrWhiteSpace(AzureStorageConnectionString) &&
+        AzureStorageConnectionString != "your_azure_storage_connection_string_here";
+
+    /// <summary>
     /// Legacy setting, kept so config.json round-trips. Ignored: blobs are content-addressed, so an existing blob
     /// with the same bytes is always reused and a different one is never replaced (docs/adr/0001-library-layout.md).
     /// </summary>
@@ -70,6 +95,12 @@ public sealed class AppSettings
     // UI: "system", "light" or "dark"
     public string Theme { get; set; } = "system";
 
+    /// <summary>Makes loaded settings explicit: migrates a config written before <see cref="AzureAuthMode"/> existed.</summary>
+    internal void Normalize()
+    {
+        AzureAuthMode = ResolveAzureAuthMode();
+    }
+
     internal static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -80,12 +111,26 @@ public sealed class AppSettings
     };
 }
 
+/// <summary>Values of <see cref="AppSettings.AzureAuthMode"/> (config.json key <c>azure_auth_mode</c>).</summary>
+public static class AzureAuthModes
+{
+    public const string SignIn = "signin";
+    public const string ConnectionString = "connection_string";
+}
+
 /// <summary>Loads and saves <see cref="AppSettings"/> as JSON. Writes are atomic (temp file + replace).</summary>
 public sealed class SettingsStore(string filePath)
 {
     public string FilePath { get; } = filePath;
 
     public AppSettings Load()
+    {
+        var settings = LoadOrDefault();
+        settings.Normalize();
+        return settings;
+    }
+
+    private AppSettings LoadOrDefault()
     {
         if (!File.Exists(FilePath))
             return new AppSettings();

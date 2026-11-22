@@ -234,7 +234,13 @@
                         ContentTemplate="{StaticResource ConnectionStatusTemplate}"
                         IsTabStop="False" />
                     <tk:SettingsExpander.Items>
-                        <tk:SettingsCard Description="Used instead of sign-in when it's filled in." Header="Connection string">
+                        <tk:SettingsCard Description="When this is on, builds upload with the connection string below, not your Azure sign-in." Header="Use a connection string">
+                            <ToggleSwitch
+                                AutomationProperties.AutomationId="AzureUseConnectionString"
+                                AutomationProperties.Name="Use a connection string instead of sign-in"
+                                IsOn="{x:Bind ViewModel.UseConnectionString, Mode=TwoWay}" />
+                        </tk:SettingsCard>
+                        <tk:SettingsCard Description="Used only while Use a connection string is on." Header="Connection string">
                             <PasswordBox
                                 Width="{StaticResource FieldWidth}"
                                 AutomationProperties.AutomationId="AzureConnectionString"

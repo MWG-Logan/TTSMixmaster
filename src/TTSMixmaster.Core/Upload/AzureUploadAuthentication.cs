@@ -19,10 +19,12 @@ public sealed record UploadedImage(string? PublicUrl, string? Error)
 
 public static class AzureUploadAuthentication
 {
-    public static AzureUploadMode SelectMode(AppSettings settings) =>
-        !string.IsNullOrWhiteSpace(settings.AzureStorageAccount) ? AzureUploadMode.Entra :
-        !string.IsNullOrWhiteSpace(settings.AzureStorageConnectionString) &&
-        settings.AzureStorageConnectionString != "your_azure_storage_connection_string_here" ? AzureUploadMode.ConnectionString : AzureUploadMode.Unconfigured;
+    /// <summary>Follows the user's explicit choice (<see cref="AppSettings.AzureAuthMode"/>); Unconfigured when that mode isn't set up.</summary>
+    public static AzureUploadMode SelectMode(AppSettings settings) => settings.ResolveAzureAuthMode() switch
+    {
+        AzureAuthModes.ConnectionString => settings.HasAzureConnectionString ? AzureUploadMode.ConnectionString : AzureUploadMode.Unconfigured,
+        _ => !string.IsNullOrWhiteSpace(settings.AzureStorageAccount) ? AzureUploadMode.Entra : AzureUploadMode.Unconfigured,
+    };
 
     public static BlobContainerClient CreateClient(AppSettings settings, Func<string, TokenCredential>? credentialProvider)
     {

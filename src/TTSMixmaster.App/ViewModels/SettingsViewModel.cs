@@ -116,8 +116,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Interactive sign-in and storage picking. The connection string is the fallback.</summary>
     public AzureSetupViewModel AzureSetup { get; }
 
-    /// <summary>Open the connection-string fallback by default only when sign-in can't be used.</summary>
-    public bool IsConnectionStringExpanded => !AzureSetup.IsSignInAvailable;
+    /// <summary>Open the connection-string fallback by default when it's in use or sign-in can't be used.</summary>
+    public bool IsConnectionStringExpanded => !AzureSetup.IsSignInAvailable || UseConnectionString;
     private IEnumerable<ConnectionViewModel> Connections => [LastFm, YouTube, Spotify, Azure];
 
     // Last.fm
@@ -137,6 +137,22 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool SpotifyUseOauth { get => _s.SpotifyUseOauth; set => Set(_s.SpotifyUseOauth, value, (s, v) => s.SpotifyUseOauth = v, Spotify); }
 
     // Azure
+
+    /// <summary>
+    /// The user's explicit choice of how builds upload: the Advanced connection string, or the account and
+    /// container picked after signing in. Nothing else switches it.
+    /// </summary>
+    public bool UseConnectionString
+    {
+        get => _s.ResolveAzureAuthMode() == AzureAuthModes.ConnectionString;
+        set
+        {
+            if (Set(_s.ResolveAzureAuthMode(), value ? AzureAuthModes.ConnectionString : AzureAuthModes.SignIn,
+                    (s, v) => s.AzureAuthMode = v, Azure))
+                AzureSetup.RefreshStatus();
+        }
+    }
+
     public string AzureConnectionString
     {
         get => _s.AzureStorageConnectionString;
