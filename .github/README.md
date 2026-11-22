@@ -70,24 +70,26 @@ TTSMixmaster has been completely overhauled with multi-service support! The appl
 
 ## Installation
 
-### Quick Setup
-```bash
-# Clone and setup
-git clone <repository-url>
-cd TTSMixmaster
-python -m venv venv
-venv\Scripts\activate  # Windows
+Download from the [latest release](https://github.com/MWG-Logan/TTSMixmaster/releases/latest)
+(Windows 10 1809+ or Windows 11, x64 or ARM64):
 
-# Install dependencies
-pip install .
+- **Recommended:** `TTSMixmaster.appinstaller`. Open it to install with App Installer. It picks
+  the right build for your PC and keeps TTSMixmaster up to date automatically.
+- `TTSMixmaster-v<version>.msixbundle`: the same signed MSIX package, for offline installs and
+  IT deployment (Intune, Configuration Manager).
+- `TTSMixmaster-v<version>-portable-x64.zip` / `-portable-arm64.zip`: unzip and run
+  `TTSMixmaster.exe`, nothing to install.
 
-# Configure (optional)
-cp .env.template .env
-# Edit .env with your API credentials
+Everything is included (the .NET runtime, Windows App SDK, yt-dlp and FFmpeg).
 
-# Run
-python main.py
+### Build from source
+Requires the .NET 10 SDK on Windows:
+```powershell
+dotnet build TTSMixmaster.slnx -p:Platform=x64
+dotnet test tests/TTSMixmaster.Core.Tests
 ```
+See [AGENTS.md](../AGENTS.md) for the project layout and [RELEASING.md](../docs/RELEASING.md) for
+packaging.
 
 📖 **[Full Installation Guide](../docs/INSTALLATION.md)** - Detailed setup instructions, API configuration, and troubleshooting
 

@@ -1,5 +1,8 @@
 # Tabletop Simulator Integration Guide
 
+> **Legacy Python implementation, kept as a reference for the .NET port.** The shipped app is the
+> .NET/WinUI app in `src/TTSMixmaster.App` and `src/TTSMixmaster.Core` (see `AGENTS.md`).
+
 ## Overview
 
 TTSMixmaster generates Lua scripts and save files that integrate seamlessly with Tabletop Simulator (TTS). This guide covers how to use the generated files, customize TTS objects, and implement music players in your TTS sessions.

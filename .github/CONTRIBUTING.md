@@ -59,13 +59,12 @@ We're actively looking for contributions in the following areas:
    ```
 2. **Make your changes** following the coding guidelines below
 3. **Test your changes**:
-   ```bash
-   # Run basic tests
-   python tests/test_basic.py
-   python tests/test_multi_service.py
-   
-   # Run the application to test manually
-   python main.py
+   ```powershell
+   dotnet test tests/TTSMixmaster.Core.Tests
+
+   # Run the app (in Windows Sandbox, see AGENTS.md)
+   cd src/TTSMixmaster.App
+   winapp run . --on sandbox --detach
    ```
 4. **Commit your changes**:
    ```bash
@@ -146,51 +145,22 @@ def fetch_tracks(service_name: str, limit: int = 50) -> List[Track]:
 ## Testing
 
 ### Running Tests
-```bash
-# Run basic functionality tests
-python tests/test_basic.py
+```powershell
+# All Core tests
+dotnet test tests/TTSMixmaster.Core.Tests
 
-# Run multi-service integration tests
-python tests/test_multi_service.py
-
-# Run specific test files
-python tests/test_your_feature.py
+# One test class or method
+dotnet test tests/TTSMixmaster.Core.Tests --filter "FullyQualifiedName~YourServiceTests"
 ```
+
+CI runs the same tests before every release; a failing test blocks it.
 
 ### Writing Tests
-- Add tests for new features in the `tests/` directory
-- Include both unit tests and integration tests where appropriate
-- Test error conditions and edge cases
-- Mock external API calls in unit tests
-- Use descriptive test names and include docstrings
-
-### Test Structure Example
-```python
-import unittest
-from unittest.mock import patch, MagicMock
-from src.api.your_service import YourService
-
-class TestYourService(unittest.TestCase):
-    """Test cases for YourService integration."""
-    
-    def setUp(self):
-        """Set up test fixtures."""
-        self.service = YourService("test-api-key")
-    
-    def test_fetch_playlists_success(self):
-        """Test successful playlist fetching."""
-        # Test implementation
-        pass
-    
-    @patch('src.api.your_service.requests.get')
-    def test_fetch_playlists_api_error(self, mock_get):
-        """Test handling of API errors."""
-        # Test implementation with mocked API call
-        pass
-
-if __name__ == '__main__':
-    unittest.main()
-```
+- Tests use **MSTest** and live in `tests/TTSMixmaster.Core.Tests`
+- Test Core services through their constructor-injected seams (HTTP, process launch,
+  filesystem roots, clock) instead of calling real services
+- Cover error conditions and edge cases, not just the happy path
+- Use descriptive test names that state the behavior being checked
 
 ## Documentation
 
