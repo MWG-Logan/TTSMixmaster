@@ -18,15 +18,29 @@ public sealed record AzureSignInResult(AzureAccount? Account, string? Error)
 {
     public bool Succeeded => Account is not null && Error is null;
 }
-public sealed record AzureTenant(string Id, string DisplayName);
-public sealed record AzureSubscription(string Id, string DisplayName, string TenantId);
+// ToString returns the display name: UI lists (and their UI Automation names) show these records directly.
+public sealed record AzureTenant(string Id, string DisplayName) { public override string ToString() => DisplayName; }
+public sealed record AzureSubscription(string Id, string DisplayName, string TenantId) { public override string ToString() => DisplayName; }
 public sealed record AzureStorageAccount(string Id, string Name, string SubscriptionId, string TenantId)
 {
+    public override string ToString() => Name;
+
+    /// <summary>The resource group named in the ARM <see cref="Id"/>, or empty.</summary>
+    public string ResourceGroup
+    {
+        get
+        {
+            var parts = Id.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var i = Array.FindIndex(parts, p => p.Equals("resourceGroups", StringComparison.OrdinalIgnoreCase));
+            return i >= 0 && i + 1 < parts.Length ? parts[i + 1] : "";
+        }
+    }
+
     public Uri BlobServiceUri => AzureStorageAddress.ServiceUri(Name);
     public string ContainerId(string container) => Id + "/blobServices/default/containers/" + AzureStorageAddress.ContainerName(container);
 }
 public enum AzureContainerPublicAccess { None, Blob, Container }
-public sealed record AzureContainer(string Name, AzureContainerPublicAccess PublicAccess);
+public sealed record AzureContainer(string Name, AzureContainerPublicAccess PublicAccess) { public override string ToString() => Name; }
 
 /// <summary>One effective permission entry; exclusions apply only to that entry, not other grants.</summary>
 public sealed record AzurePermission(IReadOnlyList<string> Actions, IReadOnlyList<string> NotActions,

@@ -46,6 +46,31 @@ public sealed class ChipImageBuilder(HttpClient http)
         return Render(null, Title(collection, options), collection.Summary.Service, options, ChipArtSource.Generated);
     }
 
+    /// <summary>
+    /// Downloads the art <see cref="BuildFrontAsync"/> would use (the collection's, else its first track's) without
+    /// rendering, so a caller can re-render (title, options) without downloading again. Null: no usable art.
+    /// </summary>
+    public async Task<byte[]?> FetchArtAsync(MusicCollection collection, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(collection);
+        var track = collection.Tracks.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.ThumbnailUrl));
+        foreach (var url in new[] { collection.Summary.ThumbnailUrl, track?.ThumbnailUrl })
+        {
+            var bytes = await TryDownloadAsync(url ?? "", ct);
+            using var art = ChipArt.Decode(bytes);
+            if (art is not null) return bytes;
+        }
+        ct.ThrowIfCancellationRequested();
+        return null;
+    }
+
+    /// <summary>True when <paramref name="bytes"/> is art the chip renderer accepts (PNG, JPEG or WebP that decodes).</summary>
+    public static bool IsSupportedArt(byte[]? bytes)
+    {
+        using var art = ChipArt.Decode(bytes);
+        return art is not null;
+    }
+
     /// <summary>Renders a chip front from art bytes already in hand (null or undecodable → generated background).</summary>
     public static ChipImage RenderFront(byte[]? art, string title, ServiceKind? service, ChipOptions? options = null)
     {
