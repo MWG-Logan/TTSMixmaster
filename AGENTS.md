@@ -16,7 +16,10 @@ TTSMixmaster.slnx
 src/TTSMixmaster.Core/        net10.0 class library: models, services, downloader, uploader, TTS formatter, config, file layout.
                               No UI or WinUI references, so it is unit-testable and agent-friendly.
 src/TTSMixmaster.App/         WinUI 3 app (unpackaged, Windows App SDK self-contained), MVVM via CommunityToolkit.Mvvm.
-tests/TTSMixmaster.Core.Tests/ xUnit tests for Core.
+tests/TTSMixmaster.Core.Tests/            MSTest unit tests for Core.
+tests/TTSMixmaster.Core.IntegrationTests/ MSTest integration tests (real tools, Azurite, real files).
+tests/TTSMixmaster.App.Tests/             MSTest WinUI UI-thread tests ([UITestMethod]).
+tests/e2e/                                winapp ui smoke script (Sandbox/local).
 installer/                    WiX MSI. Harvests the App publish folder.
 ```
 
@@ -24,7 +27,7 @@ installer/                    WiX MSI. Harvests the App publish folder.
 
 ```powershell
 dotnet build TTSMixmaster.slnx -p:Platform=x64
-dotnet test tests/TTSMixmaster.Core.Tests
+dotnet test --project tests/TTSMixmaster.Core.Tests          # MTP runner (global.json); see docs/TESTING.md for every layer
 dotnet publish src/TTSMixmaster.App -c Release -p:Platform=x64   # self-contained folder (win-x64.pubxml)
 ```
 
@@ -70,6 +73,13 @@ is not a workaround (WinUI self-contained needs the app's own exe manifest).
 - **KISS + reliability over cleverness.** One obvious place for each concern (especially file paths and layout).
 - `config.json` stays readable by the .NET app (same snake_case keys) so existing users keep their settings.
 - Secrets never get logged or committed.
+- Tests: **MSTest only** (`MSTest.Sdk` on Microsoft.Testing.Platform, version pinned in `global.json`); never xUnit or NUnit.
+  Four layers, each in its own place: unit (`tests/TTSMixmaster.Core.Tests`, fakes only), integration
+  (`tests/TTSMixmaster.Core.IntegrationTests`, `[TestCategory("Integration")]`, real tools/Azurite, Inconclusive when
+  missing), App UI-thread (`tests/TTSMixmaster.App.Tests`, `[UITestMethod]` for anything touching WinUI objects) and
+  e2e (`tests/e2e/ui-smoke.ps1`, AutomationId selectors, Sandbox). Seal test classes, prefer `Assert.ThrowsExactly`,
+  `AreSequenceEqual`, `ContainsSingle`, and keep tests that share processes/ports/mutexes `[DoNotParallelize]`.
+  Commands per layer: `docs/TESTING.md`.
 
 ## Git
 
