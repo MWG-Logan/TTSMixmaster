@@ -178,9 +178,13 @@ public sealed partial class CollectionViewModel : ObservableObject
         if (_collection is not null)
         {
             var key = AppSettings.ChipImageKey(_collection.Summary);
-            if (value.Length == 0) _app.Settings.ChipCustomImages.Remove(key);
-            else _app.Settings.ChipCustomImages[key] = value;
-            TrySaveSettings();
+            var saved = _app.Settings.ChipCustomImages.GetValueOrDefault(key, "");
+            if (saved != value)
+            {
+                if (value.Length == 0) _app.Settings.ChipCustomImages.Remove(key);
+                else _app.Settings.ChipCustomImages[key] = value;
+                TrySaveSettings();
+            }
         }
         SchedulePreview();
     }

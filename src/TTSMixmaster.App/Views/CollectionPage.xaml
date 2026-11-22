@@ -278,8 +278,7 @@
                                 </Grid>
                                 <TextBlock
                                     AutomationProperties.AutomationId="ChipImageError"
-                                    Foreground="{ThemeResource SystemFillColorCautionBrush}"
-                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Style="{StaticResource SecondaryCaptionStyle}"
                                     Text="{x:Bind ViewModel.ChipImageError, Mode=OneWay}"
                                     TextWrapping="Wrap"
                                     Visibility="{x:Bind ViewModel.HasChipImageError, Mode=OneWay}" />
