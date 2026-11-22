@@ -43,6 +43,12 @@ public sealed class AppSettings
     public string DownloadPath { get; set; } = "";
     public string TtsOutputPath { get; set; } = "";
 
+    /// <summary>
+    /// Tabletop Simulator's "Saved Objects" folder, for non-standard installs. Empty means
+    /// &lt;Documents&gt;\My Games\Tabletop Simulator\Saves\Saved Objects (see <see cref="Tts.TtsSavedObjects"/>).
+    /// </summary>
+    public string TtsSavedObjectsPath { get; set; } = "";
+
     // Audio
     public string AudioQuality { get; set; } = "192";
 

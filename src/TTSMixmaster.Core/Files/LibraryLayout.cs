@@ -290,13 +290,20 @@ public sealed partial class LibraryLayout
     /// Writes several text files (UTF-8, no BOM) so each is replaced whole: all are staged as temps
     /// first, then renamed. A failure while staging leaves every previous file untouched.
     /// </summary>
-    public async Task<IReadOnlyList<string>> WriteTextFilesAsync(IReadOnlyList<(string Path, string Text)> files, CancellationToken ct = default)
+    public Task<IReadOnlyList<string>> WriteTextFilesAsync(IReadOnlyList<(string Path, string Text)> files, CancellationToken ct = default) =>
+        WriteFilesAsync(files.Select(f => (f.Path, new UTF8Encoding(false).GetBytes(f.Text))).ToList(), ct);
+
+    /// <summary>
+    /// Writes several files so each is replaced whole: all are staged as temps in their destination
+    /// folders first, then renamed. A failure while staging leaves every previous file untouched.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> WriteFilesAsync(IReadOnlyList<(string Path, byte[] Bytes)> files, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
         var staged = new List<(string Temp, string Final)>(files.Count);
         try
         {
-            foreach (var (path, text) in files)
+            foreach (var (path, bytes) in files)
             {
                 var folder = Path.GetDirectoryName(Path.GetFullPath(path))!;
                 if (staged.Count == 0 || !Directory.Exists(folder))
@@ -306,7 +313,7 @@ public sealed partial class LibraryLayout
                 }
                 var temp = Path.Combine(folder, NewTempName() + ".tmp");
                 staged.Add((temp, path));
-                await WriteTempAsync(temp, new UTF8Encoding(false).GetBytes(text), ct);
+                await WriteTempAsync(temp, bytes, ct);
             }
             ct.ThrowIfCancellationRequested();
             foreach (var (temp, path) in staged)

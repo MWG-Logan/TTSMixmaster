@@ -74,7 +74,28 @@ public sealed class TtsFormatter(LibraryLayout layout) : ITtsFormatter
 
     /// <summary>Builds the TTS save JSON. A fixed GUID supports reproducible exports and golden tests.</summary>
     public string GenerateSaveFile(MusicCollection collection, IReadOnlyList<UploadedTrack> uploads,
-        TtsOutputOptions options, string? objectGuid = null, bool useSimpleFormat = true)
+        TtsOutputOptions options, string? objectGuid = null, bool useSimpleFormat = true) =>
+        PythonJson(BuildSave(collection, uploads, options, objectGuid, useSimpleFormat));
+
+    /// <summary>
+    /// The saved-object file for TTS's Saved Objects folder: the same save-format document (empty
+    /// SaveName/Date, one entry in ObjectStates) with the player placed at the table centre.
+    /// </summary>
+    public string GenerateSavedObject(MusicCollection collection, IReadOnlyList<UploadedTrack> uploads,
+        TtsOutputOptions options, string? objectGuid = null)
+    {
+        var save = BuildSave(collection, uploads, options, objectGuid, useSimpleFormat: true);
+        var transform = save["ObjectStates"]![0]!["Transform"]!;
+        // The template's position (from a legacy full save) is near the table edge; spawn it centred instead.
+        transform["posX"] = JsonNode.Parse("0.0");
+        transform["posY"] = JsonNode.Parse("2.0");
+        transform["posZ"] = JsonNode.Parse("0.0");
+        transform["rotY"] = JsonNode.Parse("180.0");
+        return PythonJson(save);
+    }
+
+    private JsonNode BuildSave(MusicCollection collection, IReadOnlyList<UploadedTrack> uploads,
+        TtsOutputOptions options, string? objectGuid, bool useSimpleFormat)
     {
         var save = JsonNode.Parse(TtsTemplates.Save)!;
         var obj = save["ObjectStates"]![0]!;
@@ -88,7 +109,7 @@ public sealed class TtsFormatter(LibraryLayout layout) : ITtsFormatter
         obj["CustomImage"]!["ImageSecondaryURL"] = string.IsNullOrWhiteSpace(options.SecondaryImageUrl)
             ? DefaultSecondaryImage : options.SecondaryImageUrl.Trim();
         obj["LuaScript"] = useSimpleFormat ? GenerateSimplePlaylistLua(collection, uploads) : GenerateLuaScript(collection, uploads);
-        return PythonJson(save);
+        return save;
     }
 
     private static IEnumerable<(string Name, string Url)> Audio(MusicCollection collection, IReadOnlyList<UploadedTrack> uploads)

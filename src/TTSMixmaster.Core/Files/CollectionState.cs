@@ -20,6 +20,9 @@ public sealed class CollectionState
     /// <summary>Track key → what is stored for that track.</summary>
     public Dictionary<string, TrackRecord> Tracks { get; set; } = new(StringComparer.Ordinal);
 
+    /// <summary>The saved-object file last exported to Tabletop Simulator for this collection, if any.</summary>
+    public TtsExportRecord? TtsExport { get; set; }
+
     internal static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -31,6 +34,7 @@ public sealed class CollectionState
     internal bool IsValid() =>
         Schema == CurrentSchema && Tracks is not null &&
         (Collection is null || (Collection.Service.Length > 0 && Collection.Id is not null)) &&
+        (TtsExport is null || (TtsExport.Path is { Length: > 0 } && TtsExport.Sha256 is { Length: 64 })) &&
         Tracks.All(pair => pair.Key.Length > 0 && pair.Value is { File.Length: > 0, Length: > 0 } &&
             // Never trust a recorded name that points outside the collection folder.
             pair.Value.File == Path.GetFileName(pair.Value.File));
@@ -51,6 +55,15 @@ public sealed class CollectionRecord
         Name = summary.Name,
         Kind = summary.Kind.ToString(),
     };
+}
+
+/// <summary>What we last wrote to TTS's Saved Objects, so a later export can tell if the user changed it.</summary>
+public sealed class TtsExportRecord
+{
+    /// <summary>Full path of the saved-object .json.</summary>
+    public string Path { get; set; } = "";
+    public string Sha256 { get; set; } = "";
+    public DateTimeOffset ExportedUtc { get; set; }
 }
 
 /// <summary>One track's local file and, once uploaded, its blob.</summary>
