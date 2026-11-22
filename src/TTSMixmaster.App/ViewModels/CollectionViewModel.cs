@@ -217,11 +217,24 @@ public sealed partial class CollectionViewModel : ObservableObject
     private async Task<ChipImage> RenderChipAsync(CancellationToken ct)
     {
         var art = HasCustomChipImage ? await ReadCustomArtAsync() : null;
-        art ??= _art ??= await _app.Chips.FetchArtAsync(_collection!, ct);
+        art ??= _art ??= await FetchCollectionArtAsync(ct);
         var title = ChipTitle;
         var options = new ChipOptions { ShowTitle = ShowTitleOnChip };
         var service = _collection!.Summary.Service;
         return await Task.Run(() => ChipImageBuilder.RenderFront(art, title, service, options), ct);
+    }
+
+    /// <summary>The collection's own art. A timed-out download isn't remembered, so the next render tries again.</summary>
+    private async Task<byte[]?> FetchCollectionArtAsync(CancellationToken ct)
+    {
+        var fetch = await _app.Chips.FetchArtAsync(_collection!, ct);
+        if (fetch.TimedOut)
+            _app.Log.Warn("Chip art download timed out; using a generated background");
+        if (!HasCustomChipImage)
+            ChipImageError = fetch.TimedOut
+                ? "The artwork took too long to download, so a generated background is shown. It's tried again next time."
+                : "";
+        return fetch.Art;
     }
 
     private async Task<byte[]?> ReadCustomArtAsync()
