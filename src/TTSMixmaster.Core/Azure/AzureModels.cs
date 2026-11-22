@@ -5,7 +5,12 @@ namespace TTSMixmaster.Core.Azure;
 
 public static class AzureSignInDefaults
 {
-    public const string ClientId = "";
+    /// <summary>
+    /// "TTSMixmaster" Entra app registration (mw-gc.com tenant): multi-tenant + personal accounts,
+    /// public client, delegated ARM and Azure Storage user_impersonation. Not a secret.
+    /// Overridable with the azure_client_id setting.
+    /// </summary>
+    public const string ClientId = "a1061476-0bc3-43f7-a395-a3b658477a92";
 }
 
 public sealed record AzureAccount(string DisplayName, string TenantId);
