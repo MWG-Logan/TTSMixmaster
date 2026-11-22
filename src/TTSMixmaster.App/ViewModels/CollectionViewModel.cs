@@ -85,7 +85,34 @@ public sealed partial class CollectionViewModel : ObservableObject
     [ObservableProperty] public partial bool IsAzureMissing { get; set; }
 
     // Tabletop object options
-    [ObservableProperty] public partial string ObjectNickname { get; set; } = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ChipTitle), nameof(ChipPreviewDescription))]
+    public partial string ObjectNickname { get; set; } = "";
+
+    // Chip front image. TODO(core): feed these to Core's chip image renderer and show its bitmap.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ChipPreviewDescription))]
+    public partial bool ShowTitleOnChip { get; set; } = true;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCustomChipImage), nameof(ChipPreviewDescription))]
+    public partial string CustomChipImagePath { get; set; } = "";
+
+    public bool HasCustomChipImage => CustomChipImagePath.Length > 0;
+    public string ChipTitle => string.IsNullOrWhiteSpace(ObjectNickname) ? Title : ObjectNickname.Trim();
+
+    public string ChipPreviewDescription =>
+        $"Chip preview: {(HasCustomChipImage ? "custom image" : $"{Display.ServiceName(Service)} artwork")}" +
+        (ShowTitleOnChip ? $", titled {ChipTitle}" : ", no title");
+
+    [RelayCommand]
+    private void RemoveCustomChipImage() => CustomChipImagePath = "";
+
+    partial void OnTitleChanged(string value)
+    {
+        OnPropertyChanged(nameof(ChipTitle));
+        OnPropertyChanged(nameof(ChipPreviewDescription));
+    }
     [ObservableProperty] public partial string ObjectDescription { get; set; } = "";
     [ObservableProperty] public partial string PrimaryImageUrl { get; set; } = "";
     [ObservableProperty] public partial string SecondaryImageUrl { get; set; } = "";

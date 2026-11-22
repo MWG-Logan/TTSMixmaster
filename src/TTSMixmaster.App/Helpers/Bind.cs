@@ -14,6 +14,10 @@ public static class Bind
     public static Visibility VisibleIfText(string? value) => string.IsNullOrEmpty(value) ? Visibility.Collapsed : Visibility.Visible;
     public static bool Not(bool value) => !value;
 
+    /// <summary>A local image file, or nothing. New source per call, like <see cref="ServiceIcon"/>.</summary>
+    public static ImageSource? FileImage(string? path) =>
+        string.IsNullOrEmpty(path) ? null : new BitmapImage(new Uri(path));
+
     /// <summary>The provider's mark (Assets/Services/*.svg). A new source per call: image sources aren't shared between elements.</summary>
     public static ImageSource ServiceIcon(ServiceKind kind) => new SvgImageSource(new Uri(kind switch
     {

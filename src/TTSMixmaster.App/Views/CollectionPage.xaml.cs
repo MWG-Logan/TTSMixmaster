@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.Windows.Storage.Pickers;
 using TTSMixmaster.App.DesignTime;
 using TTSMixmaster.App.ViewModels;
 
@@ -52,6 +53,15 @@ public sealed partial class CollectionPage : Page
             ContentDialogResult.Secondary => TtsExportConflictChoice.KeepBoth,
             _ => TtsExportConflictChoice.Ask,
         };
+    }
+
+    private async void UseCustomChipImage_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileOpenPicker(App.Window.AppWindow.Id) { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
+        foreach (var type in new[] { ".png", ".jpg", ".jpeg" })
+            picker.FileTypeFilter.Add(type);
+        if (await picker.PickSingleFileAsync() is { } file)
+            ViewModel.CustomChipImagePath = file.Path;
     }
 
     private void OpenSettings_Click(object sender, RoutedEventArgs e) => App.Window.Navigate(typeof(SettingsPage));

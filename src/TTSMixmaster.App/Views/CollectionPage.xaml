@@ -284,44 +284,108 @@
                         <Expander.Header>
                             <StackPanel Padding="0,12">
                                 <TextBlock Text="Tabletop object" />
-                                <TextBlock Style="{StaticResource SecondaryCaptionStyle}" Text="Name, description and images for the music player. All optional." />
+                                <TextBlock Style="{StaticResource SecondaryCaptionStyle}" Text="Chip image, name and description for the music player. All optional." />
                             </StackPanel>
                         </Expander.Header>
-                        <Grid ColumnSpacing="16" RowSpacing="12">
+                        <Grid ColumnSpacing="24">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <TextBox
-                                AutomationProperties.AutomationId="ObjectNickname"
-                                Header="Name"
-                                PlaceholderText="{x:Bind ViewModel.Title, Mode=OneWay}"
-                                Text="{x:Bind ViewModel.ObjectNickname, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBox
-                                Grid.Column="1"
-                                AutomationProperties.AutomationId="ObjectDescription"
-                                Header="Description"
-                                PlaceholderText="Generated from the track list"
-                                Text="{x:Bind ViewModel.ObjectDescription, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBox
-                                Grid.Row="1"
-                                AutomationProperties.AutomationId="PrimaryImageUrl"
-                                Header="Front image URL"
-                                InputScope="Url"
-                                PlaceholderText="Default music player image"
-                                Text="{x:Bind ViewModel.PrimaryImageUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBox
-                                Grid.Row="1"
-                                Grid.Column="1"
-                                AutomationProperties.AutomationId="SecondaryImageUrl"
-                                Header="Back image URL"
-                                InputScope="Url"
-                                PlaceholderText="Default music player image"
-                                Text="{x:Bind ViewModel.SecondaryImageUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <!--
+                                Chip preview. A stand-in drawn in XAML until Core's chip image renderer lands
+                                (it will return the real front image). The colours depict the physical
+                                cartridge, not app chrome, so they're fixed across themes on purpose.
+                            -->
+                            <StackPanel Width="184" Spacing="12">
+                                <Border
+                                    Width="184"
+                                    Height="184"
+                                    Padding="14"
+                                    AutomationProperties.AutomationId="ChipPreview"
+                                    AutomationProperties.Name="{x:Bind ViewModel.ChipPreviewDescription, Mode=OneWay}"
+                                    Background="{StaticResource ChipCartridgeBrush}"
+                                    BorderBrush="{StaticResource ChipCartridgeEdgeBrush}"
+                                    BorderThickness="2"
+                                    CornerRadius="22">
+                                    <Grid>
+                                        <Border Background="{StaticResource ChipArtBackgroundBrush}" CornerRadius="12">
+                                            <Grid>
+                                                <ImageIcon
+                                                    Width="72"
+                                                    Height="72"
+                                                    Source="{x:Bind h:Bind.ServiceIcon(ViewModel.Service), Mode=OneTime}"
+                                                    Visibility="{x:Bind h:Bind.Collapsed(ViewModel.HasCustomChipImage), Mode=OneWay}" />
+                                                <Image
+                                                    Source="{x:Bind h:Bind.FileImage(ViewModel.CustomChipImagePath), Mode=OneWay}"
+                                                    Stretch="UniformToFill"
+                                                    Visibility="{x:Bind ViewModel.HasCustomChipImage, Mode=OneWay}" />
+                                            </Grid>
+                                        </Border>
+                                        <Border
+                                            Margin="0,0,0,6"
+                                            Padding="8,2"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Bottom"
+                                            Background="{StaticResource ChipCartridgeBrush}"
+                                            CornerRadius="4"
+                                            Visibility="{x:Bind ViewModel.ShowTitleOnChip, Mode=OneWay}">
+                                            <TextBlock
+                                                FontFamily="Georgia"
+                                                FontSize="13"
+                                                Foreground="{StaticResource ChipTitleBrush}"
+                                                MaxLines="1"
+                                                Text="{x:Bind ViewModel.ChipTitle, Mode=OneWay}"
+                                                TextTrimming="CharacterEllipsis"
+                                                Typography.Capitals="SmallCaps" />
+                                        </Border>
+                                    </Grid>
+                                </Border>
+                                <ToggleSwitch
+                                    AutomationProperties.AutomationId="ShowTitleOnChip"
+                                    Header="Show title on chip"
+                                    IsOn="{x:Bind ViewModel.ShowTitleOnChip, Mode=TwoWay}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button
+                                        AutomationProperties.AutomationId="UseCustomChipImage"
+                                        Click="UseCustomChipImage_Click"
+                                        Content="Use custom image…" />
+                                    <Button
+                                        AutomationProperties.AutomationId="RemoveCustomChipImage"
+                                        AutomationProperties.Name="Remove custom image"
+                                        Command="{x:Bind ViewModel.RemoveCustomChipImageCommand}"
+                                        ToolTipService.ToolTip="Remove custom image"
+                                        Visibility="{x:Bind ViewModel.HasCustomChipImage, Mode=OneWay}">
+                                        <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                                    </Button>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" Spacing="12">
+                                <TextBox
+                                    AutomationProperties.AutomationId="ObjectNickname"
+                                    Header="Name"
+                                    PlaceholderText="{x:Bind ViewModel.Title, Mode=OneWay}"
+                                    Text="{x:Bind ViewModel.ObjectNickname, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBox
+                                    AutomationProperties.AutomationId="ObjectDescription"
+                                    Header="Description"
+                                    PlaceholderText="Generated from the track list"
+                                    Text="{x:Bind ViewModel.ObjectDescription, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBox
+                                    AutomationProperties.AutomationId="PrimaryImageUrl"
+                                    Header="Front image URL"
+                                    InputScope="Url"
+                                    PlaceholderText="Uses the chip image above"
+                                    Text="{x:Bind ViewModel.PrimaryImageUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBox
+                                    AutomationProperties.AutomationId="SecondaryImageUrl"
+                                    Header="Back image URL"
+                                    InputScope="Url"
+                                    PlaceholderText="Default music player image"
+                                    Text="{x:Bind ViewModel.SecondaryImageUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
                         </Grid>
                     </Expander>
 
