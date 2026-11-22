@@ -1,5 +1,4 @@
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using TTSMixmaster.App.ViewModels;
 
@@ -39,25 +38,6 @@ public sealed partial class AzureStorageSection : UserControl
 
     private void CloseNewContainerFlyout() => NewContainerFlyout.Hide();
 
-    private async Task<bool> ConfirmPublicAccessAsync(string account, string container)
-    {
-        var dialog = new ContentDialog
-        {
-            XamlRoot = XamlRoot,
-            RequestedTheme = (XamlRoot.Content as FrameworkElement)?.ActualTheme ?? ElementTheme.Default,
-            Style = (Style)Application.Current.Resources["DefaultContentDialogStyle"],
-            Title = "Allow public read access?",
-            Content = new TextBlock
-            {
-                TextWrapping = TextWrapping.Wrap,
-                Text = $"Anyone with the link to a file in {container} will be able to play it. Nobody can list, change or delete files.\n\n"
-                     + $"This also turns on public access for the {account} storage account, so any other container there that was already set to public becomes readable again.",
-            },
-            PrimaryButtonText = "Allow public read access",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close,
-        };
-        AutomationProperties.SetAutomationId(dialog, "ConfirmPublicAccessDialog");
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
-    }
+    private Task<bool> ConfirmPublicAccessAsync(string account, string container) =>
+        Dialogs.ConfirmPublicAccessAsync(XamlRoot, account, container);
 }

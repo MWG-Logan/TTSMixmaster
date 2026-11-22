@@ -38,7 +38,7 @@ public interface ITtsExporter
 /// until Documents\My Games\Tabletop Simulator exists or a custom folder is chosen. A file whose
 /// content differs from what this app last wrote is a conflict.
 /// </summary>
-internal sealed class FakeTtsExporter : ITtsExporter
+internal sealed class FakeTtsExporter(Func<string> ttsOutputRoot) : ITtsExporter
 {
     private readonly Dictionary<string, string> _lastWrittenHash = new(StringComparer.OrdinalIgnoreCase);
 
@@ -85,6 +85,7 @@ internal sealed class FakeTtsExporter : ITtsExporter
 
             await File.WriteAllTextAsync(path, json, ct);
             _lastWrittenHash[path] = Hash(json);
+            FakeLibrary.MarkExported(FakeLibrary.CollectionFolder(ttsOutputRoot(), collection.Summary), path);
             return new TtsExportResult(path, existed ? TtsExportOutcome.Updated : TtsExportOutcome.Created);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

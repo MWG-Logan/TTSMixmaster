@@ -184,7 +184,7 @@
                                     Text="Put it in Tabletop Simulator" />
                                 <TextBlock
                                     Style="{StaticResource SecondaryTextStyle}"
-                                    Text="Export adds the music player to your Saved Objects, ready to drop onto any table."
+                                    Text="Export adds the music player to your Saved Objects. In Tabletop Simulator, open Objects → Saved Objects → TTSMixmaster and click it to place it."
                                     TextWrapping="Wrap" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -229,44 +229,7 @@
                                     Text="{x:Bind ViewModel.CopyStatus, Mode=OneWay}" />
                             </StackPanel>
 
-                            <InfoBar
-                                AutomationProperties.AutomationId="ExportSucceeded"
-                                IsClosable="False"
-                                IsOpen="{x:Bind ViewModel.IsExported, Mode=OneWay}"
-                                Message="{x:Bind ViewModel.ExportedMessage, Mode=OneWay}"
-                                Severity="Success"
-                                Title="{x:Bind ViewModel.ExportedTitle, Mode=OneWay}"
-                                Visibility="{x:Bind ViewModel.IsExported, Mode=OneWay}">
-                                <InfoBar.ActionButton>
-                                    <Button
-                                        AutomationProperties.AutomationId="ShowExportInFolder"
-                                        Command="{x:Bind ViewModel.ShowExportInFolderCommand}"
-                                        Content="Show in folder" />
-                                </InfoBar.ActionButton>
-                            </InfoBar>
-                            <InfoBar
-                                AutomationProperties.AutomationId="ExportTtsNotFound"
-                                IsClosable="False"
-                                IsOpen="{x:Bind ViewModel.IsTtsMissing, Mode=OneWay}"
-                                Message="It keeps saved objects in Documents\My Games\Tabletop Simulator, and that folder isn't here. If TTS is installed somewhere else, choose its Saved Objects folder in Settings."
-                                Severity="Warning"
-                                Title="Couldn't find Tabletop Simulator"
-                                Visibility="{x:Bind ViewModel.IsTtsMissing, Mode=OneWay}">
-                                <InfoBar.ActionButton>
-                                    <Button
-                                        AutomationProperties.AutomationId="OpenSettingsFromExport"
-                                        Click="OpenSettings_Click"
-                                        Content="Open Settings" />
-                                </InfoBar.ActionButton>
-                            </InfoBar>
-                            <InfoBar
-                                AutomationProperties.AutomationId="ExportFailed"
-                                IsClosable="False"
-                                IsOpen="{x:Bind ViewModel.IsExportFailed, Mode=OneWay}"
-                                Message="{x:Bind ViewModel.ExportError, Mode=OneWay}"
-                                Severity="Error"
-                                Title="Export didn't finish"
-                                Visibility="{x:Bind ViewModel.IsExportFailed, Mode=OneWay}" />
+                            <local:ExportResultBar ViewModel="{x:Bind ViewModel.ExportState, Mode=OneTime}" />
 
                             <TextBlock
                                 IsTextSelectionEnabled="True"

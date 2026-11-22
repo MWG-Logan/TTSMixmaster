@@ -46,7 +46,7 @@
             Grid.Row="1"
             Style="{StaticResource CardBorderStyle}"
             Visibility="{x:Bind ViewModel.HasItems, Mode=OneWay}">
-            <local:LoadInTtsSteps />
+            <local:TtsHowTo />
         </Border>
 
         <InfoBar
@@ -71,53 +71,99 @@
             Visibility="{x:Bind ViewModel.HasItems, Mode=OneWay}">
             <ListView.ItemTemplate>
                 <DataTemplate x:DataType="vm:BuildItemViewModel">
-                    <Grid
-                        Padding="0,12"
-                        AutomationProperties.Name="{x:Bind Name, Mode=OneTime}"
-                        ColumnSpacing="16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <FontIcon
-                            FontSize="20"
-                            Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
-                            Glyph="&#xE7B8;" />
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                            <TextBlock
-                                Style="{StaticResource BodyStrongTextBlockStyle}"
-                                Text="{x:Bind Name, Mode=OneTime}"
-                                TextTrimming="CharacterEllipsis" />
-                            <TextBlock
-                                Style="{StaticResource SecondaryCaptionStyle}"
-                                Text="{x:Bind Details, Mode=OneTime}"
-                                TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                        <StackPanel
-                            Grid.Column="2"
-                            VerticalAlignment="Center"
-                            Orientation="Horizontal"
-                            Spacing="8">
-                            <TextBlock
+                    <StackPanel Padding="0,12" Spacing="8">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon
                                 VerticalAlignment="Center"
-                                AutomationProperties.LiveSetting="Polite"
-                                Foreground="{ThemeResource SystemFillColorSuccessBrush}"
-                                Text="{x:Bind CopyStatus, Mode=OneWay}" />
-                            <Button
-                                AutomationProperties.AutomationId="CopyBuildLua"
-                                Command="{x:Bind CopyLuaCommand}"
-                                Content="Copy Lua script"
-                                IsEnabled="{x:Bind HasLua, Mode=OneTime}" />
-                            <Button
-                                AutomationProperties.AutomationId="OpenBuildFolder"
-                                AutomationProperties.Name="Open folder"
-                                Command="{x:Bind OpenFolderCommand}"
-                                ToolTipService.ToolTip="Open folder">
-                                <FontIcon FontSize="16" Glyph="&#xE838;" />
-                            </Button>
-                        </StackPanel>
-                    </Grid>
+                                FontSize="20"
+                                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                Glyph="&#xE7B8;" />
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock
+                                    Style="{StaticResource BodyStrongTextBlockStyle}"
+                                    Text="{x:Bind Name, Mode=OneTime}"
+                                    TextTrimming="CharacterEllipsis" />
+                                <TextBlock
+                                    Style="{StaticResource SecondaryCaptionStyle}"
+                                    Text="{x:Bind Details, Mode=OneTime}"
+                                    TextTrimming="CharacterEllipsis" />
+                                <!--  Export status: icon + words, never colour alone.  -->
+                                <StackPanel
+                                    Margin="0,4,0,0"
+                                    AutomationProperties.AutomationId="BuildExportStatus"
+                                    Orientation="Horizontal"
+                                    Spacing="6">
+                                    <FontIcon
+                                        FontSize="12"
+                                        Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                        Glyph="&#xE73E;"
+                                        Visibility="{x:Bind IsExportedToTts, Mode=OneWay}" />
+                                    <FontIcon
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                        Glyph="&#xEA3A;"
+                                        Visibility="{x:Bind IsNotExported, Mode=OneWay}" />
+                                    <TextBlock
+                                        AutomationProperties.LiveSetting="Polite"
+                                        Style="{StaticResource SecondaryCaptionStyle}"
+                                        Text="{x:Bind ExportStatus, Mode=OneWay}" />
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel
+                                Grid.Column="2"
+                                VerticalAlignment="Center"
+                                Orientation="Horizontal"
+                                Spacing="8">
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    AutomationProperties.LiveSetting="Polite"
+                                    Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                    Text="{x:Bind CopyStatus, Mode=OneWay}" />
+                                <Button
+                                    AutomationProperties.AutomationId="ExportBuildToTts"
+                                    Command="{x:Bind ExportToTtsCommand}"
+                                    Style="{StaticResource AccentButtonStyle}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon FontSize="16" Glyph="&#xEDE1;" />
+                                        <TextBlock Text="Export to TTS" />
+                                    </StackPanel>
+                                </Button>
+                                <Button
+                                    AutomationProperties.AutomationId="MoreBuildActions"
+                                    AutomationProperties.Name="More"
+                                    ToolTipService.ToolTip="More">
+                                    <FontIcon FontSize="16" Glyph="&#xE712;" />
+                                    <Button.Flyout>
+                                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                            <MenuFlyoutItem
+                                                AutomationProperties.AutomationId="OpenBuildFolder"
+                                                Command="{x:Bind OpenFolderCommand}"
+                                                Text="Open folder">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE838;" />
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem
+                                                AutomationProperties.AutomationId="CopyBuildLua"
+                                                Command="{x:Bind CopyLuaCommand}"
+                                                Text="Copy Lua script"
+                                                ToolTipService.ToolTip="Advanced: paste it into an object's Scripting tab in Tabletop Simulator instead of exporting">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE8C8;" />
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                        </MenuFlyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                        <local:ExportResultBar Margin="36,0,0,0" ViewModel="{x:Bind ExportState, Mode=OneTime}" />
+                    </StackPanel>
                 </DataTemplate>
             </ListView.ItemTemplate>
         </ListView>
@@ -142,7 +188,7 @@
             <TextBlock
                 AutomationProperties.AutomationId="BuildsEmptyText"
                 Style="{StaticResource SecondaryTextStyle}"
-                Text="Finished music players show up here so you can load them again later. Open a collection and choose Build for Tabletop Simulator."
+                Text="Finished music players show up here, so you can export them to Tabletop Simulator again without rebuilding. Open a collection and choose Build for Tabletop Simulator."
                 TextAlignment="Center"
                 TextWrapping="Wrap" />
             <Button

@@ -147,7 +147,7 @@ internal sealed class FakeAudioUploader(Func<AppSettings> settings, Func<bool> h
     }
 }
 
-internal sealed class FakeTtsFormatter(LibraryLayout layout) : ITtsFormatter
+internal sealed class FakeTtsFormatter(Func<string> ttsOutputRoot) : ITtsFormatter
 {
     public async Task<TtsOutput> GenerateAsync(
         MusicCollection collection, IReadOnlyList<UploadedTrack> uploads, TtsOutputOptions options, CancellationToken ct = default)
@@ -162,10 +162,11 @@ internal sealed class FakeTtsFormatter(LibraryLayout layout) : ITtsFormatter
         lua.AppendLine("}")
             .AppendLine("function onLoad() MusicPlayer.setPlaylist(playlist) end");
 
-        var folder = layout.TtsFolder(collection);
+        var folder = FakeLibrary.CollectionFolder(ttsOutputRoot(), collection.Summary);
         Directory.CreateDirectory(folder);
-        var luaPath = Path.Combine(folder, LibraryLayout.SanitizeFileName(collection.Name) + ".lua");
+        var luaPath = Path.Combine(folder, LibraryLayout.SanitizeFileName(collection.Name).Replace(' ', '_') + ".lua");
         await File.WriteAllTextAsync(luaPath, lua.ToString(), ct);
+        FakeLibrary.Write(folder, new FakeLibrary.BuildRecord(collection.Summary, uploads, luaPath, DateTime.Now));
         return new TtsOutput([luaPath], lua.ToString());
     }
 }

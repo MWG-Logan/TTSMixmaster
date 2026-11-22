@@ -2,9 +2,9 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace TTSMixmaster.App.Views;
 
-public sealed partial class LoadInTtsSteps : UserControl
+public sealed partial class TtsHowTo : UserControl
 {
-    public LoadInTtsSteps()
+    public TtsHowTo()
     {
         InitializeComponent();
     }

@@ -31,7 +31,7 @@ app-shape anchors and control map. Where the two disagree, Fluent wins.
 NavigationView (Left, Mica, custom TitleBar with back + pane toggle)
 ├─ Collections   find a collection → opens Collection page (back button returns)
 │    └─ Collection   chip + options, tracks, Build, per-track status, Export to TTS
-├─ Builds        finished builds on disk: copy Lua, open folder (the by-hand route)
+├─ Builds        finished builds on disk: export status, Export to TTS again, More (Open folder, Copy Lua)
 └─ Settings      (footer) Music services, Storage (Azure), Folders and audio, Appearance, About
 ```
 
@@ -55,6 +55,12 @@ NavigationView (Left, Mica, custom TitleBar with back + pane toggle)
   writes `Saved Objects\TTSMixmaster\<name>.json` (+ `.png`). Next to it are **Open output folder** and a
   **More** (`…`) `MenuFlyout` holding **Copy Lua script**. After a build, the header button steps down
   to a standard **Build again**, so only one accent button is on screen at a time.
+- **Builds** lists the builds the app owns (identity-keyed folders, `<Name> [<service>-<hash>]`).
+  It opens with a short "How to use in Tabletop Simulator" note: Export to TTS, then Objects → Saved
+  Objects → TTSMixmaster and click to place it. Each row shows the service, track count, build time and
+  its **status** ("Exported to TTS <time>" / "Not exported yet", icon + words). Its accent action is
+  **Export to TTS**, with the same success / conflict / TTS-not-found handling as the Collection page
+  (one shared view model and result bar). **Open folder** and **Copy Lua script** sit in the row's `…` menu.
 - **Settings** auto-saves (Windows Settings convention, no Save button). Each music service is a
   `SettingsExpander` with its fields, a **Test connection** button and an inline `InfoBar` for the
   result. Secrets use `PasswordBox`. The expander header shows "Not set up" / "Set up, not tested" / "Connected".
@@ -96,6 +102,7 @@ NavigationView (Left, Mica, custom TitleBar with back + pane toggle)
 | Not anonymously readable | Warning "Tabletop Simulator can't read these files yet" with **Allow public read access**. One line says what it means, including that it re-enables other public containers on the account. |
 | All good | Success "Ready to upload: builds upload to account/container, and Tabletop Simulator can stream from it." |
 | Builds empty | "No builds yet", with **Browse collections**. |
+| Build not exported | Row status "Not exported yet"; **Export to TTS** on the row. |
 
 ## Copy rules
 

@@ -32,8 +32,8 @@ public sealed class AppServices
         AzureSetup = new FakeAzureStorageSetup();
         Downloader = new FakeAudioDownloader();
         Uploader = new FakeAudioUploader(() => Settings, () => AzureTarget is not null);
-        Formatter = new FakeTtsFormatter(Layout);
-        TtsExporter = new FakeTtsExporter();
+        Formatter = new FakeTtsFormatter(() => paths.TtsOutputRoot(Settings));
+        TtsExporter = new FakeTtsExporter(() => paths.TtsOutputRoot(Settings));
     }
 
     public AppPaths Paths { get; }

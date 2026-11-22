@@ -52,6 +52,7 @@ public sealed partial class CollectionViewModel : ObservableObject
     {
         _app = app;
         _request = request;
+        ExportState = new TtsExportViewModel(app.TtsExporter);
         Title = request.Summary?.Name ?? "Opening link…";
         Subtitle = request.Summary is { } s ? Display.SummaryLine(s) : Display.ServiceName(request.Service.Kind);
         Description = request.Summary?.Description ?? "";
@@ -152,33 +153,8 @@ public sealed partial class CollectionViewModel : ObservableObject
     private IReadOnlyList<UploadedTrack> _lastUploads = [];
     private TtsOutputOptions _lastOptions = new();
 
-    // Export to TTS
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ExportedMessage))]
-    public partial TtsExportResult? Export { get; set; }
-
-    public bool IsExported => Export?.Outcome is TtsExportOutcome.Created or TtsExportOutcome.Updated;
-    public bool IsTtsMissing => Export?.Outcome == TtsExportOutcome.TtsNotFound;
-    public bool IsExportFailed => Export?.Outcome == TtsExportOutcome.Failed;
-    public string ExportedTitle => Export?.Outcome == TtsExportOutcome.Updated ? "Updated in Tabletop Simulator" : "Exported to Tabletop Simulator";
-    public string ExportedMessage =>
-        $"In Tabletop Simulator, open Objects \u2192 Saved Objects \u2192 TTSMixmaster \u2192 {Path.GetFileNameWithoutExtension(Export?.Path ?? "")}.";
-    public string ExportError => Export?.Message ?? "";
-
-    partial void OnExportChanged(TtsExportResult? value)
-    {
-        OnPropertyChanged(nameof(IsExported));
-        OnPropertyChanged(nameof(IsTtsMissing));
-        OnPropertyChanged(nameof(IsExportFailed));
-        OnPropertyChanged(nameof(ExportedTitle));
-        OnPropertyChanged(nameof(ExportError));
-    }
-
-    /// <summary>
-    /// Asks the user what to do when the saved object was edited outside the app. Set by the page
-    /// (it owns the XamlRoot for the ContentDialog); returns Ask to mean "cancel".
-    /// </summary>
-    public Func<string, Task<TtsExportConflictChoice>>? ResolveConflict { get; set; }
+    /// <summary>Export to TTS and its outcome (shared with the Builds rows).</summary>
+    public TtsExportViewModel ExportState { get; }
 
     [ObservableProperty] public partial string CopyStatus { get; set; } = "";
 
@@ -240,7 +216,7 @@ public sealed partial class CollectionViewModel : ObservableObject
         IsBuilding = true;
         IsResultOpen = false;
         Output = null;
-        Export = null;
+        ExportState.Reset();
         CopyStatus = "";
         foreach (var row in Tracks)
         {
@@ -299,7 +275,7 @@ public sealed partial class CollectionViewModel : ObservableObject
             _lastOptions = options;
             OutputFolder = Output.WrittenFiles.Count > 0
                 ? Path.GetDirectoryName(Output.WrittenFiles[0])!
-                : _app.Layout.TtsFolder(_collection);
+                : "";
             foreach (var row in Tracks.Where(r => r.Status != TrackStatus.Failed))
             {
                 row.Status = TrackStatus.Done;
@@ -332,30 +308,12 @@ public sealed partial class CollectionViewModel : ObservableObject
 
     /// <summary>The primary action after a build: put the music player in TTS's Saved Objects.</summary>
     [RelayCommand]
-    private async Task ExportToTtsAsync()
+    private Task ExportToTtsAsync()
     {
         if (_collection is null || Output is null)
-            return;
+            return Task.CompletedTask;
         CopyStatus = "";
-        var result = await _app.TtsExporter.ExportToTtsAsync(_collection, _lastUploads, _lastOptions);
-        if (result.Outcome == TtsExportOutcome.Conflict && ResolveConflict is not null)
-        {
-            var choice = await ResolveConflict(Path.GetFileName(result.Path ?? ""));
-            if (choice == TtsExportConflictChoice.Ask)
-            {
-                Export = null; // Cancelled: nothing written.
-                return;
-            }
-            result = await _app.TtsExporter.ExportToTtsAsync(_collection, _lastUploads, _lastOptions, choice);
-        }
-        Export = result;
-    }
-
-    [RelayCommand]
-    private void ShowExportInFolder()
-    {
-        if (Export?.Path is { } path && File.Exists(path))
-            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+        return ExportState.RunAsync(_collection, _lastUploads, _lastOptions);
     }
 
     [RelayCommand]
