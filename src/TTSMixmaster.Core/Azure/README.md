@@ -87,7 +87,7 @@ both Blob and Container levels permit them. An unset account flag is unknown and
 conservatively. `IsReady` is an ARM configuration assessment, **not** proof of a successful upload.
 Conditions, deny assignments, network/firewall restrictions, leases and RBAC propagation can
 still block requests. Nothing writes a probe blob. `WaitForAccessAsync` polls ARM every five
-seconds for up to two minutes (configurable 0â€“5 minutes); timeout returns the final result.
+seconds for up to two minutes (configurable 0–5 minutes); timeout returns the final result.
 Even after ARM sees the grant, the data plane may need more time. Keep retry/cancel available.
 
 Role assignment uses the `oid` from an ARM token obtained directly from Entra in the selected

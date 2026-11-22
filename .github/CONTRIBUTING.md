@@ -54,7 +54,7 @@ See [AGENTS.md](../AGENTS.md) for the project layout and conventions, and [docs/
 2. **Make your changes** following the coding guidelines below
 3. **Test your changes**:
    ```powershell
-   dotnet test tests/TTSMixmaster.Core.Tests
+   dotnet test --project tests/TTSMixmaster.Core.Tests
 
    # Run the app (in Windows Sandbox, see AGENTS.md)
    cd src/TTSMixmaster.App
@@ -63,7 +63,7 @@ See [AGENTS.md](../AGENTS.md) for the project layout and conventions, and [docs/
 4. **Commit your changes**:
    ```bash
    git add .
-   git commit -m "Add: Brief description of your changes"
+   git commit -m "feat: brief description of your changes"   # conventional commits
    ```
 5. **Push to your fork**:
    ```bash
@@ -73,84 +73,53 @@ See [AGENTS.md](../AGENTS.md) for the project layout and conventions, and [docs/
 
 ## Coding Guidelines
 
-### Python Code Style
-- Follow [PEP 8](https://pep8.org/) style guidelines
-- Use type hints for all function parameters and return values
-- Use dataclasses for data structures where appropriate
-- Include docstrings for all classes and functions
-- Use meaningful variable and function names
+The full conventions are in [AGENTS.md](../AGENTS.md); `.editorconfig` and the .NET analyzers enforce
+the mechanical ones during the build, which must stay at zero warnings.
 
-### Code Organization
-- Follow the existing module structure in `src/`
-- Keep related functionality together in appropriate modules
-- Use the service abstraction layer for new music service integrations
-- Handle exceptions gracefully with proper error messages
-- Use logging for debugging and information messages
+### C# style
+- File-scoped namespaces, nullable reference types on, `_camelCase` private fields
+- `Async` suffix on async methods; `Is`/`Has`/`Can` prefixes on booleans
+- Long-running work is `async` with `CancellationToken` (and `IProgress<T>` where it reports progress);
+  never block on `Task.Result` or `.Wait()`
+- Constructor injection; add an interface only where there's a real seam (HTTP, process launch,
+  filesystem roots, clock). No static singletons
+- Prefer simple, reliable code over clever code, with one obvious place for each concern
 
-### Example Code Style
-```python
-from typing import List, Optional
-from dataclasses import dataclass
+### Project structure
+- `src/TTSMixmaster.Core`: everything that isn't UI (services, downloader, uploader, TTS formatter,
+  configuration, file layout). It has no WinUI references, so it's unit-testable
+- `src/TTSMixmaster.App`: the WinUI 3 app, MVVM with CommunityToolkit.Mvvm
+- New music services implement the service contracts in `src/TTSMixmaster.Core/Contracts.cs` and register
+  in `ServiceCatalog`; credentials come from Settings, never environment variables or source
 
-@dataclass
-class Track:
-    """Represents a music track with metadata."""
-    artist: str
-    title: str
-    duration: Optional[int] = None
-    url: Optional[str] = None
+### UI (WinUI 3)
+- Read the `winui-design` skill (`.claude/skills/`, `.agents/skills/`) before writing XAML
+- `[ObservableProperty]` / `[RelayCommand]`, `x:Bind` (not `Binding`), and
+  `AutomationProperties.AutomationId` on every interactive control
+- Show progress for long-running operations and readable, actionable errors
+- Check light, dark and high-contrast themes; run the app in Windows Sandbox (see AGENTS.md)
 
-def fetch_tracks(service_name: str, limit: int = 50) -> List[Track]:
-    """
-    Fetch tracks from a music service.
-    
-    Args:
-        service_name: Name of the music service
-        limit: Maximum number of tracks to fetch
-        
-    Returns:
-        List of Track objects
-        
-    Raises:
-        ServiceError: If the service is unavailable
-    """
-    try:
-        # Implementation here
-        pass
-    except Exception as e:
-        logger.error(f"Failed to fetch tracks from {service_name}: {e}")
-        raise ServiceError(f"Service {service_name} unavailable") from e
-```
-
-### GUI Development
-- Use CustomTkinter for UI components
-- Follow the existing tab structure and layout patterns
-- Include progress indicators for long-running operations
-- Provide clear error messages and user feedback
-- Test UI changes on different screen sizes and themes
-
-### API Integration
-- Follow the service abstraction pattern in `src/api/base_service.py`
-- Implement proper error handling and rate limiting
-- Use environment variables for API credentials
-- Include connection testing functionality
-- Document API requirements and setup steps
+### Dependencies
+- Package versions live in `Directory.Packages.props` (Central Package Management); project files
+  reference packages without versions
+- Prefer first-party (Microsoft) libraries; explain any community package in the PR
 
 ## Testing
 
 ### Running Tests
 ```powershell
 # All Core tests
-dotnet test tests/TTSMixmaster.Core.Tests
+dotnet test --project tests/TTSMixmaster.Core.Tests
 
 # One test class or method
-dotnet test tests/TTSMixmaster.Core.Tests --filter "FullyQualifiedName~YourServiceTests"
+dotnet test --project tests/TTSMixmaster.Core.Tests -- --filter "FullyQualifiedName~YourServiceTests"
 ```
 
 CI runs the same tests before every release; a failing test blocks it.
 
 ### Writing Tests
-- Tests use **MSTest** and live in `tests/TTSMixmaster.Core.Tests`
+- Tests use **MSTest** (never xUnit or NUnit). Unit tests live in `tests/TTSMixmaster.Core.Tests`; see
+  [docs/TESTING.md](../docs/TESTING.md) for the integration, App UI-thread and end-to-end layers
 - Test Core services through their constructor-injected seams (HTTP, process launch,
   filesystem roots, clock) instead of calling real services
 - Cover error conditions and edge cases, not just the happy path
@@ -159,16 +128,15 @@ CI runs the same tests before every release; a failing test blocks it.
 ## Documentation
 
 ### Code Documentation
-- Include docstrings for all public functions and classes
-- Use Google-style docstrings for consistency
-- Document complex algorithms and business logic
-- Include examples in docstrings where helpful
+- XML doc comments (`/// <summary>`) on public types and members whose purpose isn't obvious
+- Comments explain why, not what; document non-obvious decisions and external behavior
+- Record significant design decisions as ADRs in `docs/adr/`
 
 ### User Documentation
 - Update relevant documentation in the `docs/` directory
 - Include setup instructions for new features
 - Add troubleshooting information for common issues
-- Update API references for new integrations
+- Update the service setup steps in INSTALLATION.md for new integrations
 
 ## Pull Request Guidelines
 
@@ -199,9 +167,9 @@ Add support for Apple Music playlists
 Users have requested Apple Music integration to complement existing Last.fm, YouTube, and Spotify support.
 
 ## Changes
-- Added `AppleMusicService` class implementing the base service interface
-- Updated service manager to include Apple Music
-- Added Apple Music configuration options to GUI
+- Added `AppleMusicService` implementing the Core service contracts
+- Registered it in `ServiceCatalog`
+- Added Apple Music settings to the Settings page
 - Updated documentation with Apple Music setup instructions
 
 ## Testing
@@ -217,7 +185,6 @@ None
 
 ## Documentation
 - Updated INSTALLATION.md with Apple Music API setup
-- Added Apple Music section to API_REFERENCE.md
 ```
 
 ## Code Review Process
