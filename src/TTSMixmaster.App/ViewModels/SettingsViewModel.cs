@@ -10,7 +10,8 @@ namespace TTSMixmaster.App.ViewModels;
 
 /// <summary>Connection state and the Test connection button for one service.</summary>
 public sealed partial class ConnectionViewModel(
-    string key, string name, Func<bool> isConfigured, Func<CancellationToken, Task<string?>> test, Action beforeTest) : ObservableObject
+    string key, string name, Func<bool> isConfigured, Func<CancellationToken, Task<string?>> test, Action beforeTest,
+    FileLog? log = null) : ObservableObject
 {
     private bool _testedOk;
 
@@ -62,7 +63,9 @@ public sealed partial class ConnectionViewModel(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            problem = ex.Message;
+            // Core's services report problems as safe text; anything thrown is mapped, with the detail logged.
+            log?.Error($"{Name} connection test failed", ex);
+            problem = UserText.Describe(ex);
         }
         finally
         {
@@ -98,7 +101,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         YouTube = Connection(ServiceKind.YouTube);
         Spotify = Connection(ServiceKind.Spotify);
         AzureSetup = new AzureSetupViewModel(app);
-        Azure = new ConnectionViewModel("Azure", "Azure Storage", () => _app.Uploader.IsConfigured, TestAzureAsync, SaveNow);
+        Azure = new ConnectionViewModel("Azure", "Azure Storage", () => _app.Uploader.IsConfigured, TestAzureAsync, SaveNow, app.Log);
         AzureSetup.TargetChanged += () =>
         {
             Azure.Invalidate();
@@ -284,12 +287,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             var problem = await _app.Downloader.CheckToolsAsync();
             AreToolsReady = problem is null;
-            ToolsStatus = problem?.ReplaceLineEndings(" ") ?? $"yt-dlp and ffmpeg are ready. yt-dlp: {_app.Tools.FindYtDlp()}";
+            ToolsStatus = problem is null ? $"yt-dlp and ffmpeg are ready. yt-dlp: {_app.Tools.FindYtDlp()}" : UserText.ToolsProblem(problem);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _app.Log.Error("Tools check failed", ex);
             AreToolsReady = false;
-            ToolsStatus = ex.Message;
+            ToolsStatus = $"Couldn't check yt-dlp and ffmpeg. {UserText.Describe(ex)}";
         }
     }
 
@@ -329,7 +333,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            SaveError = $"Your changes couldn't be saved to {SettingsFile}. {ex.Message}";
+            SaveError = $"Your changes couldn't be saved to {UserText.FileName(SettingsFile)}. {UserText.Describe(ex)}";
         }
     }
 
@@ -365,6 +369,6 @@ public sealed partial class SettingsViewModel : ObservableObject
     private ConnectionViewModel Connection(ServiceKind kind)
     {
         var service = _app.Service(kind);
-        return new ConnectionViewModel(kind.ToString(), Display.ServiceName(kind), () => service.IsConfigured, service.TestConnectionAsync, SaveNow);
+        return new ConnectionViewModel(kind.ToString(), Display.ServiceName(kind), () => service.IsConfigured, service.TestConnectionAsync, SaveNow, _app.Log);
     }
 }

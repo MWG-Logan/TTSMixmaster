@@ -29,13 +29,10 @@ public sealed partial class TrackRowViewModel(int number, Track track) : Observa
     public partial string Message { get; set; } = "";
 
     /// <summary>
-    /// The reason as one short line for the row. yt-dlp's own errors (one per source tried) are long and
-    /// technical; they stay in <see cref="Message"/> for the tooltip and the log.
+    /// The reason as one line for the row. <see cref="Message"/> is already a short, user-readable reason
+    /// (<see cref="UserText.DownloadFailure"/>); yt-dlp's raw output goes to the log only.
     /// </summary>
-    public string ShortMessage =>
-        Message.Contains("yt-dlp exited", StringComparison.Ordinal) || Message.Contains("ERROR:", StringComparison.Ordinal)
-            ? "Couldn't find or download audio for this track. Point here for details."
-            : Message.ReplaceLineEndings("\n").Split('\n', 2)[0].Trim();
+    public string ShortMessage => Message.ReplaceLineEndings("\n").Split('\n', 2)[0].Trim();
 
     /// <summary>Spoken status for screen readers: the icon alone isn't accessible.</summary>
     public string AccessibleStatus => string.IsNullOrEmpty(Message) ? Status.ToString() : $"{Status}: {ShortMessage}";
@@ -265,7 +262,8 @@ public sealed partial class CollectionViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            ChipImageError = $"Couldn't read the custom image, so the collection's art is used. {ex.Message}";
+            _app.Log.Error("Couldn't read the custom chip image", ex);
+            ChipImageError = $"Couldn't read {UserText.FileName(CustomChipImagePath)}, so the collection's art is used. {UserText.Describe(ex)}";
             return null;
         }
     }
@@ -356,8 +354,8 @@ public sealed partial class CollectionViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _app.Log.Warn($"Couldn't load a {_request.Service.Kind} collection: {ex.Message}");
-            LoadError = $"Couldn't load this {Display.ServiceName(_request.Service.Kind)} collection. {ex.Message}";
+            _app.Log.Error($"Couldn't load a {_request.Service.Kind} collection", ex);
+            LoadError = $"Couldn't load this {Display.ServiceName(_request.Service.Kind)} collection. {UserText.Describe(ex)}";
         }
         finally
         {
@@ -369,11 +367,12 @@ public sealed partial class CollectionViewModel : ObservableObject
     {
         try
         {
-            ToolsProblem = await _app.Downloader.CheckToolsAsync() ?? "";
+            ToolsProblem = await _app.Downloader.CheckToolsAsync() is { } problem ? UserText.ToolsProblem(problem) : "";
         }
         catch (Exception ex)
         {
-            ToolsProblem = ex.Message;
+            _app.Log.Error("Tools check failed", ex);
+            ToolsProblem = $"Couldn't check yt-dlp and ffmpeg. {UserText.Describe(ex)}";
         }
     }
 
@@ -402,10 +401,10 @@ public sealed partial class CollectionViewModel : ObservableObject
         {
             // 1. Download. Each track fails on its own; only cancellation stops the batch.
             SetStep(1, "Downloading audio", _collection.Tracks.Count);
-            var downloaded = await _app.Downloader.DownloadAsync(_collection, Progress("Already downloaded"), ct);
+            var downloaded = await _app.Downloader.DownloadAsync(_collection, Progress("Already downloaded", UserText.DownloadFailure), ct);
             var ready = downloaded.Where(d => d.Status is TrackStatus.Done or TrackStatus.Skipped && d.FilePath is not null).ToList();
             foreach (var d in downloaded.Where(d => d.Status == TrackStatus.Failed))
-                Fail(d.Track, d.Error ?? "Couldn't download this track.");
+                Fail(d.Track, UserText.DownloadFailure(d.Error), d.Error);
 
             if (ready.Count == 0)
             {
@@ -426,9 +425,10 @@ public sealed partial class CollectionViewModel : ObservableObject
             }
             SetStep(2, "Uploading to Azure", ready.Count);
             var (chipUrl, thumbnail, chipWarning) = await UploadChipAsync(ct);
-            var uploads = await _app.Uploader.UploadAsync(ready, Progress("Already uploaded"), ct);
+            // The uploader's errors are already short and safe to show (Core's DescribeError).
+            var uploads = await _app.Uploader.UploadAsync(ready, Progress("Already uploaded", UploadFailure), ct);
             foreach (var u in uploads.Where(u => u.Status == TrackStatus.Failed || u.PublicUrl is null))
-                Fail(u.Track, u.Error ?? "Couldn't upload this track.");
+                Fail(u.Track, UploadFailure(u.Error), u.Error);
             var playable = uploads.Where(u => u.PublicUrl is not null && u.Status != TrackStatus.Failed).ToList();
 
             if (playable.Count == 0)
@@ -482,7 +482,7 @@ public sealed partial class CollectionViewModel : ObservableObject
         catch (Exception ex)
         {
             _app.Log.Error($"Build of \"{name}\" stopped", ex);
-            ShowResult(InfoBarSeverity.Error, "The build stopped", ex.Message);
+            ShowResult(InfoBarSeverity.Error, "The build stopped", UserText.Describe(ex));
         }
         finally
         {
@@ -573,7 +573,7 @@ public sealed partial class CollectionViewModel : ObservableObject
     /// Rows are matched by track: the downloader's indices are 1-based positions in the collection and the
     /// uploader's are 0-based positions in its own (shorter) list. The bar counts finished reports.
     /// </summary>
-    private Progress<TrackProgress> Progress(string skipped)
+    private Progress<TrackProgress> Progress(string skipped, Func<string?, string> failure)
     {
         var finished = 0;
         return new(p =>
@@ -581,7 +581,8 @@ public sealed partial class CollectionViewModel : ObservableObject
             if ((Tracks.FirstOrDefault(r => ReferenceEquals(r.Track, p.Track)) ?? Tracks.FirstOrDefault(r => r.Track == p.Track)) is { } row)
             {
                 row.Status = p.Status;
-                row.Message = p.Message ?? (p.Status == TrackStatus.Skipped ? skipped : "");
+                row.Message = p.Status == TrackStatus.Failed ? failure(p.Message)
+                    : p.Message ?? (p.Status == TrackStatus.Skipped ? skipped : "");
             }
             if (p.Status != TrackStatus.Working)
             {
@@ -592,9 +593,12 @@ public sealed partial class CollectionViewModel : ObservableObject
         });
     }
 
-    private void Fail(Track track, string reason)
+    private static string UploadFailure(string? error) => error ?? "Couldn't upload this track.";
+
+    /// <summary>Marks a track failed: the row gets the short <paramref name="reason"/>, the log gets the (sanitized) detail.</summary>
+    private void Fail(Track track, string reason, string? detail)
     {
-        _app.Log.Warn($"Track \"{track.Artist} - {track.Title}\" left out: {reason.ReplaceLineEndings(" | ")}");
+        _app.Log.Warn($"Track \"{track.Artist} - {track.Title}\" left out: {reason} Detail: {detail ?? "none"}");
         if (Tracks.FirstOrDefault(r => r.Track == track) is { } row)
         {
             row.Status = TrackStatus.Failed;

@@ -180,12 +180,12 @@ public sealed class AppServices : IDisposable
         {
             var problem = await Downloader.CheckToolsAsync();
             Log.Info(problem is null ? "Tools: yt-dlp and ffmpeg are ready" : $"Tools: {problem}");
-            return problem;
+            return problem is null ? null : UserText.ToolsProblem(problem);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Log.Error("Tools check failed", ex);
-            return ex.Message;
+            return $"Couldn't check yt-dlp and ffmpeg. {UserText.Describe(ex)}";
         }
     }
 

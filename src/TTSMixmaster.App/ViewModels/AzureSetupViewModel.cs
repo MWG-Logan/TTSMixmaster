@@ -114,7 +114,8 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Error = $"Sign-in didn't finish. {ex.Message}";
+            _app.Log.Error("Azure sign-in failed", ex);
+            Error = $"Sign-in didn't finish. {UserText.Describe(ex)}";
         }
         finally
         {
@@ -257,7 +258,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Error = $"Your storage choice couldn't be saved. {ex.Message}";
+            Error = $"Your storage choice couldn't be saved. {UserText.Describe(ex)}";
         }
         TargetChanged?.Invoke();
     }
