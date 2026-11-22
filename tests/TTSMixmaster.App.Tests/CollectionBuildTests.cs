@@ -84,7 +84,7 @@ public sealed class CollectionBuildTests
         vm.ObjectDescription = "Background music";
 
         var build = vm.BuildCommand.ExecuteAsync(null);
-        await app.Downloader.Started.Task;
+        await app.DownloadStartedAsync(build, vm);
         await Wait.UntilAsync(() => vm.Tracks[0].Status == TrackStatus.Working, "the first track to show Working");
 
         // Running
@@ -264,7 +264,7 @@ public sealed class CollectionBuildTests
         await vm.ActivateAsync();
 
         var build = vm.BuildCommand.ExecuteAsync(null);
-        await app.Downloader.Started.Task;
+        await app.DownloadStartedAsync(build, vm);
         await Wait.UntilAsync(() => vm.Tracks[0].Status == TrackStatus.Working, "the first track to show Working");
         vm.BuildCancelCommand.Execute(null);
         await build;
@@ -292,7 +292,7 @@ public sealed class CollectionBuildTests
         app.Downloader.FailTitles.Clear();
         app.Downloader.HoldUntilReleased = true;
         var rebuild = vm.BuildCommand.ExecuteAsync(null);
-        await app.Downloader.Started.Task;
+        await app.DownloadStartedAsync(rebuild, vm);
 
         Assert.IsFalse(vm.IsResultOpen);
         Assert.IsFalse(vm.HasOutput);

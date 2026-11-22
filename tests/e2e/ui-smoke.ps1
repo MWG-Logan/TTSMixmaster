@@ -51,41 +51,110 @@ $launchedHere = $false
 $guestReady = $false
 $guestPath = $null
 $hwnd = $null
+$startedProcesses = [Collections.Generic.List[object]]::new()   # Invoke-Bounded's processes: Id, Start
 
 if ($DevSource -and ($Target -ne 'sandbox' -or -not $PublishDir)) { throw '-DevSource needs -Target sandbox and a dev-source -PublishDir.' }
 
-function Invoke-WinAppChecked {
-    param([string[]]$Arguments)
-    $global:LASTEXITCODE = $null
-    $output = @(& winapp @Arguments)
-    $code = $global:LASTEXITCODE
-    if ($null -eq $code -or $code -ne 0) {
-        throw "winapp $($Arguments -join ' ') failed (exit $code). $($output -join "`n")"
+# One argument for a Windows command line (CommandLineToArgvW rules), so embedded quotes survive.
+function ConvertTo-CommandLineArgument {
+    param([string]$Value)
+    if ($Value -and $Value -notmatch '[\s"]') { return $Value }
+    '"' + (($Value -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
+}
+
+# Runs an external program under a deadline and returns its exit code and output. No external command may block the
+# run: on timeout its whole process tree is killed and the call throws. Output comes through this call's own pipes,
+# and once the program exits, a helper it left running can't keep the call waiting for them to close.
+function Invoke-Bounded {
+    param([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSec)
+    $psi = New-Object Diagnostics.ProcessStartInfo $FilePath
+    $psi.Arguments = (@($Arguments) | ForEach-Object { ConvertTo-CommandLineArgument $_ }) -join ' '
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = [Console]::OutputEncoding
+    $psi.StandardErrorEncoding = [Console]::OutputEncoding
+    $process = [Diagnostics.Process]::Start($psi)
+    $startedProcesses.Add([pscustomobject]@{ Id = $process.Id; Start = $process.StartTime })
+    try {
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($TimeoutSec * 1000)) {
+            Stop-ProcessTree $process.Id
+            throw "$([IO.Path]::GetFileName($FilePath)) $($Arguments -join ' ') timed out after $TimeoutSec s and was stopped."
+        }
+        if (-not [Threading.Tasks.Task]::WaitAll(@($stdout, $stderr), 10000)) {
+            Write-Warning "$([IO.Path]::GetFileName($FilePath)) exited, but a process it started still holds its output; continuing without the rest."
+        }
+        $lines = { param($t) if ($t.IsCompleted) { @($t.Result -split '\r?\n' | Where-Object { $_ -ne '' }) } else { @() } }
+        [pscustomobject]@{ Code = $process.ExitCode; Output = @(& $lines $stdout); Error = @(& $lines $stderr) }
+    } finally { $process.Dispose() }
+}
+
+# taskkill /T: the process and everything it started (Windows PowerShell 5.1 has no Kill(entireProcessTree)).
+function Stop-ProcessTree {
+    param([int]$ProcessId)
+    $null = & taskkill.exe /PID $ProcessId /T /F 2>&1
+}
+
+# At the end: anything this run started that is still running (a stalled or left-behind child), with its descendants.
+# A process counts only if it was created after its parent started, and a recorded PID now held by a different
+# process (reused) is skipped, so nothing unrelated is touched.
+function Stop-LeftoverProcesses {
+    $running = @(Get-CimInstance Win32_Process)
+    $byId = @{}
+    foreach ($p in $running) { $byId[[int]$p.ProcessId] = $p }
+    $ours = @{}   # process id -> its start time
+    $stop = [Collections.Generic.List[object]]::new()
+    foreach ($s in $startedProcesses) {
+        $now = $byId[$s.Id]
+        if ($now -and [math]::Abs(($now.CreationDate - $s.Start).TotalSeconds) -gt 1) { continue }
+        $ours[$s.Id] = $s.Start
+        if ($now) { $stop.Add($now) }
     }
-    $output
+    do {
+        $added = $false
+        foreach ($p in $running) {
+            $id = [int]$p.ProcessId; $parent = [int]$p.ParentProcessId
+            if ($ours.ContainsKey($parent) -and -not $ours.ContainsKey($id) -and $p.CreationDate -ge $ours[$parent]) {
+                $ours[$id] = $p.CreationDate; $stop.Add($p); $added = $true
+            }
+        }
+    } while ($added)
+    foreach ($p in $stop) {
+        Write-Verbose "Stopping leftover process $($p.ProcessId) ($($p.Name))"
+        Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
+$WinApp = (Get-Command winapp -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+
+function Invoke-WinAppChecked {
+    param([string[]]$Arguments, [int]$TimeoutSec = 120)
+    $r = Invoke-Bounded $WinApp $Arguments $TimeoutSec
+    if ($r.Code -ne 0) {
+        throw "winapp $($Arguments -join ' ') failed (exit $($r.Code)). $(($r.Output + $r.Error) -join "`n")"
+    }
+    $r.Output
 }
 
 function Invoke-Ui {
     param([string[]]$Arguments)
     $selector = if ($hwnd) { @('-w', $hwnd) } else { @('-a', "$AppPid") }
-    Invoke-WinAppChecked (@('ui') + $Arguments + $ScopeArgs + $selector)
+    # A UI wait (-t <ms>) bounds itself; its process gets a minute more than that before it is stopped.
+    $t = [array]::IndexOf($Arguments, '-t')
+    $timeoutSec = if ($t -ge 0) { [int][math]::Ceiling([int]$Arguments[$t + 1] / 1000) + 60 } else { 120 }
+    Invoke-WinAppChecked (@('ui') + $Arguments + $ScopeArgs + $selector) -TimeoutSec $timeoutSec
 }
 
 # Runs a PowerShell command in the guest (Sandbox) and returns its output lines. `winapp target exec` has no
-# timeout of its own, so it runs in a job: a command that hangs fails the run instead of blocking it.
+# timeout of its own: a command that hangs is stopped and fails the run instead of blocking it.
 function Invoke-Guest {
     param([string]$Command, [int]$TimeoutSec = 300)
-    $job = Start-Job -ScriptBlock {
-        param($c)
-        $out = @(& winapp target exec sandbox -- powershell -NoProfile -ExecutionPolicy Bypass -Command $c 2>&1 | ForEach-Object { "$_" })
-        [pscustomobject]@{ Code = $LASTEXITCODE; Output = $out }
-    } -ArgumentList $Command
-    try {
-        if (-not (Wait-Job $job -Timeout $TimeoutSec)) { throw "Guest command timed out after $TimeoutSec s: $Command" }
-        $r = Receive-Job $job
-        if ($r.Code -ne 0) { throw "Guest command failed (exit $($r.Code)): $Command`n$($r.Output -join "`n")" }
-        $r.Output
-    } finally { Remove-Job $job -Force }
+    $r = Invoke-Bounded $WinApp @('target', 'exec', 'sandbox', '--', 'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $Command) $TimeoutSec
+    if ($r.Code -ne 0) { throw "Guest command failed (exit $($r.Code)): $Command`n$(($r.Output + $r.Error) -join "`n")" }
+    $r.Output
 }
 
 function Get-UiProperty {
@@ -193,8 +262,9 @@ function New-GuestPayload {
     Compress-Archive -Path (Join-Path $azurite '*') -DestinationPath (Join-Path $payload 'azurite.zip')
     $ffmpeg = Join-Path $PublishDir 'ffmpeg.exe'
     if (-not (Test-Path $ffmpeg)) { throw "No ffmpeg.exe in $PublishDir. Copy tests/.tools/{yt-dlp,ffmpeg,ffprobe}.exe there." }
-    & $ffmpeg -nostdin -hide_banner -loglevel error -y -f lavfi -i 'sine=frequency=440:duration=3' -c:a libmp3lame -b:a 192k (Join-Path $payload 'tone.mp3')
-    if ($LASTEXITCODE -ne 0) { throw 'Could not generate the test tone.' }
+    $tone = Invoke-Bounded $ffmpeg @('-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3',
+        '-c:a', 'libmp3lame', '-b:a', '192k', (Join-Path $payload 'tone.mp3')) 120
+    if ($tone.Code -ne 0) { throw "Could not generate the test tone. $($tone.Error -join ' ')" }
     $payload
 }
 
@@ -211,8 +281,8 @@ try {
             $p = Join-Path $ArtifactDirectory 'guest-payload'; New-Item -ItemType Directory -Force $p | Out-Null
             Copy-Item (Join-Path $PSScriptRoot 'guest\*') $p; $p
         }
-        $guestPath = ((Invoke-WinAppChecked @('target', 'push', 'sandbox', $payload, $GuestWork, '--json')) -join "`n" | ConvertFrom-Json).targetPath
-        $guestApp = ((Invoke-WinAppChecked @('target', 'push', 'sandbox', (Resolve-Path $PublishDir).Path, "$GuestWork-app", '--json')) -join "`n" | ConvertFrom-Json).targetPath
+        $guestPath = ((Invoke-WinAppChecked @('target', 'push', 'sandbox', $payload, $GuestWork, '--json') -TimeoutSec 600) -join "`n" | ConvertFrom-Json).targetPath
+        $guestApp = ((Invoke-WinAppChecked @('target', 'push', 'sandbox', (Resolve-Path $PublishDir).Path, "$GuestWork-app", '--json') -TimeoutSec 600) -join "`n" | ConvertFrom-Json).targetPath
     }
     if ($DevSource) {
         $guestReady = $true # from here on, teardown runs
@@ -234,7 +304,7 @@ try {
     } elseif ($PublishDir) {
         throw '-PublishDir runs in the Sandbox; for this desktop use -AppExe <folder>\TTSMixmaster.exe.'
     } else {
-        $launch = Invoke-WinAppChecked (@('run', $AppProject) + $ScopeArgs + @('--detach', '--json')) | ConvertFrom-Json
+        $launch = (Invoke-WinAppChecked (@('run', $AppProject) + $ScopeArgs + @('--detach', '--json')) -TimeoutSec 900) -join "`n" | ConvertFrom-Json
         if ($launch.Error -or -not $launch.ProcessId -or [int]$launch.ProcessId -le 0) {
             # Unpackaged guest runs may not report the app PID: find TTSMixmaster with
             # `winapp ui list-windows --on sandbox --json` and rerun with -AppPid <pid> -AppScope sandbox.
@@ -385,6 +455,8 @@ try {
         try { Invoke-Guest "& '$guestPath\teardown.ps1'" | Write-Verbose }
         catch { $results.Add(@{ name = 'Guest teardown'; status = 'FAIL'; detail = "$_" }) }
     }
+    # Nothing this run started may outlive it (and keep a caller waiting on the script).
+    try { Stop-LeftoverProcesses } catch { Write-Warning "Couldn't check for leftover processes: $_" }
 }
 
 $failed = @($results | Where-Object { $_.status -ne 'PASS' }).Count

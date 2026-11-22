@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using TTSMixmaster.App.ViewModels;
 using TTSMixmaster.Core.Configuration;
 using TTSMixmaster.Core.Models;
 
@@ -81,10 +82,38 @@ internal sealed class TestApp : IDisposable
         try { Directory.Delete(Root, recursive: true); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Debug.WriteLine($"Couldn't clean {Root}: {ex.Message}"); }
     }
+
+    /// <summary>
+    /// Waits until the held fake download has started. If <paramref name="build"/> ends first (for example the fake
+    /// couldn't create its folder) the test fails with the build's result, and after <see cref="Wait.Limit"/> it times out.
+    /// </summary>
+    public Task DownloadStartedAsync(Task build, CollectionViewModel vm) =>
+        Wait.ForAsync(Downloader.Started.Task, "the download to start", build, () => $"{vm.ResultTitle}: {vm.ResultMessage}");
 }
 
 internal static class Wait
 {
+    /// <summary>The longest a test waits for a signal or a held fake before it fails instead of hanging the run.</summary>
+    public static readonly TimeSpan Limit = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Waits for <paramref name="signal"/>. Fails the test, rather than waiting forever, when <paramref name="ending"/>
+    /// (the operation that should raise the signal) finishes first, saying why, or after <see cref="Limit"/>.
+    /// </summary>
+    public static async Task ForAsync(Task signal, string what, Task? ending = null, Func<string>? why = null)
+    {
+        var timeout = Task.Delay(Limit);
+        var first = await Task.WhenAny(ending is null ? [signal, timeout] : [signal, ending, timeout]);
+        if (first == signal)
+        {
+            await signal;
+            return;
+        }
+        if (first == timeout)
+            Assert.Fail($"Timed out after {Limit.TotalSeconds:g} s waiting for: {what}");
+        Assert.Fail($"It ended before {what}. {why?.Invoke()} {ending!.Exception?.GetBaseException().Message}".TrimEnd());
+    }
+
     /// <summary>
     /// Lets queued UI-thread work run (Progress&lt;T&gt; reports, fire-and-forget loads) until <paramref name="condition"/>
     /// holds. Call from an async [UITestMethod]: awaiting yields the dispatcher.

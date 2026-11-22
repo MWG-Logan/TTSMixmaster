@@ -86,7 +86,7 @@ internal sealed class FakeDownloader(string folder) : IAudioDownloader
         {
             progress?.Report(new(1, tracks.Count, tracks[0], TrackStatus.Working));
             Started.TrySetResult();
-            await _release.Task.WaitAsync(ct);
+            await _release.Task.WaitAsync(Wait.Limit, ct);   // a test that never releases fails, not hangs
         }
         List<DownloadedTrack> results = [];
         for (var i = 0; i < tracks.Count; i++)
@@ -213,7 +213,7 @@ internal sealed class FakeAzure : IAzureAccountService
     {
         Calls.Add($"Subscriptions:{tenantId}");
         if (SlowSubscriptions is { } slow && slow.Tenant == tenantId)
-            await slow.Gate.Task;
+            await slow.Gate.Task.WaitAsync(Wait.Limit, ct);
         return Subscriptions.GetValueOrDefault(tenantId, []);
     }
 

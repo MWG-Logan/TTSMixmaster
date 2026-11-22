@@ -28,7 +28,7 @@ public sealed class RunningBuildsTests
         Assert.IsTrue(builds.IsEmpty);
 
         var build = vm.BuildCommand.ExecuteAsync(null);
-        await app.Downloader.Started.Task;
+        await app.DownloadStartedAsync(build, vm);
         await Wait.UntilAsync(() => vm.StepDetail == "0 of 3", "the download step");
 
         Assert.AreSame(vm, Assert.ContainsSingle(app.Services.ActiveBuilds));
@@ -47,6 +47,25 @@ public sealed class RunningBuildsTests
     }
 
     [UITestMethod]
+    public async Task Waiting_for_a_download_that_never_starts_fails_with_the_builds_reason_instead_of_hanging()
+    {
+        // Final review finding 6: the fake can't create its folder, so the build ends without ever signalling Started.
+        using var app = new TestApp();
+        app.Downloader.HoldUntilReleased = true;
+        Directory.CreateDirectory(app.Root);
+        File.WriteAllText(Path.Combine(app.Root, "downloads"), "a file where the fake's folder goes");
+        var vm = app.OpenCollection();
+        await vm.ActivateAsync();
+        var build = vm.BuildCommand.ExecuteAsync(null);
+
+        var failure = await Assert.ThrowsExactlyAsync<AssertFailedException>(() => app.DownloadStartedAsync(build, vm));
+
+        Assert.Contains("ended before the download to start", failure.Message);
+        Assert.Contains(vm.ResultTitle, failure.Message);
+        Assert.IsTrue(build.IsCompleted);
+    }
+
+    [UITestMethod]
     public async Task A_build_that_finishes_moves_to_the_finished_list()
     {
         using var app = new TestApp();
@@ -56,7 +75,7 @@ public sealed class RunningBuildsTests
         var vm = app.OpenCollection();
         await vm.ActivateAsync();
         var build = vm.BuildCommand.ExecuteAsync(null);
-        await app.Downloader.Started.Task;
+        await app.DownloadStartedAsync(build, vm);
         Assert.IsEmpty(builds.Items);
 
         app.Downloader.Release();
@@ -125,7 +144,7 @@ public sealed class RunningBuildsTests
         var vm = app.OpenCollection();
         await vm.ActivateAsync();
         var build = vm.BuildCommand.ExecuteAsync(null);
-        await app.Downloader.Started.Task;
+        await app.DownloadStartedAsync(build, vm);
 
         vm.BuildCancelCommand.Execute(null); // the In progress row's Cancel
         await build;
@@ -152,7 +171,7 @@ public sealed class RunningBuildsTests
         app.Downloader.FailTitles.Clear();
         app.Downloader.HoldUntilReleased = true;
         var rebuild = first.BuildCommand.ExecuteAsync(null);
-        await app.Downloader.Started.Task;
+        await app.DownloadStartedAsync(rebuild, first);
 
         Assert.AreSequenceEqual([first, second], app.Services.ActiveBuilds);
         Assert.IsFalse(first.EndedWithoutOutput);
@@ -179,7 +198,7 @@ public sealed class RunningBuildsTests
         var first = app.OpenCollection();
         await first.ActivateAsync();
         var firstBuild = first.BuildCommand.ExecuteAsync(null);
-        await app.Downloader.Started.Task;
+        await app.DownloadStartedAsync(firstBuild, first);
         Assert.AreEqual("1 build is still running. Close anyway?", app.Services.CloseWarning());
 
         var second = app.OpenCollection(TestApp.Collection("pl2", "Dungeon"));
