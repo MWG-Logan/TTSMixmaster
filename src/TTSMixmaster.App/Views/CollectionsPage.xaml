@@ -37,7 +37,7 @@
                 x:Name="SearchBox"
                 AutomationProperties.AutomationId="SearchBox"
                 Header="Search or paste a link"
-                PlaceholderText="Playlist or album name, or a Spotify, YouTube or Last.fm link"
+                PlaceholderText="Name or share link"
                 QueryIcon="Find"
                 QuerySubmitted="SearchBox_QuerySubmitted"
                 Text="{x:Bind ViewModel.Query, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
