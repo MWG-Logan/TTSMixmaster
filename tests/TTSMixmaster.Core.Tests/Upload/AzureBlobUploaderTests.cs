@@ -8,6 +8,7 @@ using TTSMixmaster.Core.Upload;
 
 namespace TTSMixmaster.Core.Tests.Upload;
 
+[TestClass]
 public sealed class AzureBlobUploaderTests : IDisposable
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 21, 12, 0, 0, TimeSpan.Zero);
@@ -29,100 +30,100 @@ public sealed class AzureBlobUploaderTests : IDisposable
     private static string Sha256(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
     private static readonly string Hash123 = Sha256([1, 2, 3]);
 
-    [Fact]
+    [TestMethod]
     public async Task Blob_name_is_content_addressed_and_independent_of_the_local_file_name()
     {
         var first = Download("one name.mp3");
         var second = Download("other folder name.mp3");
         var results = await Uploader().UploadAsync([first, second]);
         var expected = $"audio/{Hash123}.mp3";
-        Assert.Equal([expected, expected], _container.RequestedNames);
-        Assert.Equal(new[] { TrackStatus.Done, TrackStatus.Skipped }, results.Select(r => r.Status));
-        Assert.Equal(1, _container.Blob.UploadCount);
-        Assert.Equal(results[0].PublicUrl, results[1].PublicUrl);
+        Assert.AreSequenceEqual([expected, expected], _container.RequestedNames);
+        Assert.AreSequenceEqual(new[] { TrackStatus.Done, TrackStatus.Skipped }, results.Select(r => r.Status));
+        Assert.AreEqual(1, _container.Blob.UploadCount);
+        Assert.AreEqual(results[0].PublicUrl, results[1].PublicUrl);
     }
 
-    [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    [InlineData(365)]
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(365)]
     public async Task Existing_blob_with_the_same_bytes_is_reused_regardless_of_age_or_freshness_setting(double days)
     {
         _settings.AzureBlobFreshnessDays = days;
         _container.Blob.Seed(3, Hash123, Now.AddDays(-400));
         var file = Download();
-        var result = Assert.Single(await Uploader().UploadAsync([file]));
-        Assert.Equal(TrackStatus.Skipped, result.Status);
-        Assert.Equal(0, _container.Blob.UploadCount);
-        Assert.NotNull(result.PublicUrl);
-        Assert.Same(file.Track, result.Track);
+        var result = Assert.ContainsSingle(await Uploader().UploadAsync([file]));
+        Assert.AreEqual(TrackStatus.Skipped, result.Status);
+        Assert.AreEqual(0, _container.Blob.UploadCount);
+        Assert.IsNotNull(result.PublicUrl);
+        Assert.AreSame(file.Track, result.Track);
     }
 
-    [Theory]
-    [InlineData(4, null)]
-    [InlineData(3, null)] // same length, no hash recorded: never assumed to match
-    [InlineData(3, "0000000000000000000000000000000000000000000000000000000000000000")]
+    [TestMethod]
+    [DataRow(4, null)]
+    [DataRow(3, null)] // same length, no hash recorded: never assumed to match
+    [DataRow(3, "0000000000000000000000000000000000000000000000000000000000000000")]
     public async Task A_different_existing_blob_is_never_replaced(long length, string? hash)
     {
         _container.Blob.Seed(length, hash, Now);
-        var result = Assert.Single(await Uploader().UploadAsync([Download()]));
-        Assert.Equal(TrackStatus.Failed, result.Status);
-        Assert.Contains("left unchanged", result.Error);
-        Assert.Equal(0, _container.Blob.UploadCount);
-        Assert.Null(result.PublicUrl);
+        var result = Assert.ContainsSingle(await Uploader().UploadAsync([Download()]));
+        Assert.AreEqual(TrackStatus.Failed, result.Status);
+        Assert.Contains("left unchanged", result.Error!);
+        Assert.AreEqual(0, _container.Blob.UploadCount);
+        Assert.IsNull(result.PublicUrl);
     }
 
-    [Theory]
-    [InlineData(3, true, TrackStatus.Skipped)]
-    [InlineData(3, false, TrackStatus.Failed)]
-    [InlineData(9, true, TrackStatus.Failed)]
+    [TestMethod]
+    [DataRow(3, true, TrackStatus.Skipped)]
+    [DataRow(3, false, TrackStatus.Failed)]
+    [DataRow(9, true, TrackStatus.Failed)]
     public async Task Blob_created_concurrently_after_the_check_is_verified_not_overwritten(long racedLength, bool racedHasHash, TrackStatus expected)
     {
         _container.Blob.RaceLength = racedLength;
         _container.Blob.RaceHash = racedHasHash ? Hash123 : null;
-        var result = Assert.Single(await Uploader().UploadAsync([Download()]));
-        Assert.Equal(expected, result.Status);
-        Assert.Equal(ETag.All, _container.Blob.Options!.Conditions.IfNoneMatch);
-        Assert.Equal(racedLength, _container.Blob.ContentLength);
+        var result = Assert.ContainsSingle(await Uploader().UploadAsync([Download()]));
+        Assert.AreEqual(expected, result.Status);
+        Assert.AreEqual(ETag.All, _container.Blob.Options!.Conditions.IfNoneMatch);
+        Assert.AreEqual(racedLength, _container.Blob.ContentLength);
     }
 
-    [Theory]
-    [InlineData(404)]
-    [InlineData(403)]
+    [TestMethod]
+    [DataRow(404)]
+    [DataRow(403)]
     public async Task Unreadable_or_missing_properties_fall_back_to_conditional_upload(int status)
     {
         _container.Blob.PropertyError = new RequestFailedException(status, "test");
-        Assert.Equal(TrackStatus.Done, Assert.Single(await Uploader().UploadAsync([Download()])).Status);
-        Assert.Equal(1, _container.Blob.UploadCount);
-        Assert.Equal(ETag.All, _container.Blob.Options!.Conditions.IfNoneMatch);
+        Assert.AreEqual(TrackStatus.Done, Assert.ContainsSingle(await Uploader().UploadAsync([Download()])).Status);
+        Assert.AreEqual(1, _container.Blob.UploadCount);
+        Assert.AreEqual(ETag.All, _container.Blob.Options!.Conditions.IfNoneMatch);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Upload_sets_ascii_safe_headers_and_track_metadata_without_changing_container_access()
     {
         var file = Download("Artist - Title #1%.mp3");
-        var result = Assert.Single(await Uploader().UploadAsync([file]));
+        var result = Assert.ContainsSingle(await Uploader().UploadAsync([file]));
         var name = $"audio/{Hash123}.mp3";
-        Assert.Equal(name, _container.RequestedNames.Single());
-        Assert.Equal($"https://example.blob.core.windows.net/tts-audio/audio/{Hash123}.mp3", result.PublicUrl);
-        Assert.Equal(PublicAccessType.None, _container.Access);
-        Assert.Equal("audio/mpeg", _container.Blob.Options!.HttpHeaders.ContentType);
-        Assert.Equal("inline; filename=\"Actual Artist - Actual Title.mp3\"; filename*=UTF-8''Actual%20Artist%20-%20Actual%20Title.mp3",
+        Assert.AreEqual(name, _container.RequestedNames.Single());
+        Assert.AreEqual($"https://example.blob.core.windows.net/tts-audio/audio/{Hash123}.mp3", result.PublicUrl);
+        Assert.AreEqual(PublicAccessType.None, _container.Access);
+        Assert.AreEqual("audio/mpeg", _container.Blob.Options!.HttpHeaders.ContentType);
+        Assert.AreEqual("inline; filename=\"Actual Artist - Actual Title.mp3\"; filename*=UTF-8''Actual%20Artist%20-%20Actual%20Title.mp3",
             _container.Blob.Options.HttpHeaders.ContentDisposition);
-        Assert.Equal(new byte[] { 1, 2, 3 }, _container.Blob.Bytes);
+        Assert.AreSequenceEqual(new byte[] { 1, 2, 3 }, _container.Blob.Bytes);
         var metadata = _container.Blob.Options.Metadata;
-        Assert.Equal("Actual%20Artist", metadata["artist"]);
-        Assert.Equal("Actual%20Title", metadata["title"]);
-        Assert.Equal("Artist%20-%20Title%20%231%25.mp3", metadata["original_filename"]);
-        Assert.Equal(Hash123, metadata["content_sha256"]);
-        Assert.Equal("123", metadata["duration"]);
-        Assert.Equal("3", metadata["file_size"]);
-        Assert.Equal("2026-11-21T12:00:00.000000", metadata["upload_time"]);
-        Assert.Equal("TTSMixmaster", metadata["source"]);
-        Assert.False(metadata.ContainsKey("album"));
-        Assert.Equal(TrackStatus.Done, result.Status);
+        Assert.AreEqual("Actual%20Artist", metadata["artist"]);
+        Assert.AreEqual("Actual%20Title", metadata["title"]);
+        Assert.AreEqual("Artist%20-%20Title%20%231%25.mp3", metadata["original_filename"]);
+        Assert.AreEqual(Hash123, metadata["content_sha256"]);
+        Assert.AreEqual("123", metadata["duration"]);
+        Assert.AreEqual("3", metadata["file_size"]);
+        Assert.AreEqual("2026-11-21T12:00:00.000000", metadata["upload_time"]);
+        Assert.AreEqual("TTSMixmaster", metadata["source"]);
+        Assert.IsFalse(metadata.ContainsKey("album"));
+        Assert.AreEqual(TrackStatus.Done, result.Status);
     }
-    [Fact]
+    [TestMethod]
     public async Task One_failed_upload_never_aborts_remaining_tracks_and_reports_progress()
     {
         var first = Download("one.mp3");
@@ -130,84 +131,84 @@ public sealed class AzureBlobUploaderTests : IDisposable
         _container.Blob.FailFirstUpload = true;
         var events = new List<TrackProgress>();
         var results = await Uploader().UploadAsync([first, second], new InlineProgress(events.Add));
-        Assert.Equal(new[] { TrackStatus.Failed, TrackStatus.Done }, results.Select(r => r.Status));
-        Assert.Same(first.Track, results[0].Track);
-        Assert.Same(second.Track, results[1].Track);
-        Assert.Null(results[0].PublicUrl);
+        Assert.AreSequenceEqual(new[] { TrackStatus.Failed, TrackStatus.Done }, results.Select(r => r.Status));
+        Assert.AreSame(first.Track, results[0].Track);
+        Assert.AreSame(second.Track, results[1].Track);
+        Assert.IsNull(results[0].PublicUrl);
         Assert.EndsWith($"/audio/{Hash123}.mp3", results[1].PublicUrl);
-        Assert.Equal(new[] { TrackStatus.Working, TrackStatus.Failed, TrackStatus.Working, TrackStatus.Done }, events.Select(e => e.Status));
-        Assert.Equal(new[] { 0, 0, 1, 1 }, events.Select(e => e.Index));
-        Assert.All(events, e => Assert.Equal(2, e.Total));
+        Assert.AreSequenceEqual(new[] { TrackStatus.Working, TrackStatus.Failed, TrackStatus.Working, TrackStatus.Done }, events.Select(e => e.Status));
+        Assert.AreSequenceEqual(new[] { 0, 0, 1, 1 }, events.Select(e => e.Index));
+        foreach (var e in events) Assert.AreEqual(2, e.Total);
         Assert.DoesNotContain("SECRET", results[0].Error!);
     }
 
-    [Theory]
-    [InlineData(".wav", "audio/wav")]
-    [InlineData(".flac", "audio/x-flac")]
-    [InlineData(".aac", "audio/vnd.dlna.adts")]
-    [InlineData(".m4a", "audio/mp4")]
-    [InlineData(".ogg", "audio/ogg")]
-    [InlineData(".3gp", "video/3gpp")]
-    [InlineData(".m4p", "audio/mpeg")]
-    [InlineData(".unknown", "audio/mpeg")]
+    [TestMethod]
+    [DataRow(".wav", "audio/wav")]
+    [DataRow(".flac", "audio/x-flac")]
+    [DataRow(".aac", "audio/vnd.dlna.adts")]
+    [DataRow(".m4a", "audio/mp4")]
+    [DataRow(".ogg", "audio/ogg")]
+    [DataRow(".3gp", "video/3gpp")]
+    [DataRow(".m4p", "audio/mpeg")]
+    [DataRow(".unknown", "audio/mpeg")]
     public async Task Content_type_matches_legacy_windows_mimetypes(string extension, string expected)
     {
         // Captured with the coordinator's Python venv on this Windows host; Python reads
         // Windows MIME registrations in addition to its built-in extension map.
         await Uploader().UploadAsync([Download("audio" + extension)]);
-        Assert.Equal(expected, _container.Blob.Options!.HttpHeaders.ContentType);
+        Assert.AreEqual(expected, _container.Blob.Options!.HttpHeaders.ContentType);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Missing_or_failed_download_is_reported_without_guessing_a_file()
     {
         var valid = Download();
         var results = await Uploader().UploadAsync([
             valid with { FilePath = null, Status = TrackStatus.Failed }, valid]);
-        Assert.Equal(TrackStatus.Failed, results[0].Status);
-        Assert.Equal(TrackStatus.Done, results[1].Status);
-        Assert.Equal(1, _container.Blob.UploadCount);
+        Assert.AreEqual(TrackStatus.Failed, results[0].Status);
+        Assert.AreEqual(TrackStatus.Done, results[1].Status);
+        Assert.AreEqual(1, _container.Blob.UploadCount);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Connection_test_returns_null_on_success_and_readable_redacted_error_on_failure()
     {
-        Assert.True(Uploader().IsConfigured);
-        Assert.Null(await Uploader().TestConnectionAsync());
+        Assert.IsTrue(Uploader().IsConfigured);
+        Assert.IsNull(await Uploader().TestConnectionAsync());
         _container.CreateError = new RequestFailedException(403, "SECRET account key");
         var error = await Uploader().TestConnectionAsync();
-        Assert.Contains("HTTP 403", error);
+        Assert.Contains("HTTP 403", error!);
         Assert.DoesNotContain("SECRET", error!);
         _settings.AzureStorageConnectionString = "";
-        Assert.False(Uploader().IsConfigured);
-        Assert.Contains("Configure", await Uploader().TestConnectionAsync());
+        Assert.IsFalse(Uploader().IsConfigured);
+        Assert.Contains("Configure", (await Uploader().TestConnectionAsync())!);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Cancellation_during_properties_is_not_swallowed_as_an_upload_fallback()
     {
         using var source = new CancellationTokenSource();
         _container.Blob.BeforeProperties = source.Cancel;
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Uploader().UploadAsync([Download()], ct: source.Token));
-        Assert.Equal(0, _container.Blob.UploadCount);
+        await Assert.ThrowsAsync<OperationCanceledException>(() => Uploader().UploadAsync([Download()], ct: source.Token));
+        Assert.AreEqual(0, _container.Blob.UploadCount);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Cancellation_during_upload_does_not_process_the_next_file()
     {
         using var source = new CancellationTokenSource();
         _container.Blob.BeforeUpload = source.Cancel;
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Uploader().UploadAsync([Download("a.mp3"), Download("b.mp3")], ct: source.Token));
-        Assert.Single(_container.RequestedNames);
+        await Assert.ThrowsAsync<OperationCanceledException>(() => Uploader().UploadAsync([Download("a.mp3"), Download("b.mp3")], ct: source.Token));
+        Assert.ContainsSingle(_container.RequestedNames);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Cancelled_empty_batch_and_connection_test_honor_cancellation()
     {
         using var source = new CancellationTokenSource();
         source.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Uploader().UploadAsync([], ct: source.Token));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Uploader().TestConnectionAsync(source.Token));
+        await Assert.ThrowsAsync<OperationCanceledException>(() => Uploader().UploadAsync([], ct: source.Token));
+        await Assert.ThrowsAsync<OperationCanceledException>(() => Uploader().TestConnectionAsync(source.Token));
     }
 
     public void Dispose() { if (Directory.Exists(_root)) Directory.Delete(_root, true); }

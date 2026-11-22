@@ -2,11 +2,10 @@
   <!--
     Single source of truth for the TTSMixmaster version.
 
-    Bump <Version> (plain MAJOR.MINOR.PATCH, no pre-release suffix: MSI and MSIX
-    versions can't carry one) and merge to main to cut a release. The release
-    workflow reads it, tags v<Version>, and stamps it into the assemblies, the
-    MSI and setup.exe (as MAJOR.MINOR.PATCH) and the MSIX (as MAJOR.MINOR.PATCH.0).
-    See docs/RELEASING.md.
+    Bump <Version> (plain MAJOR.MINOR.PATCH, no pre-release suffix: MSIX versions
+    can't carry one) and merge to main to cut a release. The release workflow
+    reads it, tags v<Version>, and stamps it into the assemblies, the MSIX bundle
+    and the .appinstaller (as MAJOR.MINOR.PATCH.0). See docs/RELEASING.md.
   -->
   <PropertyGroup>
     <Version>2.0.0</Version>

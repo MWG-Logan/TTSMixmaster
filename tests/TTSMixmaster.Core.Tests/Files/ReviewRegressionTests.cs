@@ -16,6 +16,7 @@ namespace TTSMixmaster.Core.Tests.Files;
 /// Regression tests for review findings 1-4 (core-review-afbb6c2). Each one failed on afbb6c2
 /// and passes with the identity-keyed library layout (docs/adr/0001-library-layout.md).
 /// </summary>
+[TestClass]
 public sealed class ReviewRegressionTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("tts-regression-").FullName;
@@ -27,7 +28,7 @@ public sealed class ReviewRegressionTests : IDisposable
         Tracks = tracks,
     };
 
-    [Fact]
+    [TestMethod]
     public async Task Finding1_reordering_same_named_tracks_never_swaps_cached_audio()
     {
         var paths = new AppPaths(_root);
@@ -42,20 +43,20 @@ public sealed class ReviewRegressionTests : IDisposable
         var live = Song("Live");
 
         var first = await downloader.DownloadAsync(Collection("p1", ServiceKind.Spotify, studio, live));
-        Assert.All(first, r => Assert.Equal(TrackStatus.Done, r.Status));
+        foreach (var r in first) Assert.AreEqual(TrackStatus.Done, r.Status);
 
         var reordered = await downloader.DownloadAsync(Collection("p1", ServiceKind.Spotify, live, studio));
 
-        Assert.Equal(2, runner.Calls);
-        Assert.All(reordered, r => Assert.Equal(TrackStatus.Skipped, r.Status));
+        Assert.AreEqual(2, runner.Calls);
+        foreach (var r in reordered) Assert.AreEqual(TrackStatus.Skipped, r.Status);
         foreach (var result in reordered)
         {
             using var audio = TagLib.File.Create(result.FilePath!);
-            Assert.Equal(result.Track.Album, audio.Tag.Album);
+            Assert.AreEqual(result.Track.Album, audio.Tag.Album);
         }
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Finding2_same_file_name_in_two_collections_never_shares_or_overwrites_a_blob()
     {
         var container = new MemoryContainer();
@@ -64,17 +65,17 @@ public sealed class ReviewRegressionTests : IDisposable
         var studioPath = WriteFile(Path.Combine(_root, "Studio collection", "Artist - Song.mp3"), "STUDIO");
         var livePath = WriteFile(Path.Combine(_root, "Live collection", "Artist - Song.mp3"), "LIVE AUDIO");
 
-        var studio = Assert.Single(await uploader.UploadAsync([new(Song("Studio"), studioPath, TrackStatus.Done)]));
-        var live = Assert.Single(await uploader.UploadAsync([new(Song("Live"), livePath, TrackStatus.Done)]));
+        var studio = Assert.ContainsSingle(await uploader.UploadAsync([new(Song("Studio"), studioPath, TrackStatus.Done)]));
+        var live = Assert.ContainsSingle(await uploader.UploadAsync([new(Song("Live"), livePath, TrackStatus.Done)]));
 
-        Assert.Equal(TrackStatus.Done, studio.Status);
-        Assert.Equal(TrackStatus.Done, live.Status);
-        Assert.NotEqual(studio.PublicUrl, live.PublicUrl);
-        Assert.Equal("STUDIO", container.ContentAt(studio.PublicUrl!));
-        Assert.Equal("LIVE AUDIO", container.ContentAt(live.PublicUrl!));
+        Assert.AreEqual(TrackStatus.Done, studio.Status);
+        Assert.AreEqual(TrackStatus.Done, live.Status);
+        Assert.AreNotEqual(studio.PublicUrl, live.PublicUrl);
+        Assert.AreEqual("STUDIO", container.ContentAt(studio.PublicUrl!));
+        Assert.AreEqual("LIVE AUDIO", container.ContentAt(live.PublicUrl!));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Finding3_distinct_collections_with_the_same_name_keep_separate_folders_and_exports()
     {
         var settings = new AppSettings { TtsOutputPath = Path.Combine(_root, "tts"), DownloadPath = Path.Combine(_root, "music") };
@@ -84,18 +85,18 @@ public sealed class ReviewRegressionTests : IDisposable
         var second = Collection("different-id", ServiceKind.YouTube, Song("Live"));
         var sameServiceDifferentId = Collection("other", ServiceKind.Spotify, Song("Live"));
 
-        Assert.NotEqual(layout.AudioFolder(first), layout.AudioFolder(second));
-        Assert.NotEqual(layout.AudioFolder(first), layout.AudioFolder(sameServiceDifferentId));
-        Assert.NotEqual(layout.TtsFolder(first), layout.TtsFolder(second));
+        Assert.AreNotEqual(layout.AudioFolder(first), layout.AudioFolder(second));
+        Assert.AreNotEqual(layout.AudioFolder(first), layout.AudioFolder(sameServiceDifferentId));
+        Assert.AreNotEqual(layout.TtsFolder(first), layout.TtsFolder(second));
         var exportA = await formatter.GenerateAsync(first, [], new());
         var exportB = await formatter.GenerateAsync(second, [], new());
 
-        Assert.Empty(exportA.WrittenFiles.Intersect(exportB.WrittenFiles, StringComparer.OrdinalIgnoreCase));
+        Assert.IsEmpty(exportA.WrittenFiles.Intersect(exportB.WrittenFiles, StringComparer.OrdinalIgnoreCase));
         Assert.Contains("(Studio)", File.ReadAllText(exportA.WrittenFiles[0]));
         Assert.DoesNotContain("(Live)", File.ReadAllText(exportA.WrittenFiles[0]));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Finding4_real_sdk_request_headers_are_ascii_for_unicode_and_newline_metadata()
     {
         var handler = new CaptureHandler();
@@ -108,18 +109,18 @@ public sealed class ReviewRegressionTests : IDisposable
         var path = WriteFile(Path.Combine(_root, "Björk - 東京.mp3"), "audio");
         var track = new Track { Artist = "Björk", Title = "東京", Album = "Café\r\nInjected: header" };
 
-        var result = Assert.Single(await uploader.UploadAsync([new(track, path, TrackStatus.Done)]));
+        var result = Assert.ContainsSingle(await uploader.UploadAsync([new(track, path, TrackStatus.Done)]));
 
-        Assert.Equal(TrackStatus.Done, result.Status);
-        var put = Assert.Single(handler.Requests, r => r.Method == "PUT");
+        Assert.AreEqual(TrackStatus.Done, result.Status);
+        var put = Assert.ContainsSingle(r => r.Method == "PUT", handler.Requests);
         foreach (var (name, value) in put.Headers)
         {
-            Assert.All(value, c => Assert.InRange(c, ' ', '~'));
+            foreach (var c in value) Assert.IsInRange(' ', '~', c);
             Assert.DoesNotContain("injected", name, StringComparison.OrdinalIgnoreCase);
         }
-        Assert.Equal("Björk", Uri.UnescapeDataString(put.Headers["x-ms-meta-artist"]));
-        Assert.Equal("東京", Uri.UnescapeDataString(put.Headers["x-ms-meta-title"]));
-        Assert.Equal(track.Album, Uri.UnescapeDataString(put.Headers["x-ms-meta-album"]));
+        Assert.AreEqual("Björk", Uri.UnescapeDataString(put.Headers["x-ms-meta-artist"]));
+        Assert.AreEqual("東京", Uri.UnescapeDataString(put.Headers["x-ms-meta-title"]));
+        Assert.AreEqual(track.Album, Uri.UnescapeDataString(put.Headers["x-ms-meta-album"]));
         Assert.Contains("filename*=UTF-8''", put.Headers["x-ms-blob-content-disposition"]);
     }
 

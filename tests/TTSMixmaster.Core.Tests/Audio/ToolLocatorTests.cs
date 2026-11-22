@@ -3,11 +3,12 @@ using TTSMixmaster.Core.Configuration;
 
 namespace TTSMixmaster.Core.Tests.Audio;
 
+[TestClass]
 public sealed class ToolLocatorTests
 {
-    [Theory]
-    [InlineData("yt-dlp.exe")]
-    [InlineData("ffmpeg.exe")]
+    [TestMethod]
+    [DataRow("yt-dlp.exe")]
+    [DataRow("ffmpeg.exe")]
     public void Updated_then_bundled_then_path_then_missing(string name)
     {
         var root = Path.Combine(Path.GetTempPath(), "TTSMixmaster-tests", Guid.NewGuid().ToString("N"));
@@ -25,10 +26,10 @@ public sealed class ToolLocatorTests
             string? Find() => name == "yt-dlp.exe" ? locator.FindYtDlp() : locator.FindFfmpeg();
             foreach (var folder in new[] { paths.ToolsDirectory, bundled, path })
             {
-                Assert.Equal(Path.Combine(folder, name), Find());
+                Assert.AreEqual(Path.Combine(folder, name), Find());
                 File.Delete(Path.Combine(folder, name));
             }
-            Assert.Null(Find());
+            Assert.IsNull(Find());
         }
         finally { Directory.Delete(root, recursive: true); }
     }

@@ -10,6 +10,7 @@ using TTSMixmaster.Core.Tts;
 
 namespace TTSMixmaster.Core.Tests.Tts;
 
+[TestClass]
 public sealed class TtsFormatterTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "TTSMixmaster-tts-tests", Guid.NewGuid().ToString("N"));
@@ -18,10 +19,10 @@ public sealed class TtsFormatterTests : IDisposable
     private static string GoldenFolder([CallerFilePath] string file = "") => Path.Combine(Path.GetDirectoryName(file)!, "golden");
     private static string Golden(string id, string suffix) => File.ReadAllText(Path.Combine(GoldenFolder(), id + "." + suffix), Encoding.UTF8);
 
-    [Theory]
-    [InlineData("ordinary")]
-    [InlineData("escaping")]
-    [InlineData("empty")]
+    [TestMethod]
+    [DataRow("ordinary")]
+    [DataRow("escaping")]
+    [DataRow("empty")]
     public void All_five_outputs_match_python_bytes_except_explicit_bug_fixes(string id)
     {
         var (collection, uploads, options) = ReadCase(id);
@@ -39,37 +40,37 @@ public sealed class TtsFormatterTests : IDisposable
             Formatter.GenerateSaveFile(collection, uploads, options, "ABC123", useSimpleFormat: false));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Generate_writes_all_artifacts_in_library_folder_and_replaces_existing_files()
     {
         var (collection, uploads, options) = ReadCase("escaping");
         var output = await Formatter.GenerateAsync(collection, uploads, options);
-        Assert.Equal(4, output.WrittenFiles.Count);
-        Assert.All(output.WrittenFiles, file => Assert.Equal(Layout.TtsFolder(collection), Path.GetDirectoryName(file)));
+        Assert.AreEqual(4, output.WrittenFiles.Count);
+        foreach (var file in output.WrittenFiles) Assert.AreEqual(Layout.TtsFolder(collection), Path.GetDirectoryName(file));
         EqualBytes(Formatter.GenerateSimplePlaylistLua(collection, uploads), output.LuaScript);
         foreach (var file in output.WrittenFiles)
         {
             var bytes = await File.ReadAllBytesAsync(file);
-            Assert.False(bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble));
+            Assert.IsFalse(bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble));
             Assert.DoesNotContain((byte)'\r', bytes);
             Assert.DoesNotContain("obje.glitch.me", Encoding.UTF8.GetString(bytes));
             await File.WriteAllTextAsync(file, "old output");
         }
         var regenerated = await Formatter.GenerateAsync(collection, uploads, options);
-        Assert.Equal(output.WrittenFiles, regenerated.WrittenFiles);
+        Assert.AreSequenceEqual(output.WrittenFiles, regenerated.WrittenFiles);
         var savePath = regenerated.WrittenFiles.Single(p => p.EndsWith(".json") && !p.EndsWith("_data.json"));
         using var save = JsonDocument.Parse(await File.ReadAllTextAsync(savePath));
         var obj = save.RootElement.GetProperty("ObjectStates")[0];
-        Assert.Matches("^[A-F0-9]{6}$", obj.GetProperty("GUID").GetString()!);
-        Assert.Equal(output.LuaScript, obj.GetProperty("LuaScript").GetString());
-        Assert.Empty(Directory.GetFiles(Layout.TtsFolder(collection), "*.tmp"));
-        Assert.All(regenerated.WrittenFiles, file => Assert.NotEqual("old output", File.ReadAllText(file)));
+        Assert.MatchesRegex("^[A-F0-9]{6}$", obj.GetProperty("GUID").GetString()!);
+        Assert.AreEqual(output.LuaScript, obj.GetProperty("LuaScript").GetString());
+        Assert.IsEmpty(Directory.GetFiles(Layout.TtsFolder(collection), "*.tmp"));
+        foreach (var file in regenerated.WrittenFiles) Assert.AreNotEqual("old output", File.ReadAllText(file));
     }
 
-    [Theory]
-    [InlineData("ordinary")]
-    [InlineData("escaping")]
-    [InlineData("empty")]
+    [TestMethod]
+    [DataRow("ordinary")]
+    [DataRow("escaping")]
+    [DataRow("empty")]
     public async Task Written_files_match_golden_bytes_with_only_guid_normalized(string id)
     {
         var (collection, uploads, options) = ReadCase(id);
@@ -91,7 +92,7 @@ public sealed class TtsFormatterTests : IDisposable
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void Uploads_match_original_tracks_even_when_reversed_and_filenames_collide()
     {
         var first = new Track { Artist = "Same", Title = "Same" };
@@ -101,11 +102,11 @@ public sealed class TtsFormatterTests : IDisposable
         UploadedTrack[] uploads = [new(second, "same.mp3", "https://example.com/two", TrackStatus.Skipped),
             new(first, "same.mp3", "https://example.com/one", TrackStatus.Done)];
         using var data = JsonDocument.Parse(Formatter.GenerateJsonData(collection, uploads));
-        Assert.Equal(new[] { "https://example.com/one", "https://example.com/two", "" },
+        Assert.AreSequenceEqual(new[] { "https://example.com/one", "https://example.com/two", "" },
             data.RootElement.GetProperty("playlist").EnumerateArray().Select(t => t.GetProperty("url").GetString()));
     }
 
-    [Fact]
+    [TestMethod]
     public void Failed_public_url_is_ignored_and_existing_local_file_has_a_valid_file_uri()
     {
         Directory.CreateDirectory(_root);
@@ -117,21 +118,21 @@ public sealed class TtsFormatterTests : IDisposable
             [new(track, path, "https://example.com/failed", TrackStatus.Failed)]));
         var url = data.RootElement.GetProperty("playlist")[0].GetProperty("url").GetString()!;
         Assert.StartsWith("file:///", url);
-        Assert.Equal(Path.GetFullPath(path), new Uri(url).LocalPath);
+        Assert.AreEqual(Path.GetFullPath(path), new Uri(url).LocalPath);
         Assert.Contains("%23", url);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Cancelled_generation_does_not_create_a_folder_or_touch_previous_output()
     {
         var (collection, uploads, options) = ReadCase("ordinary");
         using var source = new CancellationTokenSource();
         source.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Formatter.GenerateAsync(collection, uploads, options, source.Token));
-        Assert.False(Directory.Exists(Layout.TtsFolder(collection)));
+        await Assert.ThrowsAsync<OperationCanceledException>(() => Formatter.GenerateAsync(collection, uploads, options, source.Token));
+        Assert.IsFalse(Directory.Exists(Layout.TtsFolder(collection)));
     }
 
-    [Fact]
+    [TestMethod]
     public void Template_tokens_in_names_are_literal_and_lua_contains_no_external_script_loader()
     {
         var collection = Collection("{{PLAYLIST}}\nprint(\"injection\")", []);
@@ -169,7 +170,7 @@ public sealed class TtsFormatterTests : IDisposable
         Summary = new() { Id = "test", Name = name, Kind = CollectionKind.Playlist, Service = ServiceKind.YouTube }, Tracks = tracks
     };
 
-    private static void EqualBytes(string expected, string actual) => Assert.Equal(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(actual));
+    private static void EqualBytes(string expected, string actual) => Assert.AreSequenceEqual(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(actual));
 
     private static string CorrectSimple(string python)
     {
@@ -178,7 +179,7 @@ public sealed class TtsFormatterTests : IDisposable
         // Lua from https://obje.glitch.me/. Keep that payload IN THE REFERENCE ONLY. Remove its
         // 400-space padding and all code through --[[Spawning object]], preserving the two LFs.
         var start = python.IndexOf("--[[Object base code]]", StringComparison.Ordinal);
-        Assert.True(start > 0);
+        Assert.IsTrue(start > 0);
         return python[..start].TrimEnd(' ') + "\n\n";
     }
 

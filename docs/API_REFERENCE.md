@@ -1,5 +1,8 @@
 # API Reference
 
+> **Legacy Python implementation, kept as a reference for the .NET port.** The shipped app is the
+> .NET/WinUI app in `src/TTSMixmaster.App` and `src/TTSMixmaster.Core` (see `AGENTS.md`).
+
 ## Overview
 
 TTSMixmaster integrates with multiple music service APIs to provide comprehensive playlist and collection access. This document provides detailed information about each supported API.

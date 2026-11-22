@@ -2,13 +2,14 @@ using TTSMixmaster.Core.Configuration;
 
 namespace TTSMixmaster.Core.Tests;
 
+[TestClass]
 public sealed class SettingsStoreTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("ttsm-settings-").FullName;
 
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 
-    [Fact]
+    [TestMethod]
     public void Loads_legacy_python_config_and_ignores_unknown_keys()
     {
         var path = Path.Combine(_dir, "config.json");
@@ -24,13 +25,13 @@ public sealed class SettingsStoreTests : IDisposable
 
         var settings = new SettingsStore(path).Load();
 
-        Assert.Equal("abc", settings.LastfmApiKey);
-        Assert.False(settings.SpotifyUseOauth);
-        Assert.Equal(3.5, settings.AzureBlobFreshnessDays);
-        Assert.Equal("tts-audio", settings.AzureContainerName); // default kept
+        Assert.AreEqual("abc", settings.LastfmApiKey);
+        Assert.IsFalse(settings.SpotifyUseOauth);
+        Assert.AreEqual(3.5, settings.AzureBlobFreshnessDays);
+        Assert.AreEqual("tts-audio", settings.AzureContainerName); // default kept
     }
 
-    [Fact]
+    [TestMethod]
     public void Save_then_load_round_trips_with_snake_case_keys()
     {
         var path = Path.Combine(_dir, "sub", "config.json");
@@ -38,10 +39,10 @@ public sealed class SettingsStoreTests : IDisposable
         store.Save(new AppSettings { YoutubeApiKey = "yt" });
 
         Assert.Contains("\"youtube_api_key\": \"yt\"", File.ReadAllText(path));
-        Assert.Equal("yt", store.Load().YoutubeApiKey);
+        Assert.AreEqual("yt", store.Load().YoutubeApiKey);
     }
 
-    [Fact]
+    [TestMethod]
     public void Corrupt_file_falls_back_to_defaults_and_keeps_a_copy()
     {
         var path = Path.Combine(_dir, "config.json");
@@ -49,29 +50,29 @@ public sealed class SettingsStoreTests : IDisposable
 
         var settings = new SettingsStore(path).Load();
 
-        Assert.Equal("", settings.LastfmApiKey);
-        Assert.True(File.Exists(path + ".corrupt"));
+        Assert.AreEqual("", settings.LastfmApiKey);
+        Assert.IsTrue(File.Exists(path + ".corrupt"));
     }
 
-    [Fact]
+    [TestMethod]
     public void Azure_picker_settings_round_trip_and_default_empty_for_legacy_files()
     {
         var store = new SettingsStore(Path.Combine(_dir, "azure.json"));
         var defaults = store.Load();
-        Assert.Equal("", defaults.AzureTenantId);
-        Assert.Equal("", defaults.AzureSubscriptionId);
-        Assert.Equal("", defaults.AzureStorageAccount);
-        Assert.Equal("", defaults.AzureClientId);
+        Assert.AreEqual("", defaults.AzureTenantId);
+        Assert.AreEqual("", defaults.AzureSubscriptionId);
+        Assert.AreEqual("", defaults.AzureStorageAccount);
+        Assert.AreEqual("", defaults.AzureClientId);
         store.Save(new AppSettings { AzureTenantId = "tenant", AzureSubscriptionId = "subscription",
             AzureStorageAccount = "account", AzureClientId = "client" });
         var json = File.ReadAllText(store.FilePath);
         foreach (var key in new[] { "azure_tenant_id", "azure_subscription_id", "azure_storage_account", "azure_client_id" })
             Assert.Contains('"' + key + '"', json);
         var loaded = store.Load();
-        Assert.Equal("tenant", loaded.AzureTenantId);
-        Assert.Equal("subscription", loaded.AzureSubscriptionId);
-        Assert.Equal("account", loaded.AzureStorageAccount);
-        Assert.Equal("client", loaded.AzureClientId);
+        Assert.AreEqual("tenant", loaded.AzureTenantId);
+        Assert.AreEqual("subscription", loaded.AzureSubscriptionId);
+        Assert.AreEqual("account", loaded.AzureStorageAccount);
+        Assert.AreEqual("client", loaded.AzureClientId);
     }
 
     [Fact]
