@@ -2,6 +2,9 @@ name: Build and Release TTSMixmaster
 
 # Release = bump <Version> in Directory.Build.props and merge to main (docs/RELEASING.md).
 # If tag v<Version> already exists, the run stops after the check job: no build, tag or release.
+#
+# Assets: TTSMixmaster.appinstaller + TTSMixmaster-v<ver>.msixbundle (x64 + ARM64, signed) and
+# one portable zip per architecture.
 
 on:
   push:
@@ -36,10 +39,10 @@ jobs:
       should_release: ${{ steps.gate.outputs.should_release }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -80,10 +83,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -102,22 +105,21 @@ jobs:
       matrix:
         arch: [x64, arm64]
     env:
-      VERSION: ${{ needs.check.outputs.version }}
       ARCH: ${{ matrix.arch }}
     defaults:
       run:
         shell: pwsh
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Set up WinApp CLI
-        uses: microsoft/setup-WinAppCli@v0.3.0
+        uses: microsoft/setup-WinAppCli@9288bd0729bd3f71e2ed1b9eb247dc91470b824e # v0.3.0
         with:
           version: ${{ env.WINAPP_VERSION }}
 
@@ -125,7 +127,7 @@ jobs:
         run: ./scripts/package-release.ps1 -Arch $env:ARCH -Stage Publish
 
       - name: Azure login
-        uses: azure/login@v3
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -134,7 +136,7 @@ jobs:
       # Only our own binaries. yt-dlp, ffmpeg and the .NET / Windows App SDK runtime files
       # are third-party and keep their publishers' signatures (or none).
       - name: Sign app binaries
-        uses: azure/artifact-signing-action@v2
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
           signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
@@ -147,80 +149,114 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
 
-      - name: Build portable zip, MSIs and MSIX
-        run: ./scripts/package-release.ps1 -Arch $env:ARCH -Stage Package
-
-      # The per-user MSI is signed before it is embedded in setup.exe.
-      - name: Sign MSIs and MSIX
-        uses: azure/artifact-signing-action@v2
-        with:
-          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}
-          files: |
-            ${{ github.workspace }}\artifacts\release\TTSMixmaster-v${{ env.VERSION }}-${{ matrix.arch }}.msi
-            ${{ github.workspace }}\artifacts\release\TTSMixmaster-v${{ env.VERSION }}-${{ matrix.arch }}.msix
-            ${{ github.workspace }}\artifacts\work\${{ matrix.arch }}\TTSMixmaster.PerUser.msi
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-
-      - name: Build setup.exe and detach its Burn engine
-        run: ./scripts/package-release.ps1 -Arch $env:ARCH -Stage Bundle
-
-      - name: Sign Burn engine
-        uses: azure/artifact-signing-action@v2
-        with:
-          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}
-          files: ${{ github.workspace }}\artifacts\work\${{ matrix.arch }}\burn-engine.exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-
-      - name: Reattach signed engine
-        run: ./scripts/package-release.ps1 -Arch $env:ARCH -Stage Reattach
-
-      - name: Sign setup.exe
-        uses: azure/artifact-signing-action@v2
-        with:
-          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}
-          files: ${{ github.workspace }}\artifacts\release\TTSMixmaster-v${{ env.VERSION }}-setup-${{ matrix.arch }}.exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-
-      - name: Verify signatures
+      - name: Verify app binary signatures
         run: |
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
             Sort-Object { [version]$_.Directory.Parent.Name } | Select-Object -Last 1
           if (-not $signtool) { throw 'signtool.exe not found.' }
-          $release = Get-ChildItem artifacts/release -File | Where-Object { $_.Name -like "*-$env:ARCH.*" }
-          if (@($release).Count -ne 4) { throw "Expected 4 release files for $env:ARCH, found: $($release.Name -join ', ')" }
-          $signed = @($release | Where-Object Extension -ne '.zip') +
-            @('TTSMixmaster.exe', 'TTSMixmaster.dll', 'TTSMixmaster.Core.dll' |
-              ForEach-Object { Get-Item "artifacts/publish/$env:ARCH/$_" })
-          foreach ($file in $signed) {
-            & $signtool.FullName verify /pa /q $file.FullName
-            if ($LASTEXITCODE -ne 0) { throw "Signature check failed: $($file.Name)" }
-            Write-Output "Signed: $($file.Name)"
+          foreach ($name in 'TTSMixmaster.exe', 'TTSMixmaster.dll', 'TTSMixmaster.Core.dll') {
+            & $signtool.FullName verify /pa /q "artifacts/publish/$env:ARCH/$name"
+            if ($LASTEXITCODE -ne 0) { throw "Signature check failed: $name" }
+            Write-Output "Signed: $name"
           }
-          # The zip is built from the publish folder after signing, so its binaries are signed too.
-          $release | ForEach-Object { '{0,-50} {1,8:N1} MB' -f $_.Name, ($_.Length / 1MB) }
 
-      - name: Upload release artifacts
-        uses: actions/upload-artifact@v7
+      # The portable zip (released as is) and this architecture's unsigned .msix (bundled and
+      # signed by the bundle job), both built from the signed publish folder.
+      - name: Build portable zip and MSIX
+        run: ./scripts/package-release.ps1 -Arch $env:ARCH -Stage Package
+
+      - name: Upload build outputs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-${{ matrix.arch }}
+          name: build-${{ matrix.arch }}
+          path: |
+            artifacts/release/*-portable-${{ matrix.arch }}.zip
+            artifacts/msix/*-${{ matrix.arch }}.msix
+          if-no-files-found: error
+          retention-days: 7
+
+  bundle:
+    needs: [check, build]
+    if: needs.check.outputs.should_release == 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write   # OIDC for azure/login
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Set up WinApp CLI
+        uses: microsoft/setup-WinAppCli@9288bd0729bd3f71e2ed1b9eb247dc91470b824e # v0.3.0
+        with:
+          version: ${{ env.WINAPP_VERSION }}
+
+      # Lands as artifacts/release/*.zip and artifacts/msix/*.msix.
+      - name: Download build outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: build-*
+          merge-multiple: true
+          path: artifacts
+
+      - name: Build MSIX bundle and App Installer file
+        run: ./scripts/package-release.ps1 -Stage Bundle -ReleasesUrl "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases"
+
+      - name: Azure login
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Signing the bundle covers the x64 and ARM64 packages inside it. Its publisher
+      # (installer/msix/Package.appxmanifest) must equal the certificate subject.
+      - name: Sign MSIX bundle
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}
+          files: ${{ github.workspace }}\artifacts\release\TTSMixmaster-v${{ env.VERSION }}.msixbundle
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify bundle signature and release files
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object { [version]$_.Directory.Parent.Name } | Select-Object -Last 1
+          if (-not $signtool) { throw 'signtool.exe not found.' }
+          & $signtool.FullName verify /pa /q "artifacts/release/TTSMixmaster-v$env:VERSION.msixbundle"
+          if ($LASTEXITCODE -ne 0) { throw 'MSIX bundle signature check failed.' }
+          $expected = @("TTSMixmaster-v$env:VERSION.msixbundle", 'TTSMixmaster.appinstaller',
+            "TTSMixmaster-v$env:VERSION-portable-x64.zip", "TTSMixmaster-v$env:VERSION-portable-arm64.zip")
+          foreach ($name in $expected) {
+            $file = Get-Item "artifacts/release/$name"
+            '{0,-48} {1,10:N1} MB' -f $file.Name, ($file.Length / 1MB)
+          }
+          Get-Content artifacts/release/TTSMixmaster.appinstaller
+
+      - name: Upload release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
           path: artifacts/release/*
           if-no-files-found: error
           retention-days: 30
 
   release:
-    needs: [check, build]
+    needs: [check, bundle]
     if: needs.check.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -230,46 +266,45 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0   # tags, to find the previous release
 
-      - name: Download artifacts
-        uses: actions/download-artifact@v8
+      - name: Download release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: release-*
-          merge-multiple: true
+          name: release
           path: dist
 
-      - name: Check artifacts
+      - name: Check release files
         run: |
           ls -l dist
-          for arch in x64 arm64; do
-            for f in "portable-$arch.zip" "$arch.msi" "setup-$arch.exe" "$arch.msix"; do
-              test -f "dist/TTSMixmaster-v$VERSION-$f" || { echo "::error::Missing TTSMixmaster-v$VERSION-$f"; exit 1; }
-            done
+          for f in "TTSMixmaster-v$VERSION.msixbundle" TTSMixmaster.appinstaller \
+                   "TTSMixmaster-v$VERSION-portable-x64.zip" "TTSMixmaster-v$VERSION-portable-arm64.zip"; do
+            test -f "dist/$f" || { echo "::error::Missing $f"; exit 1; }
           done
-          test "$(find dist -type f | wc -l)" -eq 8 || { echo "::error::Expected exactly 8 release files"; exit 1; }
+          test "$(find dist -type f | wc -l)" -eq 4 || { echo "::error::Expected exactly 4 release files"; exit 1; }
 
       - name: Write release notes header
         run: |
-          base="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/TTSMixmaster-v$VERSION"
-          cat > notes.md <<EOF
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION"
+          cat > notes.md <<NOTES
           ## Downloads
 
-          Pick **x64** for most PCs and **ARM64** for Windows on Arm (Snapdragon) devices.
+          **Recommended: [TTSMixmaster.appinstaller]($base/TTSMixmaster.appinstaller)**. Open it to install TTSMixmaster
+          with App Installer. It installs the right build for your PC (x64 or ARM64) and keeps the app up to date.
 
-          | Format | x64 | ARM64 |
-          |---|---|---|
-          | **Installer, just for me** (no admin rights; installs to \`%LOCALAPPDATA%\\Programs\`) | [setup-x64.exe]($base-setup-x64.exe) | [setup-arm64.exe]($base-setup-arm64.exe) |
-          | **Installer, all users** (MSI, needs admin; installs to Program Files) | [x64.msi]($base-x64.msi) | [arm64.msi]($base-arm64.msi) |
-          | **MSIX package** | [x64.msix]($base-x64.msix) | [arm64.msix]($base-arm64.msix) |
-          | **Portable** (unzip and run \`TTSMixmaster.exe\`) | [portable-x64.zip]($base-portable-x64.zip) | [portable-arm64.zip]($base-portable-arm64.zip) |
+          | Download | What it is |
+          |---|---|
+          | [TTSMixmaster.appinstaller]($base/TTSMixmaster.appinstaller) | **Install with automatic updates (recommended).** |
+          | [TTSMixmaster-v$VERSION.msixbundle]($base/TTSMixmaster-v$VERSION.msixbundle) | The same signed MSIX package (x64 + ARM64) for offline installs and IT deployment (Intune, Configuration Manager). Installed directly, it doesn't update itself. |
+          | [portable-x64.zip]($base/TTSMixmaster-v$VERSION-portable-x64.zip) | Portable for most PCs: unzip and run \`TTSMixmaster.exe\`. |
+          | [portable-arm64.zip]($base/TTSMixmaster-v$VERSION-portable-arm64.zip) | Portable for Windows on Arm (Snapdragon) PCs. |
 
-          Every installer, package and TTSMixmaster binary is code-signed with Azure Trusted Signing.
-          yt-dlp and FFmpeg are bundled next to the app (FFmpeg is GPL v3; see \`ffmpeg-LICENSE.txt\` and \`scripts/fetch-tools.ps1\` for the pinned source release).
+          The MSIX bundle and the TTSMixmaster binaries are code-signed with Azure Trusted Signing.
+          yt-dlp and FFmpeg are bundled next to the app (FFmpeg is GPL; see \`ffmpeg-LICENSE.txt\` and \`scripts/fetch-tools.ps1\` for the pinned source releases).
 
-          EOF
+          NOTES
           cat notes.md
 
       - name: Create or update GitHub release
@@ -292,4 +327,6 @@ jobs:
             echo "Release notes since $prev"
             args+=(--notes-start-tag "$prev")
           fi
-          gh release create "$tag" dist/* "${args[@]}"
+          # Installed copies poll releases/latest/download/TTSMixmaster.appinstaller, so the
+          # new release must become "latest".
+          gh release create "$tag" dist/* --latest "${args[@]}"

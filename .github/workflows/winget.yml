@@ -1,12 +1,12 @@
 name: Publish to winget
 
-# Optional. Submits a winget-pkgs PR for each published release with komac.
+# Optional. Opens a winget-pkgs PR for each published release with Microsoft's wingetcreate.
 # A no-op until the owner opts in (docs/RELEASING.md, "winget"):
 #   repo variable WINGET_ENABLED = true
 #   repo secret   WINGET_TOKEN   = classic PAT with public_repo scope (owner of a winget-pkgs fork)
 #   repo variable WINGET_PACKAGE_ID (optional, default MorningwoodGaming.TTSMixmaster)
 # The package must already exist in winget-pkgs (first submission is manual), because
-# `komac update` only adds versions to an existing package.
+# `wingetcreate update` only adds versions to an existing package.
 
 on:
   release:
@@ -22,47 +22,47 @@ permissions:
   contents: read
 
 env:
-  KOMAC_VERSION: '2.17.2'
-  KOMAC_SHA256: 'b03b020eec98acfb0b53e284a6e21815b884be33de6785b97e7a120f0e748966'  # komac-2.17.2-x86_64-unknown-linux-gnu.tar.gz
+  WINGETCREATE_VERSION: '1.28.1.0'
+  WINGETCREATE_SHA256: '63d980ba79e97042395bd6eb5992c2db9e01e9e7a8a22958a95c288f27310413'  # wingetcreate.exe
 
 jobs:
   winget:
     if: vars.WINGET_ENABLED == 'true' && (github.event_name != 'release' || !github.event.release.prerelease)
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
       PACKAGE_ID: ${{ vars.WINGET_PACKAGE_ID || 'MorningwoodGaming.TTSMixmaster' }}
       WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - name: Require WINGET_TOKEN
         run: |
-          if [ -z "$WINGET_TOKEN" ]; then
-            echo "::error title=WINGET_TOKEN is not set::WINGET_ENABLED is true but the WINGET_TOKEN secret is missing. See docs/RELEASING.md."
+          if ([string]::IsNullOrWhiteSpace($env:WINGET_TOKEN)) {
+            Write-Output "::error title=WINGET_TOKEN is not set::WINGET_ENABLED is true but the WINGET_TOKEN secret is missing. See docs/RELEASING.md."
             exit 1
-          fi
+          }
 
-      - name: Install komac ${{ env.KOMAC_VERSION }}
+      - name: Install wingetcreate ${{ env.WINGETCREATE_VERSION }}
         run: |
-          archive="komac-$KOMAC_VERSION-x86_64-unknown-linux-gnu.tar.gz"
-          curl -fsSL -o "$RUNNER_TEMP/$archive" "https://github.com/russellbanks/Komac/releases/download/v$KOMAC_VERSION/$archive"
-          echo "$KOMAC_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check
-          mkdir -p "$RUNNER_TEMP/komac"
-          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/komac"
-          komac="$(find "$RUNNER_TEMP/komac" -type f -name komac | head -n1)"
-          chmod +x "$komac"
-          dirname "$komac" >> "$GITHUB_PATH"
+          $exe = Join-Path $env:RUNNER_TEMP 'wingetcreate.exe'
+          Invoke-WebRequest -UseBasicParsing -OutFile $exe `
+            -Uri "https://github.com/microsoft/winget-create/releases/download/v$env:WINGETCREATE_VERSION/wingetcreate.exe"
+          $actual = (Get-FileHash $exe -Algorithm SHA256).Hash
+          if ($actual -ne $env:WINGETCREATE_SHA256) { throw "wingetcreate.exe SHA-256 mismatch: $actual" }
 
-      # winget gets the MSIs: they carry ProductCode/UpgradeCode, so winget's install,
-      # upgrade and uninstall detection is exact, and the per-machine MSI is the
-      # "everyone on this PC" install a package manager is expected to do.
+      # winget gets the signed MSIX bundle, the same package the .appinstaller installs.
+      # winget installs, upgrades and removes MSIX packages natively. The manifest has one
+      # installer entry per architecture, both pointing at the bundle, hence the URL twice
+      # with explicit architecture overrides.
       - name: Submit to winget-pkgs
-        env:
-          KOMAC_NO_UPDATE_NOTIFIER: '1'
         run: |
-          version="${TAG#v}"
-          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/TTSMixmaster-v$version"
-          komac update "$PACKAGE_ID" \
-            --version "$version" \
-            --urls "$base-x64.msi" "$base-arm64.msi" \
-            --token "$WINGET_TOKEN" \
+          $version = $env:TAG.TrimStart('v')
+          $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:TAG/TTSMixmaster-v$version.msixbundle"
+          & (Join-Path $env:RUNNER_TEMP 'wingetcreate.exe') update $env:PACKAGE_ID `
+            --version $version `
+            --urls "$url|x64" "$url|arm64" `
+            --token $env:WINGET_TOKEN `
             --submit
+          if ($LASTEXITCODE -ne 0) { throw "wingetcreate failed with exit code $LASTEXITCODE" }
