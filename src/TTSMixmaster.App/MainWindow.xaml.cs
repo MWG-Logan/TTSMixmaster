@@ -118,7 +118,7 @@ public sealed partial class MainWindow : Window
         _isAskingToClose = true;
         try
         {
-            if (!await Dialogs.ConfirmCloseWhileBuildingAsync(root, warning))
+            if (!await Dialogs.ConfirmCloseWhileBuildingAsync(root, warning, _services.RunningBuildCount))
                 return;
             await _services.StopAllBuildsAsync(TimeSpan.FromSeconds(10));
             _closeConfirmed = true;
