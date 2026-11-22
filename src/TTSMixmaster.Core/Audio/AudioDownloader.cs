@@ -138,7 +138,7 @@ public sealed class AudioDownloader(
                     ct.ThrowIfCancellationRequested();
                     if (conversion.ExitCode != 0 || !IsNonEmpty(encoded))
                         throw new IOException($"ffmpeg could not encode the MP3: {conversion.StandardError.Trim()}");
-                    File.Move(encoded, mp3, overwrite: true);
+                    FileReplace.Move(encoded, mp3, overwrite: true);
                 }
 
                 using (var audio = TagLib.File.Create(mp3))

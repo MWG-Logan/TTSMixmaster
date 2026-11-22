@@ -34,12 +34,12 @@ public sealed partial class LibraryLayout
 
     public LibraryLayout(AppPaths paths, Func<AppSettings> settings) : this(paths, settings, null) { }
 
-    /// <param name="moveFile">Test seam for the final rename (source, destination, overwrite); defaults to <see cref="File.Move(string, string, bool)"/>.</param>
+    /// <param name="moveFile">Test seam for the final rename (source, destination, overwrite); defaults to <see cref="FileReplace.Move(string, string, bool)"/>.</param>
     internal LibraryLayout(AppPaths paths, Func<AppSettings> settings, Action<string, string, bool>? moveFile)
     {
         _paths = paths;
         _settings = settings;
-        _moveFile = moveFile ?? File.Move;
+        _moveFile = moveFile ?? FileReplace.Move;
     }
 
     // ---- Collections -------------------------------------------------------------------------

@@ -3,8 +3,8 @@ using Azure.Core;
 namespace TTSMixmaster.Core.Azure;
 
 /// <summary>
-/// Sign-in and the storage picker's Azure calls (<see cref="AzureAccountService"/>). The seam lets App tests
-/// complete Azure requests in a controlled order without contacting Azure.
+/// Interactive Azure sign-in, the storage picker and its explicit fixes (see <see cref="AzureAccountService"/>).
+/// The App depends on this interface so its view models can be tested without Entra or ARM.
 /// </summary>
 public interface IAzureAccountService
 {
@@ -21,6 +21,5 @@ public interface IAzureAccountService
     Task AssignBlobDataContributorToMeAsync(AzureStorageAccount account, string container, CancellationToken ct = default);
     Task EnablePublicBlobAccessAsync(AzureStorageAccount account, string container, CancellationToken ct = default);
     Task CreateContainerAsync(AzureStorageAccount account, string name, CancellationToken ct = default);
-    Task<AzureAccessResult> WaitForAccessAsync(AzureStorageAccount account, string container,
-        TimeSpan? timeout = null, CancellationToken ct = default);
+    Task<AzureAccessResult> WaitForAccessAsync(AzureStorageAccount account, string container, TimeSpan? timeout = null, CancellationToken ct = default);
 }

@@ -105,7 +105,7 @@ public sealed class AzureAccountService : IAzureAccountService
             await using (var stream = File.Create(temp)) await record.SerializeAsync(stream, ct);
             if (useBrowser) await File.WriteAllTextAsync(BrowserMarkerPath, "", ct);
             else File.Delete(BrowserMarkerPath);
-            File.Move(temp, RecordPath, overwrite: true);
+            Files.FileReplace.Move(temp, RecordPath, overwrite: true);
             _credential = credential;
             _sessionClientId = ClientId;
             Interlocked.Increment(ref _sessionGeneration);

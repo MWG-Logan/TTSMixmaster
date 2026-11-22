@@ -25,6 +25,8 @@ public partial class UnitTestApp : Application
 
     public UnitTestApp()
     {
+        // A crash in the test host must end the run with an exit code, never a WER dialog on the desktop.
+        TTSMixmaster.Tests.NoCrashDialogs.Apply();
         InitializeComponent();
     }
 
@@ -37,6 +39,13 @@ public partial class UnitTestApp : Application
         {
             // A WinUI entry point returns void: without this a failed run would look successful.
             Environment.ExitCode = await MicrosoftTestingPlatformApplication.RunAsync(Environment.GetCommandLineArgs()[1..]);
+        }
+        catch (Exception ex)
+        {
+            // async void: an exception escaping here would crash the host. Host setup can fail before any test
+            // runs (e.g. MTP's named pipe denied); report it and fail the run instead.
+            Console.Error.WriteLine($"The test host couldn't start or finish: {ex}");
+            Environment.ExitCode = 4;
         }
         finally
         {

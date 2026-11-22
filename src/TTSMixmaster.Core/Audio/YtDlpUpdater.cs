@@ -82,7 +82,7 @@ public sealed class YtDlpUpdater(AppPaths paths, HttpClient http, IProcessRunner
                 return new(null, DidNotRunMessage);
 
             // Same folder, so this is a rename: the old copy is replaced in one step, never half-written.
-            File.Move(staged, TargetPath, overwrite: true);
+            Files.FileReplace.Move(staged, TargetPath, overwrite: true);
             return new(version, null);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }

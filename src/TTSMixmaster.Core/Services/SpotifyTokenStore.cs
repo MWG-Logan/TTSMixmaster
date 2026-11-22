@@ -39,7 +39,7 @@ public sealed class SpotifyTokenStore(AppPaths paths)
             Directory.CreateDirectory(paths.DataRoot);
             temp = FilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
             await File.WriteAllBytesAsync(temp, encrypted, ct);
-            File.Move(temp, FilePath, true);
+            Files.FileReplace.Move(temp, FilePath, true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException)
         { throw new ServiceException("Spotify sign-in could not be saved securely. Check access to the app data folder."); }

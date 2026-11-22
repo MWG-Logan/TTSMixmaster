@@ -57,6 +57,11 @@
     <ProjectReference Include="..\TTSMixmaster.Core\TTSMixmaster.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- AppServices' test constructor (AppServiceFakes) for the view-model tests. -->
+    <InternalsVisibleTo Include="TTSMixmaster.App.Tests" />
+  </ItemGroup>
+
   <!--
     Verification builds only: -p:TtsmDevSource=true compiles DevLocalMusicService (a local test collection
     in place of YouTube) so the full pipeline can be exercised without music-service credentials.
