@@ -80,6 +80,35 @@ public sealed partial class CollectionViewModel : ObservableObject
 
     public ServiceKind Service => _request.Service.Kind;
 
+    /// <summary>What opened this collection: navigating to the Collection page with it returns this same view model.</summary>
+    public CollectionRequest Request => _request;
+
+    public string ServiceName => Display.ServiceName(Service);
+
+    // Per-row automation ids for the Builds page's In progress list (rows share a template).
+    public string ActiveRowId => $"ActiveBuild-{Title}";
+    public string ActiveCancelId => $"CancelActiveBuild-{Title}";
+    public string ActiveDismissId => $"DismissActiveBuild-{Title}";
+
+    /// <summary>
+    /// The last build ended without producing a player (failed, cancelled, or not uploaded). The Builds page keeps
+    /// it under In progress until the user opens or dismisses it, so a background failure isn't silent.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActiveStatus), nameof(HasEndedWithError), nameof(HasEndedWithNotice))]
+    public partial bool EndedWithoutOutput { get; set; }
+
+    /// <summary>The In progress row's one-line state: the step while running, the outcome after.</summary>
+    public string ActiveStatus => IsBuilding ? StepText : ResultTitle;
+
+    // The ended row's icon: an error for a failure, a notice for cancelled / not uploaded.
+    public bool HasEndedWithError => EndedWithoutOutput && !IsBuilding && ResultSeverity == InfoBarSeverity.Error;
+    public bool HasEndedWithNotice => EndedWithoutOutput && !IsBuilding && ResultSeverity != InfoBarSeverity.Error;
+
+    /// <summary>Takes this ended build off the Builds page's In progress list.</summary>
+    [RelayCommand]
+    private void DismissFromBuilds() => _app.DismissBuild(this);
+
     [ObservableProperty] public partial string Title { get; set; }
     [ObservableProperty] public partial string Subtitle { get; set; }
     [ObservableProperty] public partial string Description { get; set; }
@@ -285,14 +314,16 @@ public sealed partial class CollectionViewModel : ObservableObject
 
     // Build progress
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsIdle), nameof(ShowBuild), nameof(ShowRebuild))]
+    [NotifyPropertyChangedFor(nameof(IsIdle), nameof(ShowBuild), nameof(ShowRebuild), nameof(ActiveStatus), nameof(HasEndedWithError), nameof(HasEndedWithNotice))]
     public partial bool IsBuilding { get; set; }
 
     public bool IsIdle => !IsBuilding;
     public bool ShowBuild => !IsBuilding && !HasOutput;
     public bool ShowRebuild => !IsBuilding && HasOutput;
 
-    [ObservableProperty] public partial string StepText { get; set; } = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActiveStatus))]
+    public partial string StepText { get; set; } = "";
     [ObservableProperty] public partial string StepDetail { get; set; } = "";
     [ObservableProperty] public partial double ProgressValue { get; set; }
     [ObservableProperty] public partial double ProgressMaximum { get; set; } = 1;
@@ -300,8 +331,12 @@ public sealed partial class CollectionViewModel : ObservableObject
 
     // Outcome
     [ObservableProperty] public partial bool IsResultOpen { get; set; }
-    [ObservableProperty] public partial InfoBarSeverity ResultSeverity { get; set; }
-    [ObservableProperty] public partial string ResultTitle { get; set; } = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasEndedWithError), nameof(HasEndedWithNotice))]
+    public partial InfoBarSeverity ResultSeverity { get; set; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActiveStatus))]
+    public partial string ResultTitle { get; set; } = "";
     [ObservableProperty] public partial string ResultMessage { get; set; } = "";
 
     [ObservableProperty]
@@ -384,9 +419,10 @@ public sealed partial class CollectionViewModel : ObservableObject
         if (_collection is null)
             return;
 
+        Output = null;
+        EndedWithoutOutput = false;
         IsBuilding = true;
         IsResultOpen = false;
-        Output = null;
         ExportState.Reset();
         CopyStatus = "";
         foreach (var row in Tracks)
@@ -486,9 +522,13 @@ public sealed partial class CollectionViewModel : ObservableObject
         }
         finally
         {
+            // Set before IsBuilding drops, so whoever watches IsBuilding sees the outcome.
+            EndedWithoutOutput = Output is null;
             IsBuilding = false;
         }
     }
+
+    public override string ToString() => $"{Title}, {ActiveStatus}"; // UI Automation name of an In progress row
 
     /// <summary>
     /// Renders the chip and uploads it as images/chip-&lt;sha256&gt;.png. Returns its URL (null on failure, so the

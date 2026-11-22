@@ -17,7 +17,7 @@ internal sealed class TestApp : IDisposable
         Paths = new AppPaths(Path.Combine(Root, "data"));
         Directory.CreateDirectory(SavedObjects);
         Downloader = new FakeDownloader(Path.Combine(Root, "downloads"));
-        Formatter = new FakeFormatter(Path.Combine(Root, "tts-output"));
+        Formatter = new FakeFormatter(Path.Combine(Root, "music", "_tts")); // the TTS output root set below, as in the app
         beforeStart?.Invoke(Paths);
         Services = new AppServices(Paths, new AppServiceFakes
         {

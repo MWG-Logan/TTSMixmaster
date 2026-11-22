@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <Window
     x:Class="TTSMixmaster.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -58,6 +58,13 @@
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE7B8;" />
                     </NavigationViewItem.Icon>
+                    <!--  Running builds, so work that continues in the background is never out of sight.  -->
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge
+                            x:Name="BuildsBadge"
+                            AutomationProperties.AutomationId="NavBuildsBadge"
+                            Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
                 </NavigationViewItem>
             </NavigationView.MenuItems>
 

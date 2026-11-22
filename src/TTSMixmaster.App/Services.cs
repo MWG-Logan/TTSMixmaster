@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
 using TTSMixmaster.App.ViewModels;
@@ -21,6 +23,7 @@ namespace TTSMixmaster.App;
 public sealed class AppServices : IDisposable
 {
     private readonly Dictionary<string, CollectionViewModel> _openCollections = [];
+    private readonly ObservableCollection<CollectionViewModel> _activeBuilds = [];
 
     /// <param name="fakes">Tests only: Core seams to use instead of the real services (null: the real ones).</param>
     internal AppServices(AppPaths paths, AppServiceFakes? fakes = null)
@@ -53,6 +56,7 @@ public sealed class AppServices : IDisposable
         SavedObjects = new TtsSavedObjects(() => Settings, fakes?.DocumentsFolder);
         TtsExporter = new TtsExporter(Layout, SavedObjects, Http);
         Chips = new ChipImageBuilder(Http);
+        ActiveBuilds = new(_activeBuilds);
     }
 
     public static string Version { get; } =
@@ -151,9 +155,98 @@ public sealed class AppServices : IDisposable
         if (!_openCollections.TryGetValue(key, out var vm))
         {
             vm = new CollectionViewModel(this, request);
+            vm.PropertyChanged += Collection_PropertyChanged;
             _openCollections[key] = vm;
         }
         return vm;
+    }
+
+    /// <summary>
+    /// Builds to show under In progress on the Builds page, newest first: every running build, plus builds that ended
+    /// without a player (failed, cancelled, not uploaded) until the user opens or dismisses them. A build that
+    /// produced a player leaves this list and shows up with the finished builds on disk.
+    /// </summary>
+    public ReadOnlyObservableCollection<CollectionViewModel> ActiveBuilds { get; }
+
+    /// <summary>How many builds are running right now (the Builds nav badge).</summary>
+    public int RunningBuildCount => _activeBuilds.Count(b => b.IsBuilding);
+
+    /// <summary>Raised when a build starts or ends, or a row leaves <see cref="ActiveBuilds"/>.</summary>
+    public event Action? ActiveBuildsChanged;
+
+    /// <summary>Raised when a build ends with a player written to disk (the Builds page re-reads its list).</summary>
+    public event Action<CollectionViewModel>? BuildFinished;
+
+    /// <summary>
+    /// The collection on screen (set by the Collection page). Opening a collection counts as seeing how its build
+    /// ended, so it leaves <see cref="ActiveBuilds"/>.
+    /// </summary>
+    public CollectionViewModel? ViewedCollection
+    {
+        get;
+        set
+        {
+            field = value;
+            if (value is not null)
+                DismissBuild(value);
+        }
+    }
+
+    /// <summary>Takes a build that has ended off the In progress list. A running build stays.</summary>
+    public void DismissBuild(CollectionViewModel build)
+    {
+        if (!build.IsBuilding && _activeBuilds.Remove(build))
+            ActiveBuildsChanged?.Invoke();
+    }
+
+    /// <summary>What to ask before closing the window, or null when no build is running.</summary>
+    public string? CloseWarning() => RunningBuildCount switch
+    {
+        0 => null,
+        1 => "1 build is still running. Close anyway?",
+        var n => $"{n} builds are still running. Close anyway?",
+    };
+
+    /// <summary>
+    /// Cancels every running build and waits (up to <paramref name="timeout"/>) for each to stop, so child processes
+    /// end and partial files are cleaned up before the app exits. Downloaded audio is kept for the next build.
+    /// </summary>
+    public async Task StopAllBuildsAsync(TimeSpan timeout)
+    {
+        var running = _activeBuilds.Where(b => b.IsBuilding).ToList();
+        if (running.Count == 0)
+            return;
+        Log.Info($"Closing: stopping {running.Count} running build(s)");
+        foreach (var build in running)
+            build.BuildCancelCommand.Execute(null);
+        try
+        {
+            await Task.WhenAll(running.Select(b => b.BuildCommand.ExecutionTask ?? Task.CompletedTask)).WaitAsync(timeout);
+        }
+        catch (TimeoutException)
+        {
+            Log.Warn($"Closing: builds didn't stop within {timeout.TotalSeconds:0} s");
+        }
+    }
+
+    private void Collection_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(CollectionViewModel.IsBuilding) || sender is not CollectionViewModel build)
+            return;
+        if (build.IsBuilding)
+        {
+            _activeBuilds.Remove(build);
+            _activeBuilds.Insert(0, build);
+        }
+        else
+        {
+            // Ended: a player on disk moves to the finished list; anything else waits to be seen, unless it already is.
+            if (!build.EndedWithoutOutput || ReferenceEquals(build, ViewedCollection))
+                _activeBuilds.Remove(build);
+            if (!build.EndedWithoutOutput)
+                BuildFinished?.Invoke(build);
+        }
+        ActiveBuildsChanged?.Invoke();
     }
 
     public void Dispose()
