@@ -1,72 +1,99 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TTSMixmaster MSI. One source, two packages:
+
+    TTSMixmaster.wixproj          Scope=perMachine  -> C:\Program Files\TTSMixmaster      (released as the .msi)
+    peruser/*.PerUser.wixproj     Scope=perUser     -> %LOCALAPPDATA%\Programs\TTSMixmaster (embedded in setup.exe)
+
+  Both install the whole self-contained publish folder (AppPublishDir), harvested at build
+  time with the WiX 5 <Files> element, plus Start Menu and Desktop shortcuts.
+
+  Preprocessor variables (set by the .wixproj files):
+    Version        MAJOR.MINOR.PATCH from Directory.Build.props
+    AppPublishDir  the App publish folder (with yt-dlp/ffmpeg already added)
+    Scope          perMachine | perUser
+    UpgradeCode    stable per scope; never change it or upgrades stop working
+-->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="TTSMixmaster" 
-           Language="1033" 
-           Version="$(Version)" 
-           Manufacturer="Morningwood Gaming LLC" 
-           UpgradeCode="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
-    
+  <Package Name="TTSMixmaster"
+           Language="1033"
+           Version="$(var.Version)"
+           Manufacturer="Morningwood Gaming LLC"
+           UpgradeCode="$(var.UpgradeCode)"
+           Scope="$(var.Scope)">
+
     <MajorUpgrade DowngradeErrorMessage="A newer version of TTSMixmaster is already installed." />
-    <MediaTemplate EmbedCab="yes" />
-    
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AppIcon.ico" SourceFile="$(var.AppPublishDir)\Assets\AppIcon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/MWG-Logan/TTSMixmaster" />
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
+
     <Feature Id="ProductFeature" Title="TTSMixmaster" Level="1">
-      <ComponentGroupRef Id="ProductComponents" />
-      <ComponentGroupRef Id="HarvestedFiles" />
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentGroupRef Id="Shortcuts" />
     </Feature>
   </Package>
 
   <Fragment>
-    <StandardDirectory Id="ProgramFilesFolder">
+<?if $(var.Scope) = "perUser" ?>
+    <!-- Per-user: no admin rights, the per-user equivalent of Program Files. -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="UserProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="TTSMixmaster" />
+      </Directory>
+    </StandardDirectory>
+<?else?>
+    <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="INSTALLFOLDER" Name="TTSMixmaster" />
     </StandardDirectory>
+<?endif?>
     <StandardDirectory Id="ProgramMenuFolder">
-      <Directory Id="ApplicationProgramsFolder" Name="TTSMixmaster"/>
+      <Directory Id="ApplicationProgramsFolder" Name="TTSMixmaster" />
     </StandardDirectory>
     <StandardDirectory Id="DesktopFolder" />
   </Fragment>
 
   <Fragment>
-    <ComponentGroup Id="ProductComponents">
-      <!-- Main executable (per-machine), file is the KeyPath -->
-      <Component Id="MainExecutable" Directory="INSTALLFOLDER" Guid="*">
-        <File Id="TTSMixmasterExe" 
-              Source="$(var.SourceDir)\TTSMixmaster-installer.exe" 
-              Name="TTSMixmaster.exe"
-              KeyPath="yes" />
+    <!-- Everything dotnet publish produced, plus the bundled yt-dlp/ffmpeg. -->
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.AppPublishDir)\**" />
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="Shortcuts">
+      <!-- Start Menu shortcut; an HKCU registry value is the KeyPath (shortcut folders are per-user data to ICE). -->
+      <Component Id="StartMenuShortcut" Directory="ApplicationProgramsFolder">
+        <Shortcut Id="StartMenuShortcut"
+                  Name="TTSMixmaster"
+                  Target="[INSTALLFOLDER]TTSMixmaster.exe"
+                  Description="Turn music playlists into Tabletop Simulator music players"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\TTSMixmaster" Name="StartMenuShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
       </Component>
 
-      <!-- Start Menu shortcut (per-user), HKCU registry value is the KeyPath -->
-      <Component Id="StartMenuShortcut" Directory="ApplicationProgramsFolder" Guid="*">
-        <Shortcut Id="StartMenuShortcut" 
-                  Name="TTSMixmaster" 
-                  Target="[INSTALLFOLDER]TTSMixmaster.exe" 
-                  Description="TTSMixmaster - Last.fm to Tabletop Simulator Integration"
+      <Component Id="DesktopShortcut" Directory="DesktopFolder">
+        <Shortcut Id="DesktopShortcut"
+                  Name="TTSMixmaster"
+                  Target="[INSTALLFOLDER]TTSMixmaster.exe"
+                  Description="Turn music playlists into Tabletop Simulator music players"
                   WorkingDirectory="INSTALLFOLDER" />
-        <RemoveFolder Id="RemoveProgramsFolder" 
-                      Directory="ApplicationProgramsFolder" 
-                      On="uninstall"/>
-        <RegistryValue Root="HKCU" 
-                       Key="Software\TTSMixmaster" 
-                       Name="StartMenuShortcut" 
-                       Type="integer" 
-                       Value="1" 
-                       KeyPath="yes"/>
+        <RegistryValue Root="HKCU" Key="Software\TTSMixmaster" Name="DesktopShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
       </Component>
-
-      <!-- Desktop shortcut (per-user), HKCU registry value is the KeyPath -->
-      <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="*">
-        <Shortcut Id="DesktopShortcut" 
-                  Name="TTSMixmaster" 
-                  Target="[INSTALLFOLDER]TTSMixmaster.exe" 
-                  Description="TTSMixmaster - Last.fm to Tabletop Simulator Integration"
-                  WorkingDirectory="INSTALLFOLDER" />
-        <RegistryValue Root="HKCU" 
-                       Key="Software\TTSMixmaster" 
-                       Name="DesktopShortcut" 
-                       Type="integer" 
-                       Value="1" 
-                       KeyPath="yes"/>
+<?if $(var.Scope) = "perUser" ?>
+      <!-- Per-user installs live in the profile: remove the folders we created on uninstall (ICE64). -->
+      <Component Id="RemoveUserFolders" Directory="INSTALLFOLDER">
+        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+        <RemoveFolder Id="RemoveUserProgramsFolder" Directory="UserProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\TTSMixmaster" Name="InstallFolder"
+                       Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
       </Component>
+<?endif?>
     </ComponentGroup>
   </Fragment>
 </Wix>
