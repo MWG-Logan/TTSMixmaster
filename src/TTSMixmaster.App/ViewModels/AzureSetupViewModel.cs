@@ -389,10 +389,18 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         IsWaitingForRole = false;
     }
 
+    /// <summary>
+    /// Confirms the account-wide change before making it (set by the view, which owns the dialog).
+    /// Arguments are the account and container names; returns false to cancel.
+    /// </summary>
+    public Func<string, string, Task<bool>>? ConfirmPublicAccess { get; set; }
+
     [RelayCommand]
     private async Task MakePublicAsync()
     {
         if (SelectedAccount is not { } account || SelectedContainer is not { } container)
+            return;
+        if (ConfirmPublicAccess is not null && !await ConfirmPublicAccess(account.Name, container.Name))
             return;
         IsFixing = true;
         FixError = "";

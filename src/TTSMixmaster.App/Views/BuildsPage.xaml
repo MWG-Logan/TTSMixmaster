@@ -34,6 +34,9 @@
                     AutomationProperties.Name="Refresh"
                     Command="{x:Bind ViewModel.RefreshCommand}"
                     ToolTipService.ToolTip="Refresh">
+                    <Button.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="F5" />
+                    </Button.KeyboardAccelerators>
                     <FontIcon FontSize="16" Glyph="&#xE72C;" />
                 </Button>
             </StackPanel>
