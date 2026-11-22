@@ -335,7 +335,17 @@ try {
         Invoke-Ui @('wait-for', 'NavView', '-t', '10000')
         Save-Screenshot '01-initial.png'
     }
-    Test-UI 'Collections page opens' { Open-Page 'NavCollections' 'SearchBox' '02-collections.png' }
+    # With no music service set up the page is the first-run "Connect a music service" state, without search;
+    # with one (always with -DevSource) it has the search box.
+    Test-UI 'Collections page opens' {
+        Invoke-Ui @('invoke', 'NavCollections') | Out-Null
+        if ($DevSource) { Invoke-Ui @('wait-for', 'SearchBox', '-t', '10000') | Out-Null }
+        else {
+            try { Invoke-Ui @('wait-for', 'OpenSettingsFromEmpty', '-t', '10000') | Out-Null }
+            catch { Invoke-Ui @('wait-for', 'SearchBox', '-t', '1000') | Out-Null } # this guest has a service set up
+        }
+        Save-Screenshot '02-collections.png'
+    }
     Test-UI 'Builds page opens' { Open-Page 'NavBuilds' 'RefreshBuilds' '03-builds.png' }
     Test-UI 'Settings page opens' { Open-Page 'NavSettings' 'LastFmSettings' '04-settings.png' }
 
