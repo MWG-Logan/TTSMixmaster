@@ -94,16 +94,33 @@
                 Text="{x:Bind ViewModel.ListHeading, Mode=OneWay}" />
         </Grid>
 
-        <InfoBar
-            Grid.Row="3"
-            Margin="0,8,0,0"
-            AutomationProperties.AutomationId="CollectionsError"
-            IsClosable="False"
-            IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
-            Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}"
-            Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
-            Severity="Warning"
-            Title="Some collections couldn't be loaded" />
+        <StackPanel Grid.Row="3">
+            <!--  yt-dlp/ffmpeg ship with the app; a dev build or a damaged install may lack them.  -->
+            <InfoBar
+                Margin="0,8,0,0"
+                AutomationProperties.AutomationId="ToolsMissing"
+                IsClosable="True"
+                IsOpen="{x:Bind ViewModel.HasToolsProblem, Mode=OneWay}"
+                Message="{x:Bind ViewModel.ToolsMessage, Mode=OneWay}"
+                Severity="Warning"
+                Title="Builds can't find audio yet">
+                <InfoBar.ActionButton>
+                    <Button
+                        AutomationProperties.AutomationId="OpenSettingsFromTools"
+                        Click="OpenSettings_Click"
+                        Content="Open Settings" />
+                </InfoBar.ActionButton>
+            </InfoBar>
+            <InfoBar
+                Margin="0,8,0,0"
+                AutomationProperties.AutomationId="CollectionsError"
+                IsClosable="False"
+                IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
+                Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}"
+                Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                Severity="Warning"
+                Title="Some collections couldn't be loaded" />
+        </StackPanel>
 
         <!--  Content: list, loading, empty, or first run. Exactly one is visible.  -->
         <ListView

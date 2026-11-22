@@ -3,8 +3,10 @@ using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Controls;
-using TTSMixmaster.App.DesignTime;
+using TTSMixmaster.App.Library;
 using TTSMixmaster.Core;
+using TTSMixmaster.Core.Configuration;
+using TTSMixmaster.Core.Imaging;
 using TTSMixmaster.Core.Models;
 using Windows.ApplicationModel.DataTransfer;
 
@@ -36,23 +38,29 @@ public sealed partial class TrackRowViewModel(int number, Track track) : Observa
 }
 
 /// <summary>
-/// A collection's tracks and its build: download audio → upload to Azure → generate TTS files.
+/// A collection's tracks and its build: download audio → render the chip and upload it with the audio
+/// to Azure → generate TTS files. Export to TTS then writes the saved object with the chip as thumbnail.
 /// Lives for the session (see <see cref="AppServices.OpenCollection"/>) so a build keeps running
 /// while the user looks at other pages.
 /// </summary>
 public sealed partial class CollectionViewModel : ObservableObject
 {
     private const int StepCount = 3;
+    private const long MaxCustomImageBytes = ChipImageBuilder.MaxArtBytes;
     private readonly AppServices _app;
     private readonly CollectionRequest _request;
     private MusicCollection? _collection;
     private Task? _loadTask;
+    private byte[]? _art;            // the collection's own art, fetched once for previews and builds
+    private byte[]? _customArt;      // the user's image, read once per choice
+    private int _previewVersion;
 
     public CollectionViewModel(AppServices app, CollectionRequest request)
     {
         _app = app;
         _request = request;
-        ExportState = new TtsExportViewModel(app.TtsExporter);
+        ExportState = new TtsExportViewModel(app.TtsExporter, app.Log);
+        ShowTitleOnChip = app.Settings.ChipShowTitle;
         Title = request.Summary?.Name ?? "Opening link…";
         Subtitle = request.Summary is { } s ? Display.SummaryLine(s) : Display.ServiceName(request.Service.Kind);
         Description = request.Summary?.Description ?? "";
@@ -85,14 +93,19 @@ public sealed partial class CollectionViewModel : ObservableObject
 
     public bool HasToolsProblem => ToolsProblem.Length > 0;
 
-    [ObservableProperty] public partial bool IsAzureMissing { get; set; }
+    /// <summary>Why uploads can't work yet (Azure not set up or signed out), or empty.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsAzureMissing))]
+    public partial string AzureProblem { get; set; } = "";
+
+    public bool IsAzureMissing => AzureProblem.Length > 0;
 
     // Tabletop object options
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ChipTitle), nameof(ChipPreviewDescription))]
     public partial string ObjectNickname { get; set; } = "";
 
-    // Chip front image. TODO(core): feed these to Core's chip image renderer and show its bitmap.
+    // Chip front image, rendered by Core exactly as it will be uploaded.
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ChipPreviewDescription))]
     public partial bool ShowTitleOnChip { get; set; } = true;
@@ -103,6 +116,20 @@ public sealed partial class CollectionViewModel : ObservableObject
 
     public bool HasCustomChipImage => CustomChipImagePath.Length > 0;
     public string ChipTitle => string.IsNullOrWhiteSpace(ObjectNickname) ? Title : ObjectNickname.Trim();
+
+    /// <summary>The rendered chip front (PNG), or null until the first render finishes.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasChipPreview))]
+    public partial byte[]? ChipPng { get; set; }
+
+    public bool HasChipPreview => ChipPng is not null;
+
+    /// <summary>A problem with the chosen custom image (unreadable, unsupported format), or empty.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasChipImageError))]
+    public partial string ChipImageError { get; set; } = "";
+
+    public bool HasChipImageError => ChipImageError.Length > 0;
 
     public string ChipPreviewDescription =>
         $"Chip preview: {(HasCustomChipImage ? "custom image" : $"{Display.ServiceName(Service)} artwork")}" +
@@ -115,6 +142,114 @@ public sealed partial class CollectionViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(ChipTitle));
         OnPropertyChanged(nameof(ChipPreviewDescription));
+        SchedulePreview();
+    }
+
+    partial void OnObjectNicknameChanged(string value) => SchedulePreview();
+
+    partial void OnShowTitleOnChipChanged(bool value)
+    {
+        // A preference, so it carries over to the next collection too.
+        if (_app.Settings.ChipShowTitle != value)
+        {
+            _app.Settings.ChipShowTitle = value;
+            TrySaveSettings();
+        }
+        SchedulePreview();
+    }
+
+    partial void OnCustomChipImagePathChanged(string value)
+    {
+        _customArt = null;
+        ChipImageError = "";
+        if (_collection is not null)
+        {
+            var key = AppSettings.ChipImageKey(_collection.Summary);
+            if (value.Length == 0) _app.Settings.ChipCustomImages.Remove(key);
+            else _app.Settings.ChipCustomImages[key] = value;
+            TrySaveSettings();
+        }
+        SchedulePreview();
+    }
+
+    private void SchedulePreview() => _ = RenderPreviewAsync();
+
+    /// <summary>Re-renders the chip preview shortly after the last change (typing a name re-renders once).</summary>
+    private async Task RenderPreviewAsync()
+    {
+        var version = ++_previewVersion;
+        await Task.Delay(250);
+        if (version != _previewVersion || _collection is null)
+            return;
+        try
+        {
+            var chip = await RenderChipAsync(CancellationToken.None);
+            if (version == _previewVersion)
+                ChipPng = chip.Png;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _app.Log.Error("Chip preview failed", ex);
+        }
+    }
+
+    /// <summary>
+    /// The chip front from the current options: the custom image if one is chosen and readable, else the
+    /// collection's art (downloaded once), else Core's generated background. Rendering runs off the UI thread.
+    /// </summary>
+    private async Task<ChipImage> RenderChipAsync(CancellationToken ct)
+    {
+        var art = HasCustomChipImage ? await ReadCustomArtAsync() : null;
+        art ??= _art ??= await _app.Chips.FetchArtAsync(_collection!, ct);
+        var title = ChipTitle;
+        var options = new ChipOptions { ShowTitle = ShowTitleOnChip };
+        var service = _collection!.Summary.Service;
+        return await Task.Run(() => ChipImageBuilder.RenderFront(art, title, service, options), ct);
+    }
+
+    private async Task<byte[]?> ReadCustomArtAsync()
+    {
+        if (_customArt is not null)
+            return _customArt;
+        try
+        {
+            var info = new FileInfo(CustomChipImagePath);
+            if (!info.Exists)
+            {
+                ChipImageError = "The custom image isn't there anymore, so the collection's art is used.";
+                return null;
+            }
+            if (info.Length > MaxCustomImageBytes)
+            {
+                ChipImageError = "That image is larger than 20 MB. Choose a smaller PNG, JPEG or WebP.";
+                return null;
+            }
+            var bytes = await File.ReadAllBytesAsync(info.FullName);
+            if (!ChipImageBuilder.IsSupportedArt(bytes))
+            {
+                ChipImageError = "That file isn't a PNG, JPEG or WebP image, so the collection's art is used.";
+                return null;
+            }
+            ChipImageError = "";
+            return _customArt = bytes;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            ChipImageError = $"Couldn't read the custom image, so the collection's art is used. {ex.Message}";
+            return null;
+        }
+    }
+
+    private void TrySaveSettings()
+    {
+        try
+        {
+            _app.SaveSettings();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Logged by SaveSettings; the choice still applies for this session.
+        }
     }
     [ObservableProperty] public partial string ObjectDescription { get; set; } = "";
     [ObservableProperty] public partial string PrimaryImageUrl { get; set; } = "";
@@ -152,6 +287,7 @@ public sealed partial class CollectionViewModel : ObservableObject
     // What the last build produced, kept so Export to TTS can write it without rebuilding.
     private IReadOnlyList<UploadedTrack> _lastUploads = [];
     private TtsOutputOptions _lastOptions = new();
+    private byte[]? _lastThumbnail;
 
     /// <summary>Export to TTS and its outcome (shared with the Builds rows).</summary>
     public TtsExportViewModel ExportState { get; }
@@ -159,11 +295,12 @@ public sealed partial class CollectionViewModel : ObservableObject
     [ObservableProperty] public partial string CopyStatus { get; set; } = "";
 
     /// <summary>Loads tracks once; later calls just refresh the environment checks.</summary>
-    public Task ActivateAsync()
+    public async Task ActivateAsync()
     {
-        IsAzureMissing = !_app.Uploader.IsConfigured;
+        await _app.AzureRestore;
+        AzureProblem = _app.AzureProblem ?? "";
         _ = CheckToolsAsync();
-        return _loadTask ??= LoadAsync();
+        await (_loadTask ??= LoadAsync());
     }
 
     [RelayCommand]
@@ -182,9 +319,14 @@ public sealed partial class CollectionViewModel : ObservableObject
             Tracks.Clear();
             for (var i = 0; i < _collection.Tracks.Count; i++)
                 Tracks.Add(new TrackRowViewModel(i + 1, _collection.Tracks[i]));
+            if (_app.Settings.ChipCustomImages.TryGetValue(AppSettings.ChipImageKey(_collection.Summary), out var custom))
+                CustomChipImagePath = custom; // also renders the preview
+            else
+                SchedulePreview();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _app.Log.Warn($"Couldn't load a {_request.Service.Kind} collection: {ex.Message}");
             LoadError = $"Couldn't load this {Display.ServiceName(_request.Service.Kind)} collection. {ex.Message}";
         }
         finally
@@ -223,12 +365,14 @@ public sealed partial class CollectionViewModel : ObservableObject
             row.Status = TrackStatus.Pending;
             row.Message = "";
         }
+        var name = _collection.Name;
+        _app.Log.Info($"Build started: {_collection.Summary.Service} collection, {_collection.Tracks.Count} tracks");
 
         try
         {
-            // 1. Download
+            // 1. Download. Each track fails on its own; only cancellation stops the batch.
             SetStep(1, "Downloading audio", _collection.Tracks.Count);
-            var downloaded = await _app.Downloader.DownloadAsync(_collection, Progress(byIndex: true), ct);
+            var downloaded = await _app.Downloader.DownloadAsync(_collection, Progress("Already downloaded"), ct);
             var ready = downloaded.Where(d => d.Status is TrackStatus.Done or TrackStatus.Skipped && d.FilePath is not null).ToList();
             foreach (var d in downloaded.Where(d => d.Status == TrackStatus.Failed))
                 Fail(d.Track, d.Error ?? "Couldn't download this track.");
@@ -240,16 +384,19 @@ public sealed partial class CollectionViewModel : ObservableObject
                 return;
             }
 
-            // 2. Upload
-            if (!_app.Uploader.IsConfigured)
+            // 2. Upload: the chip image first (one small file), then the audio.
+            AzureProblem = _app.AzureProblem ?? "";
+            if (IsAzureMissing)
             {
-                IsAzureMissing = false; // The result below says the same thing; don't show it twice.
+                var problem = AzureProblem;
+                AzureProblem = ""; // The result below says the same thing; don't show it twice.
                 ShowResult(InfoBarSeverity.Warning, "Audio downloaded, not uploaded",
-                    "Tabletop Simulator streams music from the web, so the files need Azure Storage. Set it up in Settings, then build again.");
+                    $"{problem} The downloaded files are kept, so the next build starts from here.");
                 return;
             }
             SetStep(2, "Uploading to Azure", ready.Count);
-            var uploads = await _app.Uploader.UploadAsync(ready, Progress(byIndex: false), ct);
+            var (chipUrl, thumbnail, chipWarning) = await UploadChipAsync(ct);
+            var uploads = await _app.Uploader.UploadAsync(ready, Progress("Already uploaded"), ct);
             foreach (var u in uploads.Where(u => u.Status == TrackStatus.Failed || u.PublicUrl is null))
                 Fail(u.Track, u.Error ?? "Couldn't upload this track.");
             var playable = uploads.Where(u => u.PublicUrl is not null && u.Status != TrackStatus.Failed).ToList();
@@ -257,25 +404,25 @@ public sealed partial class CollectionViewModel : ObservableObject
             if (playable.Count == 0)
             {
                 ShowResult(InfoBarSeverity.Error, "Upload failed",
-                    "No tracks reached Azure, so nothing was generated. Check the storage connection in Settings.");
+                    "No tracks reached Azure, so nothing was generated. The reason is next to each track; check Storage in Settings.");
                 return;
             }
 
-            // 3. Generate
+            // 3. Generate. A URL typed under "Tabletop object" wins over the uploaded chip.
             SetStep(3, "Generating Tabletop Simulator files", 0);
             var options = new TtsOutputOptions
             {
                 ObjectNickname = ObjectNickname.Trim(),
                 Description = ObjectDescription.Trim(),
-                PrimaryImageUrl = PrimaryImageUrl.Trim(),
-                SecondaryImageUrl = SecondaryImageUrl.Trim(),
+                PrimaryImageUrl = PrimaryImageUrl.Trim() is { Length: > 0 } front ? front : chipUrl ?? "",
+                SecondaryImageUrl = SecondaryImageUrl.Trim(), // empty: the formatter uses the original chip back
             };
             Output = await _app.Formatter.GenerateAsync(_collection, playable, options, ct);
             _lastUploads = playable;
             _lastOptions = options;
-            OutputFolder = Output.WrittenFiles.Count > 0
-                ? Path.GetDirectoryName(Output.WrittenFiles[0])!
-                : "";
+            _lastThumbnail = thumbnail;
+            OutputFolder = Output.WrittenFiles.Count > 0 ? Path.GetDirectoryName(Output.WrittenFiles[0])! : "";
+            SaveBuildRecord(playable, options, thumbnail);
             foreach (var row in Tracks.Where(r => r.Status != TrackStatus.Failed))
             {
                 row.Status = TrackStatus.Done;
@@ -283,26 +430,74 @@ public sealed partial class CollectionViewModel : ObservableObject
             }
 
             var failed = Tracks.Count(r => r.Status == TrackStatus.Failed);
-            if (failed == 0)
+            var chipNote = chipWarning is null ? "" : $" {chipWarning}";
+            _app.Log.Info($"Build finished: {playable.Count} of {Tracks.Count} tracks playable, {failed} failed" +
+                (chipWarning is null ? "" : "; chip image not uploaded"));
+            if (failed == 0 && chipWarning is null)
                 ShowResult(InfoBarSeverity.Success, "Ready for Tabletop Simulator",
                     $"All {playable.Count} tracks are in the music player.");
+            else if (failed == 0)
+                ShowResult(InfoBarSeverity.Warning, "Ready for Tabletop Simulator", $"All {playable.Count} tracks are in the music player.{chipNote}");
             else
                 ShowResult(InfoBarSeverity.Warning, $"{playable.Count} of {Tracks.Count} tracks are ready",
-                    $"{failed} {(failed == 1 ? "track was" : "tracks were")} left out of the player. The reason is next to each one.");
+                    $"{failed} {(failed == 1 ? "track was" : "tracks were")} left out of the player. The reason is next to each one.{chipNote}");
         }
         catch (OperationCanceledException)
         {
             foreach (var row in Tracks.Where(r => r.Status == TrackStatus.Working))
                 row.Status = TrackStatus.Pending;
+            _app.Log.Info("Build cancelled");
             ShowResult(InfoBarSeverity.Informational, "Build cancelled", "Nothing was generated. Files already downloaded are kept for next time.");
         }
         catch (Exception ex)
         {
+            _app.Log.Error($"Build of \"{name}\" stopped", ex);
             ShowResult(InfoBarSeverity.Error, "The build stopped", ex.Message);
         }
         finally
         {
             IsBuilding = false;
+        }
+    }
+
+    /// <summary>
+    /// Renders the chip and uploads it as images/chip-&lt;sha256&gt;.png. Returns its URL (null on failure, so the
+    /// formatter falls back to the original chip front), the 256px Saved Objects thumbnail, and a warning.
+    /// </summary>
+    private async Task<(string? Url, byte[]? Thumbnail, string? Warning)> UploadChipAsync(CancellationToken ct)
+    {
+        try
+        {
+            var chip = await RenderChipAsync(ct);
+            ChipPng = chip.Png;
+            var thumbnail = await Task.Run(() => ChipImageBuilder.Thumbnail(chip), ct);
+            var upload = await _app.Uploader.UploadImageAsync(chip.Png, ct: ct);
+            if (upload.Succeeded)
+                return (upload.PublicUrl, thumbnail, null);
+            _app.Log.Warn($"Chip upload failed: {upload.Error}");
+            return (null, thumbnail, $"The chip image couldn't be uploaded ({upload.Error}), so the player uses the standard chip.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _app.Log.Error("Chip render failed", ex);
+            return (null, null, "The chip image couldn't be drawn, so the player uses the standard chip.");
+        }
+    }
+
+    /// <summary>Records the build for the Builds page (export again later). Losing it only hides the row.</summary>
+    private void SaveBuildRecord(IReadOnlyList<UploadedTrack> playable, TtsOutputOptions options, byte[]? thumbnail)
+    {
+        if (OutputFolder.Length == 0)
+            return;
+        try
+        {
+            var lua = Output?.WrittenFiles.FirstOrDefault(f => f.EndsWith(".lua", StringComparison.OrdinalIgnoreCase) &&
+                !f.EndsWith("_playlist.lua", StringComparison.OrdinalIgnoreCase)) ?? "";
+            new BuildRecord(_collection!.Summary, playable, options, lua, DateTimeOffset.Now).Write(OutputFolder, thumbnail);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _app.Log.Error("Couldn't save the build record", ex);
         }
     }
 
@@ -313,7 +508,7 @@ public sealed partial class CollectionViewModel : ObservableObject
         if (_collection is null || Output is null)
             return Task.CompletedTask;
         CopyStatus = "";
-        return ExportState.RunAsync(_collection, _lastUploads, _lastOptions);
+        return ExportState.RunAsync(_collection, _lastUploads, _lastOptions, _lastThumbnail);
     }
 
     [RelayCommand]
@@ -345,25 +540,27 @@ public sealed partial class CollectionViewModel : ObservableObject
 
     /// <summary>
     /// Progress&lt;T&gt; captures the UI thread's SynchronizationContext, so reports land on the UI thread.
-    /// The downloader's Index is the position in the collection; the uploader's is the position in its
-    /// own (shorter) list, so upload rows are matched by track instead.
+    /// Rows are matched by track: the downloader's indices are 1-based positions in the collection and the
+    /// uploader's are 0-based positions in its own (shorter) list. The bar counts finished reports.
     /// </summary>
-    private Progress<TrackProgress> Progress(bool byIndex) => new(p =>
+    private Progress<TrackProgress> Progress(string skipped)
     {
-        var row = byIndex && p.Index >= 0 && p.Index < Tracks.Count && Tracks[p.Index].Track == p.Track
-            ? Tracks[p.Index]
-            : Tracks.FirstOrDefault(r => r.Track == p.Track);
-        if (row is not null)
+        var finished = 0;
+        return new(p =>
         {
-            row.Status = p.Status;
-            row.Message = p.Message ?? "";
-        }
-        if (p.Status != TrackStatus.Working)
-        {
-            ProgressValue = p.Index + 1;
-            StepDetail = $"{p.Index + 1} of {p.Total}";
-        }
-    });
+            if ((Tracks.FirstOrDefault(r => ReferenceEquals(r.Track, p.Track)) ?? Tracks.FirstOrDefault(r => r.Track == p.Track)) is { } row)
+            {
+                row.Status = p.Status;
+                row.Message = p.Message ?? (p.Status == TrackStatus.Skipped ? skipped : "");
+            }
+            if (p.Status != TrackStatus.Working)
+            {
+                finished++;
+                ProgressValue = finished;
+                StepDetail = $"{finished} of {p.Total}";
+            }
+        });
+    }
 
     private void Fail(Track track, string reason)
     {

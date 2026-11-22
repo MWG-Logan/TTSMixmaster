@@ -158,12 +158,12 @@
                         Title="Audio tools are missing" />
                     <InfoBar
                         AutomationProperties.AutomationId="AzureMissing"
-                        IsClosable="True"
-                        IsOpen="{x:Bind ViewModel.IsAzureMissing, Mode=TwoWay}"
+                        IsClosable="False"
+                        IsOpen="{x:Bind ViewModel.IsAzureMissing, Mode=OneWay}"
                         Visibility="{x:Bind ViewModel.IsAzureMissing, Mode=OneWay}"
-                        Message="Tabletop Simulator streams music from the web, so builds upload the audio to your Azure Storage account."
+                        Message="{x:Bind ViewModel.AzureProblem, Mode=OneWay}"
                         Severity="Warning"
-                        Title="Set up Azure Storage before building">
+                        Title="Azure Storage isn't ready">
                         <InfoBar.ActionButton>
                             <Button
                                 AutomationProperties.AutomationId="OpenSettingsFromAzure"
@@ -257,54 +257,27 @@
                             </Grid.ColumnDefinitions>
 
                             <!--
-                                Chip preview. A stand-in drawn in XAML until Core's chip image renderer lands
-                                (it will return the real front image). The colours depict the physical
-                                cartridge, not app chrome, so they're fixed across themes on purpose.
+                                Chip preview: Core's render, byte for byte the image that is uploaded with the
+                                build. It depicts the physical chip, so it looks the same in every theme.
                             -->
                             <StackPanel Width="184" Spacing="12">
-                                <Border
-                                    Width="184"
-                                    Height="184"
-                                    Padding="12"
-                                    Background="{StaticResource ChipCartridgeBrush}"
-                                    BorderBrush="{StaticResource ChipCartridgeEdgeBrush}"
-                                    BorderThickness="2"
-                                    CornerRadius="22">
-                                    <Grid>
-                                        <Border Background="{StaticResource ChipArtBackgroundBrush}" CornerRadius="12">
-                                            <Grid>
-                                                <ImageIcon
-                                                    Width="72"
-                                                    Height="72"
-                                                    Source="{x:Bind h:Bind.ServiceIcon(ViewModel.Service), Mode=OneTime}"
-                                                    Visibility="{x:Bind h:Bind.Collapsed(ViewModel.HasCustomChipImage), Mode=OneWay}" />
-                                                <Image
-                                                    AutomationProperties.AutomationId="ChipPreview"
-                                                    AutomationProperties.Name="{x:Bind ViewModel.ChipPreviewDescription, Mode=OneWay}"
-                                                    Source="{x:Bind h:Bind.FileImage(ViewModel.CustomChipImagePath), Mode=OneWay}"
-                                                    Stretch="UniformToFill"
-                                                    Visibility="{x:Bind ViewModel.HasCustomChipImage, Mode=OneWay}" />
-                                            </Grid>
-                                        </Border>
-                                        <Border
-                                            Margin="0,0,0,6"
-                                            Padding="8,2"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Bottom"
-                                            Background="{StaticResource ChipCartridgeBrush}"
-                                            CornerRadius="4"
-                                            Visibility="{x:Bind ViewModel.ShowTitleOnChip, Mode=OneWay}">
-                                            <TextBlock
-                                                FontFamily="Georgia"
-                                                FontSize="13"
-                                                Foreground="{StaticResource ChipTitleBrush}"
-                                                MaxLines="1"
-                                                Text="{x:Bind ViewModel.ChipTitle, Mode=OneWay}"
-                                                TextTrimming="CharacterEllipsis"
-                                                Typography.Capitals="SmallCaps" />
-                                        </Border>
-                                    </Grid>
-                                </Border>
+                                <Grid Width="184" Height="184">
+                                    <ProgressRing
+                                        AutomationProperties.Name="Drawing the chip preview"
+                                        IsActive="{x:Bind h:Bind.Not(ViewModel.HasChipPreview), Mode=OneWay}" />
+                                    <Image
+                                        AutomationProperties.AutomationId="ChipPreview"
+                                        AutomationProperties.Name="{x:Bind ViewModel.ChipPreviewDescription, Mode=OneWay}"
+                                        Source="{x:Bind h:Bind.PngImage(ViewModel.ChipPng), Mode=OneWay}"
+                                        Stretch="Uniform" />
+                                </Grid>
+                                <TextBlock
+                                    AutomationProperties.AutomationId="ChipImageError"
+                                    Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Text="{x:Bind ViewModel.ChipImageError, Mode=OneWay}"
+                                    TextWrapping="Wrap"
+                                    Visibility="{x:Bind ViewModel.HasChipImageError, Mode=OneWay}" />
                                 <ToggleSwitch
                                     AutomationProperties.AutomationId="ShowTitleOnChip"
                                     Header="Show title on chip"

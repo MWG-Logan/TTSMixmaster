@@ -65,6 +65,13 @@
                     Message="{x:Bind ViewModel.SaveError, Mode=OneWay}"
                     Severity="Error"
                     Title="Settings weren't saved" />
+                <InfoBar
+                    AutomationProperties.AutomationId="ImportedSettings"
+                    IsClosable="True"
+                    IsOpen="{x:Bind ViewModel.HasImportedSettings, Mode=OneTime}"
+                    Message="{x:Bind ViewModel.ImportedSettingsMessage, Mode=OneTime}"
+                    Severity="Informational"
+                    Title="Settings imported from the previous version" />
 
                 <!--  ============ Music services ============  -->
                 <TextBlock
@@ -342,12 +349,32 @@
                     <tk:SettingsCard.HeaderIcon>
                         <FontIcon Glyph="&#xE90F;" />
                     </tk:SettingsCard.HeaderIcon>
-                    <FontIcon
-                        AutomationProperties.Name="Ready"
-                        Foreground="{ThemeResource SystemFillColorSuccessBrush}"
-                        Glyph="&#xE73E;"
-                        Visibility="{x:Bind ViewModel.AreToolsReady, Mode=OneWay}" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon
+                            AutomationProperties.Name="Ready"
+                            Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                            Glyph="&#xE73E;"
+                            Visibility="{x:Bind ViewModel.AreToolsReady, Mode=OneWay}" />
+                        <ProgressRing
+                            Width="20"
+                            Height="20"
+                            AutomationProperties.Name="Updating yt-dlp"
+                            IsActive="{x:Bind ViewModel.IsUpdatingYtDlp, Mode=OneWay}"
+                            Visibility="{x:Bind ViewModel.IsUpdatingYtDlp, Mode=OneWay}" />
+                        <Button
+                            AutomationProperties.AutomationId="UpdateYtDlp"
+                            Command="{x:Bind ViewModel.UpdateYtDlpCommand}"
+                            Content="Update yt-dlp"
+                            ToolTipService.ToolTip="Downloads the latest yt-dlp. Sites change often; updating fixes most &#x201C;couldn&#x2019;t find audio&#x201D; errors." />
+                    </StackPanel>
                 </tk:SettingsCard>
+                <InfoBar
+                    AutomationProperties.AutomationId="YtDlpUpdateResult"
+                    IsClosable="False"
+                    IsOpen="{x:Bind ViewModel.IsYtDlpResultOpen, Mode=OneWay}"
+                    Visibility="{x:Bind ViewModel.IsYtDlpResultOpen, Mode=OneWay}"
+                    Message="{x:Bind ViewModel.YtDlpResultMessage, Mode=OneWay}"
+                    Severity="{x:Bind ViewModel.YtDlpResultSeverity, Mode=OneWay}" />
 
                 <!--  ============ Appearance ============  -->
                 <TextBlock

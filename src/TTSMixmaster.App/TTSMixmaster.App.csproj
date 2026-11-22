@@ -58,6 +58,14 @@
   </ItemGroup>
 
   <!--
+    Verification builds only: -p:TtsmDevSource=true compiles DevLocalMusicService (a local test collection
+    in place of YouTube) so the full pipeline can be exercised without music-service credentials.
+  -->
+  <PropertyGroup Condition="'$(TtsmDevSource)' == 'true'">
+    <DefineConstants>$(DefineConstants);DEV_SOURCE</DefineConstants>
+  </PropertyGroup>
+
+  <!--
     No trimming: several service SDKs (Google APIs, SpotifyAPI.Web) rely on reflection,
     and a few MB of install size is not worth runtime surprises.
   -->

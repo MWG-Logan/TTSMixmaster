@@ -32,15 +32,6 @@
                 <Setter Property="Padding" Value="16" />
             </Style>
 
-            <!--
-                The TTS chip preview depicts a physical cartridge, so these are fixed colours rather
-                than theme brushes. Used only by the chip preview on the Collection page.
-            -->
-            <SolidColorBrush x:Key="ChipCartridgeBrush" Color="#FF1E1C1A" />
-            <SolidColorBrush x:Key="ChipCartridgeEdgeBrush" Color="#FF3A3631" />
-            <SolidColorBrush x:Key="ChipArtBackgroundBrush" Color="#FF2B2825" />
-            <SolidColorBrush x:Key="ChipTitleBrush" Color="#FFEDE4D3" />
-
             <Style
                 x:Key="SecondaryTextStyle"
                 BasedOn="{StaticResource BodyTextBlockStyle}"

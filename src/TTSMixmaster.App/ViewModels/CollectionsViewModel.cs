@@ -77,9 +77,30 @@ public sealed partial class CollectionsViewModel(AppServices app) : ObservableOb
     private bool _isSearching;
     private bool _suppressReload;
 
+    /// <summary>Why builds can't download audio (yt-dlp/ffmpeg missing), from the startup check; empty when fine.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasToolsProblem), nameof(ToolsMessage))]
+    public partial string ToolsProblem { get; set; } = "";
+
+    public bool HasToolsProblem => ToolsProblem.Length > 0;
+
+    public string ToolsMessage =>
+        $"{ToolsProblem} TTSMixmaster uses yt-dlp and ffmpeg to find each track's audio, and they normally come with the app. " +
+        $"Reinstall TTSMixmaster, or put yt-dlp.exe and ffmpeg.exe in {app.Paths.ToolsDirectory}. Settings can download yt-dlp for you.";
+
+    private bool _toolsChecked;
+
+    private async Task ShowToolsProblemAsync()
+    {
+        _toolsChecked = true;
+        ToolsProblem = await app.ToolsCheck ?? "";
+    }
+
     /// <summary>Call when the page is shown: settings may have changed since last time.</summary>
     public void Activate()
     {
+        if (!_toolsChecked)
+            _ = ShowToolsProblemAsync();
         var connected = app.MusicServices.Where(s => s.IsConfigured).Select(s => s.Kind).ToList();
         var signature = string.Join(',', connected);
         IsFirstRun = connected.Count == 0;

@@ -14,9 +14,17 @@ public static class Bind
     public static Visibility VisibleIfText(string? value) => string.IsNullOrEmpty(value) ? Visibility.Collapsed : Visibility.Visible;
     public static bool Not(bool value) => !value;
 
-    /// <summary>A local image file, or nothing. New source per call, like <see cref="ServiceIcon"/>.</summary>
-    public static ImageSource? FileImage(string? path) =>
-        string.IsNullOrEmpty(path) ? null : new BitmapImage(new Uri(path));
+    /// <summary>PNG bytes (a rendered chip) as an image, or nothing.</summary>
+    public static ImageSource? PngImage(byte[]? png)
+    {
+        if (png is null)
+            return null;
+        var bitmap = new BitmapImage();
+        // Not disposed here: the bitmap may still be decoding from it after SetSource returns.
+        var stream = new MemoryStream(png, writable: false);
+        bitmap.SetSource(stream.AsRandomAccessStream());
+        return bitmap;
+    }
 
     /// <summary>The provider's mark (Assets/Services/*.svg). A new source per call: image sources aren't shared between elements.</summary>
     public static ImageSource ServiceIcon(ServiceKind kind) => new SvgImageSource(new Uri(kind switch

@@ -3,7 +3,8 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using TTSMixmaster.App.DesignTime;
+using TTSMixmaster.Core.Azure;
+using TTSMixmaster.Core.Upload;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace TTSMixmaster.App.ViewModels;
@@ -15,18 +16,16 @@ namespace TTSMixmaster.App.ViewModels;
 public sealed partial class AzureSetupViewModel : ObservableObject
 {
     public const string RoleName = "Storage Blob Data Contributor";
-    private static readonly TimeSpan RecheckInterval = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan RecheckFor = TimeSpan.FromMinutes(3);
 
     private readonly AppServices _app;
-    private readonly IAzureStorageSetup _azure;
+    private readonly AzureAccountService _azure;
     private CancellationTokenSource? _cascadeCts;
     private readonly Dictionary<object, int> _loadVersions = [];
 
     public AzureSetupViewModel(AppServices app)
     {
         _app = app;
-        _azure = app.AzureSetup;
+        _azure = app.Azure;
         Account = _azure.CurrentAccount;
     }
 
@@ -35,7 +34,9 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     public ObservableCollection<AzureStorageAccount> StorageAccounts { get; } = [];
     public ObservableCollection<AzureContainer> Containers { get; } = [];
 
-    public bool IsSignInAvailable => _azure.IsSignInAvailable;
+    /// <summary>False only when neither this build nor azure_client_id names an Entra app registration.</summary>
+    public bool IsSignInAvailable =>
+        !string.IsNullOrWhiteSpace(AzureSignInDefaults.ClientId) || !string.IsNullOrWhiteSpace(_app.Settings.AzureClientId);
 
     // ---------- Account ----------
 
@@ -49,7 +50,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
 
     public string AccountDescription =>
         !IsSignInAvailable ? "Sign-in isn't available in this build yet. Use a connection string under Advanced instead."
-        : Account is { } a ? $"{a.DisplayName} · {a.Username}"
+        : Account is { } a ? a.DisplayName
         : "Sign in with the Microsoft account that has your Azure subscription.";
 
     [ObservableProperty]
@@ -71,7 +72,15 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         Error = "";
         try
         {
-            Account = await _azure.SignInAsync();
+            var result = await _azure.SignInAsync();
+            if (!result.Succeeded)
+            {
+                Error = result.Error ?? "Sign-in didn't finish. Try again.";
+                _app.Log.Warn($"Azure sign-in didn't complete: {Error}");
+                return;
+            }
+            Account = result.Account;
+            _app.Log.Info("Azure: signed in");
             await LoadTenantsAsync();
         }
         catch (OperationCanceledException)
@@ -92,16 +101,26 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     private async Task SignOutAsync()
     {
         _cascadeCts?.Cancel();
-        await _azure.SignOutAsync();
-        Account = null;
+        Error = "";
+        try
+        {
+            await _azure.SignOutAsync();
+        }
+        catch (AzureAccountException ex)
+        {
+            Error = $"Couldn't sign out completely. {ex.Message}";
+            _app.Log.Warn($"Azure sign-out: {ex.Message}");
+        }
+        _app.Log.Info("Azure: signed out");
+        Account = _azure.CurrentAccount;
         Tenants.Clear();
         ResetBelow(Level.Tenant);
-        SetReady(false);
     }
 
     /// <summary>Called when Settings opens: pick up an existing sign-in.</summary>
     public async Task ActivateAsync()
     {
+        await _app.AzureRestore;
         Account = _azure.CurrentAccount;
         if (IsSignedIn && Tenants.Count == 0)
             await LoadTenantsAsync();
@@ -141,9 +160,10 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     {
         ResetBelow(Level.Subscription);
         if (value is not null)
-            _ = LoadLevelAsync(Subscriptions, ct => _azure.ListSubscriptionsAsync(value, ct),
+            _ = LoadLevelAsync(Subscriptions, ct => _azure.ListSubscriptionsAsync(value.Id, ct),
                 p => SubscriptionPlaceholder = p, "Choose a subscription", "No subscriptions in this directory",
-                one => SelectedSubscription = one);
+                one => SelectedSubscription = one,
+                preferred: items => items.FirstOrDefault(i => i.Id == _app.Settings.AzureSubscriptionId));
     }
 
     partial void OnSelectedSubscriptionChanged(AzureSubscription? value)
@@ -152,7 +172,8 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         if (value is not null)
             _ = LoadLevelAsync(StorageAccounts, ct => _azure.ListStorageAccountsAsync(value, ct),
                 p => AccountPlaceholder = p, "Choose a storage account", "No storage accounts",
-                one => SelectedAccount = one, empty => HasNoStorageAccounts = empty);
+                one => SelectedAccount = one, empty => HasNoStorageAccounts = empty,
+                preferred: items => items.FirstOrDefault(i => i.Name == _app.Settings.AzureStorageAccount));
     }
 
     partial void OnSelectedAccountChanged(AzureStorageAccount? value)
@@ -169,9 +190,37 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     partial void OnSelectedContainerChanged(AzureContainer? value)
     {
         ClearAccess();
-        if (value is not null && SelectedAccount is not null)
+        if (value is not null && SelectedAccount is { } account)
+        {
+            SaveTarget(account, value);
             _ = CheckAccessAsync();
+        }
     }
+
+    /// <summary>The chosen account and container are where builds upload (and what the picker preselects next time).</summary>
+    private void SaveTarget(AzureStorageAccount account, AzureContainer container)
+    {
+        var s = _app.Settings;
+        if (s.AzureTenantId == account.TenantId && s.AzureSubscriptionId == account.SubscriptionId &&
+            s.AzureStorageAccount == account.Name && s.AzureContainerName == container.Name)
+            return;
+        s.AzureTenantId = account.TenantId;
+        s.AzureSubscriptionId = account.SubscriptionId;
+        s.AzureStorageAccount = account.Name;
+        s.AzureContainerName = container.Name;
+        try
+        {
+            _app.SaveSettings();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Error = $"Your storage choice couldn't be saved. {ex.Message}";
+        }
+        TargetChanged?.Invoke();
+    }
+
+    /// <summary>Raised after the upload target in settings changed (Settings refreshes its Azure status).</summary>
+    public event Action? TargetChanged;
 
     private async Task LoadTenantsAsync()
     {
@@ -179,7 +228,8 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         _cascadeCts = new CancellationTokenSource();
         ResetBelow(Level.Tenant);
         await LoadLevelAsync(Tenants, ct => _azure.ListTenantsAsync(ct), p => TenantPlaceholder = p,
-            "Choose a directory", "Your account has no Azure directories", one => SelectedTenant = one);
+            "Choose a directory", "Your account has no Azure directories", one => SelectedTenant = one,
+            preferred: items => items.FirstOrDefault(t => t.Id == _app.Settings.AzureTenantId));
         OnPropertyChanged(nameof(ShowTenantPicker));
     }
 
@@ -273,7 +323,8 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         ContainerNameError = "";
         try
         {
-            var created = await _azure.CreateContainerAsync(SelectedAccount!, name);
+            await _azure.CreateContainerAsync(SelectedAccount!, name);
+            var created = new AzureContainer(name, AzureContainerPublicAccess.None);
             Containers.Add(created);
             NotifyPickers();
             SelectedContainer = created;
@@ -293,7 +344,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowGrant), nameof(ShowAskOwner), nameof(ShowMakePublic), nameof(ShowReady), nameof(Status))]
-    public partial AzureAccessCheck? Access { get; set; }
+    public partial AzureAccessResult? Access { get; set; }
 
     [ObservableProperty] public partial bool IsChecking { get; set; }
 
@@ -308,9 +359,9 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     public partial string FixError { get; set; } = "";
 
     public bool HasFixError => FixError.Length > 0;
-    public bool ShowGrant => Access is { CanWrite: false, CanGrant: true } && !IsWaitingForRole;
-    public bool ShowAskOwner => Access is { CanWrite: false, CanGrant: false };
-    public bool ShowMakePublic => Access is { IsPubliclyReadable: false };
+    public bool ShowGrant => Access is { HasDataPlaneWrite: false, CanGrantDataPlaneWrite: true } && !IsWaitingForRole;
+    public bool ShowAskOwner => Access is { HasDataPlaneWrite: false, CanGrantDataPlaneWrite: false };
+    public bool ShowMakePublic => Access is { IsAnonymouslyReadable: false };
     public bool ShowReady => Access is { IsReady: true };
 
     public string TargetName => SelectedAccount is { } a && SelectedContainer is { } c ? $"{a.Name}/{c.Name}" : "";
@@ -324,7 +375,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         : Access is not null ? "Needs attention"
         : HasNoStorageAccounts ? "No storage account"
         : IsSignedIn ? "Signed in"
-        : _app.Settings.AzureStorageConnectionString.Length > 0 ? "Using a connection string"
+        : AzureUploadAuthentication.SelectMode(_app.Settings) == AzureUploadMode.ConnectionString ? "Using a connection string"
         : "Not signed in";
 
     /// <summary>The connection-string fallback changed; the header status may too.</summary>
@@ -341,11 +392,10 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         FixError = "";
         try
         {
-            Access = await _azure.CheckAccessAsync(account, container);
+            Access = await _azure.CheckAccessAsync(account, container.Name);
             OnPropertyChanged(nameof(TargetName));
             OnPropertyChanged(nameof(ReadyMessage));
             OnPropertyChanged(nameof(AskOwnerMessage));
-            SetReady(Access.IsReady);
         }
         catch (Exception ex)
         {
@@ -366,9 +416,10 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         FixError = "";
         try
         {
-            await _azure.AssignBlobDataContributorToMeAsync(account, container);
+            await _azure.AssignBlobDataContributorToMeAsync(account, container.Name);
+            _app.Log.Info("Azure: assigned Storage Blob Data Contributor at the selected container");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is AzureAccountException or InvalidOperationException)
         {
             FixError = $"Couldn't assign the role. {ex.Message}";
             IsFixing = false;
@@ -376,17 +427,31 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         }
         IsFixing = false;
 
-        // Role assignments take a minute or two to apply: re-check quietly until they do.
+        // Role assignments take a minute or two to apply: Core re-checks every 5 s for up to two minutes.
         IsWaitingForRole = true;
-        var until = DateTime.UtcNow + RecheckFor;
-        while (DateTime.UtcNow < until && SelectedAccount == account)
+        var ct = _cascadeCts?.Token ?? CancellationToken.None;
+        try
         {
-            await Task.Delay(RecheckInterval);
-            await CheckAccessAsync();
-            if (Access is { CanWrite: true })
-                break;
+            var access = await _azure.WaitForAccessAsync(account, container.Name, ct: ct);
+            if (SelectedAccount == account && SelectedContainer == container)
+            {
+                Access = access;
+                if (!access.HasDataPlaneWrite)
+                    FixError = "Azure hasn't applied the role yet. It can take a few minutes; choose Check again shortly.";
+            }
         }
-        IsWaitingForRole = false;
+        catch (OperationCanceledException)
+        {
+            // The user moved on (changed the pickers or signed out).
+        }
+        catch (AzureAccountException ex)
+        {
+            FixError = $"Couldn't check access to {container.Name}. {ex.Message}";
+        }
+        finally
+        {
+            IsWaitingForRole = false;
+        }
     }
 
     /// <summary>
@@ -406,10 +471,10 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         FixError = "";
         try
         {
-            await _azure.EnablePublicBlobAccessAsync(account, container);
-            await CheckAccessAsync();
+            await _azure.EnablePublicBlobAccessAsync(account, container.Name);
+            _app.Log.Info("Azure: enabled public blob read on the selected container");
         }
-        catch (Exception ex)
+        catch (AzureAccountException ex)
         {
             FixError = $"Couldn't turn on public read access. {ex.Message}";
         }
@@ -417,6 +482,11 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         {
             IsFixing = false;
         }
+        // Either way, show the current state: the account change may have succeeded even if the container's failed.
+        var error = FixError;
+        await CheckAccessAsync();
+        if (error.Length > 0)
+            FixError = error;
     }
 
     [RelayCommand]
@@ -432,12 +502,5 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         Access = null;
         IsWaitingForRole = false;
         FixError = "";
-        SetReady(false);
-    }
-
-    private void SetReady(bool ready)
-    {
-        // TODO(core): persist the chosen account/container in settings once Core adds the keys.
-        _app.AzureTarget = ready && SelectedAccount is { } a && SelectedContainer is { } c ? (a, c) : null;
     }
 }

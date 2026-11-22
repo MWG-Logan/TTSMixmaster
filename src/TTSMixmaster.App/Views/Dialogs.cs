@@ -1,7 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
-using TTSMixmaster.App.DesignTime;
+using TTSMixmaster.Core.Tts;
 
 namespace TTSMixmaster.App.Views;
 
@@ -9,7 +9,7 @@ namespace TTSMixmaster.App.Views;
 internal static class Dialogs
 {
     /// <summary>The saved object was edited outside the app: replace it, keep both, or cancel (the safe default).</summary>
-    public static async Task<TtsExportConflictChoice> AskExportConflictAsync(XamlRoot root, string fileName)
+    public static async Task<TtsExportConflict> AskExportConflictAsync(XamlRoot root, string fileName)
     {
         var dialog = Create(root, "ExportConflictDialog", "Replace the saved object?",
             $"{fileName} in Tabletop Simulator's Saved Objects was changed outside TTSMixmaster since it was last exported. Replace it with this build, or keep both copies?");
@@ -17,9 +17,9 @@ internal static class Dialogs
         dialog.SecondaryButtonText = "Keep both";
         return await dialog.ShowAsync() switch
         {
-            ContentDialogResult.Primary => TtsExportConflictChoice.Replace,
-            ContentDialogResult.Secondary => TtsExportConflictChoice.KeepBoth,
-            _ => TtsExportConflictChoice.Ask,
+            ContentDialogResult.Primary => TtsExportConflict.Replace,
+            ContentDialogResult.Secondary => TtsExportConflict.KeepBoth,
+            _ => TtsExportConflict.Ask,
         };
     }
 

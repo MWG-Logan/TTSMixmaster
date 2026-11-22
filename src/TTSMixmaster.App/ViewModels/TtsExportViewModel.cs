@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using TTSMixmaster.App.DesignTime;
 using TTSMixmaster.Core;
 using TTSMixmaster.Core.Models;
+using TTSMixmaster.Core.Tts;
 
 namespace TTSMixmaster.App.ViewModels;
 
@@ -11,7 +11,7 @@ namespace TTSMixmaster.App.ViewModels;
 /// One "Export to TTS" run and its outcome, shared by the Collection page and each Builds row so both
 /// handle success, conflicts and a missing TTS the same way (see Views/ExportResultBar).
 /// </summary>
-public sealed partial class TtsExportViewModel(ITtsExporter exporter) : ObservableObject
+public sealed partial class TtsExportViewModel(TtsExporter exporter, FileLog log) : ObservableObject
 {
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsExported), nameof(IsTtsMissing), nameof(IsFailed),
@@ -33,32 +33,35 @@ public sealed partial class TtsExportViewModel(ITtsExporter exporter) : Observab
 
     /// <summary>
     /// Asks what to do when the saved object was edited outside the app. Set by the view that owns the
-    /// dialog; returning <see cref="TtsExportConflictChoice.Ask"/> means cancel.
+    /// dialog; returning <see cref="TtsExportConflict.Ask"/> means cancel.
     /// </summary>
-    public Func<string, Task<TtsExportConflictChoice>>? ResolveConflict { get; set; }
+    public Func<string, Task<TtsExportConflict>>? ResolveConflict { get; set; }
 
     /// <summary>Raised after a successful export (the Builds row updates its status).</summary>
     public event Action<TtsExportResult>? Exported;
 
     public void Reset() => Result = null;
 
-    public async Task RunAsync(MusicCollection collection, IReadOnlyList<UploadedTrack> uploads, TtsOutputOptions options)
+    /// <param name="thumbnail">The chip as a 256×256 PNG for the Saved Objects thumbnail, or null for Core's fallback.</param>
+    public async Task RunAsync(MusicCollection collection, IReadOnlyList<UploadedTrack> uploads, TtsOutputOptions options, byte[]? thumbnail)
     {
         IsExporting = true;
         try
         {
-            var result = await exporter.ExportToTtsAsync(collection, uploads, options);
+            var result = await exporter.ExportToTtsAsync(collection, uploads, options, thumbnail: thumbnail);
             if (result.Outcome == TtsExportOutcome.Conflict && ResolveConflict is not null)
             {
                 var choice = await ResolveConflict(Path.GetFileName(result.Path ?? ""));
-                if (choice == TtsExportConflictChoice.Ask)
+                if (choice == TtsExportConflict.Ask)
                 {
                     Result = null; // Cancelled: nothing was written.
                     return;
                 }
-                result = await exporter.ExportToTtsAsync(collection, uploads, options, choice);
+                result = await exporter.ExportToTtsAsync(collection, uploads, options, choice, thumbnail: thumbnail);
             }
             Result = result;
+            log.Info($"Export to TTS of {collection.Summary.Service} collection: {result.Outcome}" +
+                (result.Message is null ? "" : $" ({result.Message})"));
             if (IsExported)
                 Exported?.Invoke(result);
         }

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -99,7 +98,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         YouTube = Connection(ServiceKind.YouTube);
         Spotify = Connection(ServiceKind.Spotify);
         AzureSetup = new AzureSetupViewModel(app);
-        Azure = new ConnectionViewModel("Azure", "Azure Storage", () => _app.Uploader.IsConfigured, _app.Uploader.TestConnectionAsync, SaveNow);
+        Azure = new ConnectionViewModel("Azure", "Azure Storage", () => _app.Uploader.IsConfigured, TestAzureAsync, SaveNow);
+        AzureSetup.TargetChanged += () =>
+        {
+            Azure.Invalidate();
+            OnPropertyChanged(nameof(AzureContainerName));
+        };
         foreach (var c in Connections)
             c.Refresh();
     }
@@ -149,20 +153,29 @@ public sealed partial class SettingsViewModel : ObservableObject
         set => Set(_s.AzureBlobFreshnessDays, double.IsNaN(value) ? 1.0 : Math.Max(0, value), (s, v) => s.AzureBlobFreshnessDays = v);
     }
 
+    /// <summary>Core's connection check: reads the container and, when possible, verifies anonymous read.</summary>
+    private async Task<string?> TestAzureAsync(CancellationToken ct)
+    {
+        await _app.AzureRestore;
+        var result = await _app.Uploader.TestConnectionDetailsAsync(ct);
+        _app.Log.Info($"Azure connection test ({result.Mode}): {(result.Error is null ? "ok" : "failed")}");
+        return result.Error;
+    }
+
     // Folders & audio
     public string DownloadFolder => _app.Paths.DownloadRoot(_s);
     public string TtsOutputFolder => _app.Paths.TtsOutputRoot(_s);
 
     /// <summary>Where Export to TTS writes: TTS's Saved Objects folder, or the user's override.</summary>
-    public string TtsSavedObjectsFolder => _app.TtsExporter.CustomSavedObjectsFolder ?? _app.TtsExporter.DefaultSavedObjectsFolder;
-    public bool IsTtsSavedObjectsCustom => _app.TtsExporter.CustomSavedObjectsFolder is not null;
+    public string TtsSavedObjectsFolder =>
+        IsTtsSavedObjectsCustom ? _s.TtsSavedObjectsPath
+        : _app.SavedObjects.Locate().Folder
+          ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "My Games", "Tabletop Simulator", "Saves", "Saved Objects");
 
-    public void SetTtsSavedObjectsFolder(string? path)
-    {
-        _app.TtsExporter.CustomSavedObjectsFolder = string.IsNullOrWhiteSpace(path) ? null : path;
-        OnPropertyChanged(nameof(TtsSavedObjectsFolder));
-        OnPropertyChanged(nameof(IsTtsSavedObjectsCustom));
-    }
+    public bool IsTtsSavedObjectsCustom => !string.IsNullOrWhiteSpace(_s.TtsSavedObjectsPath);
+
+    public void SetTtsSavedObjectsFolder(string? path) =>
+        SetFolder(path, (s, v) => s.TtsSavedObjectsPath = v, nameof(TtsSavedObjectsFolder), nameof(IsTtsSavedObjectsCustom));
 
     [RelayCommand] private void ResetTtsSavedObjectsFolder() => SetTtsSavedObjectsFolder(null);
     public bool IsDownloadFolderCustom => !string.IsNullOrWhiteSpace(_s.DownloadPath);
@@ -177,6 +190,43 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] public partial string ToolsStatus { get; set; } = "Checking…";
     [ObservableProperty] public partial bool AreToolsReady { get; set; }
 
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(UpdateYtDlpCommand))]
+    public partial bool IsUpdatingYtDlp { get; set; }
+
+    [ObservableProperty] public partial bool IsYtDlpResultOpen { get; set; }
+    [ObservableProperty] public partial InfoBarSeverity YtDlpResultSeverity { get; set; }
+    [ObservableProperty] public partial string YtDlpResultMessage { get; set; } = "";
+
+    private bool CanUpdateYtDlp() => !IsUpdatingYtDlp;
+
+    /// <summary>
+    /// Downloads the latest yt-dlp into the app's tools folder (checked against the release checksum and run
+    /// once before it replaces anything). Sites change often, so this fixes most "couldn't find audio" errors.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanUpdateYtDlp))]
+    private async Task UpdateYtDlpAsync(CancellationToken ct)
+    {
+        IsUpdatingYtDlp = true;
+        IsYtDlpResultOpen = false;
+        try
+        {
+            var result = await _app.YtDlpUpdater.UpdateAsync(ct);
+            _app.Log.Info(result.Succeeded ? $"yt-dlp updated to {result.Version}" : $"yt-dlp update failed: {result.Error}");
+            YtDlpResultSeverity = result.Succeeded ? InfoBarSeverity.Success : InfoBarSeverity.Error;
+            YtDlpResultMessage = result.Succeeded ? $"yt-dlp {result.Version} is installed and will be used for the next build." : result.Error!;
+            IsYtDlpResultOpen = true;
+            await CheckToolsAsync();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            IsUpdatingYtDlp = false;
+        }
+    }
+
     // Appearance
     public int ThemeIndex
     {
@@ -189,9 +239,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     // About
-    public string Version { get; } =
-        typeof(SettingsViewModel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
-        ?? "dev";
+    public string Version => AppServices.Version;
+
+    /// <summary>Shown once after a first run that imported an old config.json.</summary>
+    public string ImportedSettingsMessage => _app.ImportedSettingsFrom is { } from
+        ? $"Your settings were copied from {from}. That file is no longer used; changes are saved to {SettingsFile}."
+        : "";
+
+    public bool HasImportedSettings => _app.ImportedSettingsFrom is not null;
 
     public string SettingsFile => _app.Store.FilePath;
     public string AboutTitle => $"TTSMixmaster {Version}";
@@ -201,13 +256,18 @@ public sealed partial class SettingsViewModel : ObservableObject
         foreach (var c in Connections)
             c.Refresh();
         _ = AzureSetup.ActivateAsync();
+        await CheckToolsAsync();
+    }
+
+    private async Task CheckToolsAsync()
+    {
         try
         {
             var problem = await _app.Downloader.CheckToolsAsync();
             AreToolsReady = problem is null;
-            ToolsStatus = problem ?? "yt-dlp and ffmpeg are ready.";
+            ToolsStatus = problem ?? $"yt-dlp and ffmpeg are ready. yt-dlp: {_app.Tools.FindYtDlp()}";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             AreToolsReady = false;
             ToolsStatus = ex.Message;

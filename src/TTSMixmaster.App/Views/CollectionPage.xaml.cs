@@ -27,7 +27,7 @@ public sealed partial class CollectionPage : Page
     private async void UseCustomChipImage_Click(object sender, RoutedEventArgs e)
     {
         var picker = new FileOpenPicker(App.Window.AppWindow.Id) { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
-        foreach (var type in new[] { ".png", ".jpg", ".jpeg" })
+        foreach (var type in new[] { ".png", ".jpg", ".jpeg", ".webp" })
             picker.FileTypeFilter.Add(type);
         if (await picker.PickSingleFileAsync() is { } file)
             ViewModel.CustomChipImagePath = file.Path;
