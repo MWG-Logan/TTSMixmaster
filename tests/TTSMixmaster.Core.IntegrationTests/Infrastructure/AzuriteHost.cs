@@ -77,10 +77,13 @@ internal sealed class AzuriteHost : IDisposable
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         var host = new AzuriteHost(new Uri($"http://127.0.0.1:{port}/{AccountName}"), process, workspace);
-        if (await IsListeningAsync(host.BlobEndpoint, TimeSpan.FromSeconds(30), ct, process))
+        // Generous: node's cold start is slow while other test modules saturate the machine.
+        var limit = TimeSpan.FromSeconds(90);
+        if (await IsListeningAsync(host.BlobEndpoint, limit, ct, process))
             return (host, null);
+        var why = process.HasExited ? $"exited with code {process.ExitCode}" : $"was not listening after {limit.TotalSeconds:0} seconds";
         host.Dispose();
-        return (null, $"Azurite ({executable}) did not start listening on port {port}. stderr: {string.Join(" | ", errors.TakeLast(5))}");
+        return (null, $"Azurite ({executable}) {why} (port {port}). stderr: {string.Join(" | ", errors.TakeLast(5))}");
     }
 
     private static async Task<bool> IsListeningAsync(Uri endpoint, TimeSpan limit, CancellationToken ct, Process? process = null)
