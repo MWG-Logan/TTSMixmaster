@@ -35,9 +35,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Same versions as src/TTSMixmaster.App. -->
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
+    <!-- Versions come from Directory.Packages.props, shared with src/TTSMixmaster.App. -->
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
   </ItemGroup>
 
   <ItemGroup>

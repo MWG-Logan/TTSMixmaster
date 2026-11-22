@@ -1,0 +1,40 @@
+<Project>
+  <!--
+    Central Package Management: every NuGet version lives here; project files reference packages
+    without a Version. MSTest itself is versioned through MSTest.Sdk in global.json.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <!-- Windows App SDK / WinUI (App and App.Tests keep the same versions). -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" />
+    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer" Version="0.8.0" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
+    <!-- Referenced only to exclude these components from the self-contained app (see TTSMixmaster.App.csproj). -->
+    <PackageVersion Include="Microsoft.WindowsAppSDK.AI" Version="2.7.0" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.ML" Version="2.7.0" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Search" Version="2.7.0" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Widgets" Version="2.7.0" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.DWrite" Version="2.7.0" />
+    <PackageVersion Include="Microsoft.Windows.AI.MachineLearning" Version="2.5.96" />
+    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
+  </ItemGroup>
+
+  <!-- Core -->
+  <ItemGroup>
+    <PackageVersion Include="Azure.Identity" Version="1.21.0" />
+    <PackageVersion Include="Azure.Identity.Broker" Version="1.7.0" />
+    <PackageVersion Include="Azure.ResourceManager" Version="1.14.0" />
+    <PackageVersion Include="Azure.ResourceManager.Authorization" Version="1.1.7" />
+    <PackageVersion Include="Azure.ResourceManager.Storage" Version="1.9.0" />
+    <PackageVersion Include="Azure.Storage.Blobs" Version="12.30.2" />
+    <PackageVersion Include="SkiaSharp" Version="4.157.0" />
+    <PackageVersion Include="SkiaSharp.HarfBuzz" Version="4.157.0" />
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="11.0.0" />
+    <PackageVersion Include="TagLibSharp" Version="2.3.0" />
+  </ItemGroup>
+</Project>
