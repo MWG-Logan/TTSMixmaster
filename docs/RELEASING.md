@@ -220,7 +220,19 @@ again, run **Publish to winget** manually with its tag (for example `v2.0.0`).
   release. Downloaded tools (wingetcreate, yt-dlp, FFmpeg) are pinned by URL and SHA-256.
 - **Updated by Dependabot.** `.github/dependabot.yml` asks for weekly NuGet updates (minor and
   patch grouped into one PR) and weekly GitHub Actions updates, which bump the pinned SHA and its
-  comment together. Bump yt-dlp/FFmpeg pins in `scripts/fetch-tools.ps1` by hand.
+  comment together. Bump FFmpeg pins in `scripts/fetch-tools.ps1` by hand; yt-dlp is below.
+
+## Keeping yt-dlp current
+
+When YouTube changes and downloads start failing, there are two fixes, and they work together:
+
+- **Users, right away:** Settings → **Update yt-dlp** installs the latest yt-dlp into
+  `%LOCALAPPDATA%\TTSMixmaster\tools`, which is used instead of the bundled copy. It checks the release's
+  SHA-256 first ([trust model](DEPENDENCIES.md#trust-model-of-update-yt-dlp)). No app release is needed.
+- **Maintainers, for everyone:** update the pinned yt-dlp version and both SHA-256s (`yt-dlp.exe` for x64,
+  `yt-dlp_arm64.exe` for ARM64, from the release's `SHA2-256SUMS`) in `scripts/fetch-tools.ps1`, bump the
+  patch `<Version>`, and merge to `main`. The release ships the new copy, and App Installer delivers it to
+  installed copies, so new installs don't start with a stale yt-dlp.
 
 ## Testing artifacts locally
 

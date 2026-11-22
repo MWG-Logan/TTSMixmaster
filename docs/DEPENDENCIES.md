@@ -31,6 +31,22 @@ Treated as first-party: Microsoft maintains and signs them.
 verifies them). Media/provider tooling, so community is expected. Settings > **Update yt-dlp** installs a
 newer yt-dlp into `%LOCALAPPDATA%\TTSMixmaster\tools` after checking the release's published SHA-256.
 
+### Trust model of Update yt-dlp
+
+- **What it checks.** It downloads from a constant HTTPS URL on yt-dlp's official GitHub releases
+  (`releases/latest/download/`), reads that release's `SHA2-256SUMS`, and refuses the download unless its
+  SHA-256 matches. The file must then run (`--version`) before it atomically replaces the previous copy in
+  the tools folder; any failure leaves the current copy in place. Each request has an overall deadline that
+  includes reading the body.
+- **What it doesn't check.** The checksum comes from the same release as the executable, so it protects
+  against corruption and a swapped binary, not against a compromised yt-dlp release or a TLS-level attacker
+  who controls both responses. There is no independent signature or pinned key; yt-dlp doesn't publish
+  Authenticode-signed Windows builds. Trust rests on TLS to github.com plus that same-release checksum.
+- **Why that's accepted.** The copy that ships with the app is pinned by version and SHA-256 at build time,
+  and the updater only replaces it from yt-dlp's official release URL, never from a URL in settings or
+  remote data. YouTube changes often break older yt-dlp builds, and the updater fixes that for users the
+  same day rather than after the next app release.
+
 ## Reviewed and kept
 
 No community package was found that a first-party API covers cleanly. The Windows App SDK metapackage's
