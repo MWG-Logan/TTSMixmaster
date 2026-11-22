@@ -33,6 +33,7 @@ public sealed class AppServices
         Downloader = new FakeAudioDownloader();
         Uploader = new FakeAudioUploader(() => Settings, () => AzureTarget is not null);
         Formatter = new FakeTtsFormatter(Layout);
+        TtsExporter = new FakeTtsExporter();
     }
 
     public AppPaths Paths { get; }
@@ -49,6 +50,9 @@ public sealed class AppServices
 
     /// <summary>Interactive Azure sign-in and storage picking (App-side seam until Core's version lands).</summary>
     public IAzureStorageSetup AzureSetup { get; }
+
+    /// <summary>Writes builds into Tabletop Simulator's Saved Objects (App-side seam until Core's version lands).</summary>
+    public ITtsExporter TtsExporter { get; }
 
     /// <summary>The signed-in storage target once its access check passed; null when not chosen or not ready.</summary>
     public (AzureStorageAccount Account, AzureContainer Container)? AzureTarget { get; set; }

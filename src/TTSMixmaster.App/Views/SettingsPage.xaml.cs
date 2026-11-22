@@ -39,11 +39,18 @@ public sealed partial class SettingsPage : Page
             ViewModel.SetTtsOutputFolder(path);
     }
 
-    private static async Task<string?> PickFolderAsync(string current)
+    private async void BrowseTtsSavedObjects_Click(object sender, RoutedEventArgs e)
     {
+        if (await PickFolderAsync(ViewModel.TtsSavedObjectsFolder, PickerLocationId.DocumentsLibrary) is { } path)
+            ViewModel.SetTtsSavedObjectsFolder(path);
+    }
+
+    private static async Task<string?> PickFolderAsync(string current, PickerLocationId start = PickerLocationId.MusicLibrary)
+    {
+        // WindowId-based picker: works unpackaged, no InitializeWithWindow interop needed.
         var picker = new FolderPicker(App.Window.AppWindow.Id)
         {
-            SuggestedStartLocation = PickerLocationId.MusicLibrary,
+            SuggestedStartLocation = start,
         };
         if (Directory.Exists(current))
             picker.SuggestedFolder = current;

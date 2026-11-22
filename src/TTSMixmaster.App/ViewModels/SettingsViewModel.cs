@@ -150,6 +150,19 @@ public sealed partial class SettingsViewModel : ObservableObject
     // Folders & audio
     public string DownloadFolder => _app.Paths.DownloadRoot(_s);
     public string TtsOutputFolder => _app.Paths.TtsOutputRoot(_s);
+
+    /// <summary>Where Export to TTS writes: TTS's Saved Objects folder, or the user's override.</summary>
+    public string TtsSavedObjectsFolder => _app.TtsExporter.CustomSavedObjectsFolder ?? _app.TtsExporter.DefaultSavedObjectsFolder;
+    public bool IsTtsSavedObjectsCustom => _app.TtsExporter.CustomSavedObjectsFolder is not null;
+
+    public void SetTtsSavedObjectsFolder(string? path)
+    {
+        _app.TtsExporter.CustomSavedObjectsFolder = string.IsNullOrWhiteSpace(path) ? null : path;
+        OnPropertyChanged(nameof(TtsSavedObjectsFolder));
+        OnPropertyChanged(nameof(IsTtsSavedObjectsCustom));
+    }
+
+    [RelayCommand] private void ResetTtsSavedObjectsFolder() => SetTtsSavedObjectsFolder(null);
     public bool IsDownloadFolderCustom => !string.IsNullOrWhiteSpace(_s.DownloadPath);
     public bool IsTtsOutputFolderCustom => !string.IsNullOrWhiteSpace(_s.TtsOutputPath);
 

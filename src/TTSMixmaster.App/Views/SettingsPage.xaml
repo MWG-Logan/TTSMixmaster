@@ -291,7 +291,7 @@
                             Content="Change folder" />
                     </StackPanel>
                 </tk:SettingsCard>
-                <tk:SettingsCard Description="{x:Bind ViewModel.TtsOutputFolder, Mode=OneWay}" Header="Tabletop Simulator files">
+                <tk:SettingsCard Description="{x:Bind ViewModel.TtsOutputFolder, Mode=OneWay}" Header="Generated Lua and save files">
                     <tk:SettingsCard.HeaderIcon>
                         <FontIcon Glyph="&#xE7B8;" />
                     </tk:SettingsCard.HeaderIcon>
@@ -304,6 +304,22 @@
                         <Button
                             AutomationProperties.AutomationId="BrowseTtsFolder"
                             Click="BrowseTtsFolder_Click"
+                            Content="Change folder" />
+                    </StackPanel>
+                </tk:SettingsCard>
+                <tk:SettingsCard Description="{x:Bind ViewModel.TtsSavedObjectsFolder, Mode=OneWay}" Header="Tabletop Simulator saved objects">
+                    <tk:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xEDE1;" />
+                    </tk:SettingsCard.HeaderIcon>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button
+                            AutomationProperties.AutomationId="ResetTtsSavedObjects"
+                            Command="{x:Bind ViewModel.ResetTtsSavedObjectsFolderCommand}"
+                            Content="Use default"
+                            Visibility="{x:Bind ViewModel.IsTtsSavedObjectsCustom, Mode=OneWay}" />
+                        <Button
+                            AutomationProperties.AutomationId="BrowseTtsSavedObjects"
+                            Click="BrowseTtsSavedObjects_Click"
                             Content="Change folder" />
                     </StackPanel>
                 </tk:SettingsCard>
