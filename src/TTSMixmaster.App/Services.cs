@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Reflection;
-using System.Text.Json;
 using TTSMixmaster.App.ViewModels;
 using TTSMixmaster.Core;
 using TTSMixmaster.Core.Audio;
@@ -23,12 +22,12 @@ public sealed class AppServices : IDisposable
 {
     private readonly Dictionary<string, CollectionViewModel> _openCollections = [];
 
-    private AppServices(AppPaths paths)
+    private AppServices(AppPaths paths, string? legacySettingsFile, IAzureAccountService? azure = null)
     {
         Paths = paths;
         Log = new FileLog(paths.LogDirectory);
         Store = new SettingsStore(paths.SettingsFile);
-        ImportedSettingsFrom = ImportLegacySettings(paths, Store, Log);
+        ImportedSettingsFrom = ImportLegacySettings(legacySettingsFile, paths, Store, Log);
         Settings = LoadSettings(Store, Log);
         Log.Info($"TTSMixmaster {Version} starting; data in {paths.DataRoot}");
 
@@ -47,7 +46,7 @@ public sealed class AppServices : IDisposable
         var processes = new ProcessRunner();
         Downloader = new AudioDownloader(Tools, processes, Layout, () => Settings);
         YtDlpUpdater = new YtDlpUpdater(paths, Http, processes);
-        Azure = new AzureAccountService(() => Settings, paths, () => WindowHandle);
+        Azure = azure ?? new AzureAccountService(() => Settings, paths, () => WindowHandle);
         Uploader = new AzureBlobUploader(() => Settings, credentialProvider: Azure.GetCredential, library: Layout);
         Formatter = new TtsFormatter(Layout);
         SavedObjects = new TtsSavedObjects(() => Settings);
@@ -80,7 +79,7 @@ public sealed class AppServices : IDisposable
     public YtDlpUpdater YtDlpUpdater { get; }
 
     /// <summary>Interactive Azure sign-in, the storage picker and its explicit fixes. Lives for the app's lifetime.</summary>
-    public AzureAccountService Azure { get; }
+    public IAzureAccountService Azure { get; }
 
     public AzureBlobUploader Uploader { get; }
     public ITtsFormatter Formatter { get; }
@@ -100,7 +99,11 @@ public sealed class AppServices : IDisposable
     /// <summary>The yt-dlp/ffmpeg check from startup: null when both run, else what's missing.</summary>
     public Task<string?> ToolsCheck { get; private set; } = Task.FromResult<string?>(null);
 
-    public static AppServices Create() => new(new AppPaths());
+    public static AppServices Create() => new(new AppPaths(), AppPaths.FindLegacySettingsFile());
+
+    /// <summary>For tests: an isolated data root; optionally a controlled Azure service and a legacy config.json to import.</summary>
+    public static AppServices CreateIsolated(string dataRoot, IAzureAccountService? azure = null, string? legacySettingsFile = null) =>
+        new(new AppPaths(dataRoot), legacySettingsFile, azure);
 
     /// <summary>Starts the background startup work: Azure session restore and the tools check.</summary>
     public void Start()
@@ -177,12 +180,12 @@ public sealed class AppServices : IDisposable
         {
             var problem = await Downloader.CheckToolsAsync();
             Log.Info(problem is null ? "Tools: yt-dlp and ffmpeg are ready" : $"Tools: {problem}");
-            return problem;
+            return problem is null ? null : UserText.ToolsProblem(problem);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Log.Error("Tools check failed", ex);
-            return ex.Message;
+            return $"Couldn't check yt-dlp and ffmpeg. {UserText.Describe(ex)}";
         }
     }
 
@@ -200,25 +203,23 @@ public sealed class AppServices : IDisposable
     /// %LOCALAPPDATA%\TTSMixmaster\config.json, so existing users keep their keys. Never runs again once
     /// the new settings file exists. Values are never logged.
     /// </summary>
-    private static string? ImportLegacySettings(AppPaths paths, SettingsStore store, FileLog log)
+    private static string? ImportLegacySettings(string? legacy, AppPaths paths, SettingsStore store, FileLog log)
     {
-        if (File.Exists(store.FilePath) || AppPaths.FindLegacySettingsFile() is not { } legacy ||
+        if (File.Exists(store.FilePath) || legacy is null ||
             string.Equals(Path.GetFullPath(legacy), Path.GetFullPath(store.FilePath), StringComparison.OrdinalIgnoreCase))
             return null;
         try
         {
-            // Validate first: SettingsStore.Load turns a damaged file into defaults (and writes a .corrupt copy
-            // beside it), which would "import" nothing and touch the old install folder.
-            using (JsonDocument.Parse(File.ReadAllText(legacy), new JsonDocumentOptions
-                   { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true })) { }
-            store.Save(new SettingsStore(legacy).Load());
+            // Read-only toward the old install: load fully into AppSettings in memory first (a value of the wrong
+            // type means "not importable"), never write anything beside it, and only then save the new config.
+            if (!new SettingsStore(legacy).TryRead(out var imported))
+            {
+                log.Warn($"Didn't import {legacy}: it isn't valid TTSMixmaster settings. Starting with default settings; the file was left as it is.");
+                return null;
+            }
+            store.Save(imported);
             log.Info($"Imported legacy settings from {legacy} into {paths.SettingsFile}");
             return legacy;
-        }
-        catch (JsonException)
-        {
-            log.Warn($"Didn't import {legacy}: it isn't valid JSON. Starting with default settings.");
-            return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

@@ -24,9 +24,12 @@ The release notes are a fixed downloads table followed by GitHub's generated not
 the previous `v*` tag.
 
 To rebuild an existing version (for example after a signing hiccup), run the workflow manually
-(**Actions → Build and Release TTSMixmaster → Run workflow**) with **force_release** ticked. It
-rebuilds from the branch you pick and replaces the assets on the existing release. It doesn't
-move the tag.
+(**Actions → Build and Release TTSMixmaster → Run workflow**) with **force_release** ticked, on the
+commit the tag `v<Version>` points at. It rebuilds that commit and replaces the assets on the existing
+release. Tags are treated as immutable: if the branch has moved past the tag, the run fails and asks
+you to bump `<Version>` instead, because different code under the same version would never reach
+installed copies (App Installer only updates to a higher version) and the tag would no longer describe
+the assets.
 
 ## What a release contains
 
@@ -167,10 +170,14 @@ the publisher from the manifest. To check it against a signed file:
 
 ## winget (optional)
 
-[`.github/workflows/winget.yml`](../.github/workflows/winget.yml) runs when a release is
-published and uses Microsoft's [wingetcreate](https://github.com/microsoft/winget-create) (pinned
-version, SHA-256-checked) to open a PR against `microsoft/winget-pkgs` that adds the new version.
-Until you opt in it skips.
+[`.github/workflows/winget.yml`](../.github/workflows/winget.yml) uses Microsoft's
+[wingetcreate](https://github.com/microsoft/winget-create) (pinned version, SHA-256-checked) to open a
+PR against `microsoft/winget-pkgs` that adds the new version. Until you opt in it skips.
+
+The release workflow calls it as its last job (a reusable workflow, `workflow_call`) after it creates a
+new release; a `force_release` re-upload doesn't resubmit. It can't simply listen for `release: published`:
+GitHub doesn't start workflows for events created with the workflow's own `GITHUB_TOKEN`, and the release is
+created with that token. No extra PAT is needed just to trigger it.
 
 It submits the signed **`.msixbundle`**, the same package the `.appinstaller` installs; winget
 installs, upgrades and removes MSIX packages natively. The manifest has one installer entry per
@@ -199,8 +206,8 @@ submission is manual:
    - variable `WINGET_PACKAGE_ID`, only if you used a different identifier than
      `MorningwoodGaming.TTSMixmaster`.
 
-From then on every published release opens a winget PR automatically. To submit an existing
-release, run **Publish to winget** manually with its tag (for example `v2.0.0`).
+From then on every new release opens a winget PR automatically. To submit an existing release
+again, run **Publish to winget** manually with its tag (for example `v2.0.0`).
 
 ## Tooling and dependency policy
 
@@ -213,7 +220,19 @@ release, run **Publish to winget** manually with its tag (for example `v2.0.0`).
   release. Downloaded tools (wingetcreate, yt-dlp, FFmpeg) are pinned by URL and SHA-256.
 - **Updated by Dependabot.** `.github/dependabot.yml` asks for weekly NuGet updates (minor and
   patch grouped into one PR) and weekly GitHub Actions updates, which bump the pinned SHA and its
-  comment together. Bump yt-dlp/FFmpeg pins in `scripts/fetch-tools.ps1` by hand.
+  comment together. Bump FFmpeg pins in `scripts/fetch-tools.ps1` by hand; yt-dlp is below.
+
+## Keeping yt-dlp current
+
+When YouTube changes and downloads start failing, there are two fixes, and they work together:
+
+- **Users, right away:** Settings → **Update yt-dlp** installs the latest yt-dlp into
+  `%LOCALAPPDATA%\TTSMixmaster\tools`, which is used instead of the bundled copy. It checks the release's
+  SHA-256 first ([trust model](DEPENDENCIES.md#trust-model-of-update-yt-dlp)). No app release is needed.
+- **Maintainers, for everyone:** update the pinned yt-dlp version and both SHA-256s (`yt-dlp.exe` for x64,
+  `yt-dlp_arm64.exe` for ARM64, from the release's `SHA2-256SUMS`) in `scripts/fetch-tools.ps1`, bump the
+  patch `<Version>`, and merge to `main`. The release ships the new copy, and App Installer delivers it to
+  installed copies, so new installs don't start with a stale yt-dlp.
 
 ## Testing artifacts locally
 

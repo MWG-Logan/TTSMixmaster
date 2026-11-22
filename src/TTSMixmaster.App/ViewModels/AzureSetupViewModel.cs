@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using TTSMixmaster.Core.Azure;
-using TTSMixmaster.Core.Upload;
+using TTSMixmaster.Core.Configuration;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace TTSMixmaster.App.ViewModels;
@@ -18,15 +18,40 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     public const string RoleName = "Storage Blob Data Contributor";
 
     private readonly AppServices _app;
-    private readonly AzureAccountService _azure;
-    private CancellationTokenSource? _cascadeCts;
-    private readonly Dictionary<object, int> _loadVersions = [];
+    private readonly IAzureAccountService _azure;
+
+    // One cancellation scope per cascade level (plus the access check/fixes under the container). Changing a
+    // level cancels and replaces its scope and every scope below it, so a late response from an earlier
+    // selection can never be applied underneath a newer one.
+    private readonly CancellationTokenSource[] _scopes = [new(), new(), new(), new(), new()];
+    private readonly int[] _scopeVersions = new int[5];
 
     public AzureSetupViewModel(AppServices app)
     {
         _app = app;
         _azure = app.Azure;
         Account = _azure.CurrentAccount;
+    }
+
+    private enum Level { Tenant, Subscription, Account, Container, Access }
+
+    /// <summary>The scope a request started under; its result applies only while the scope is still current.</summary>
+    private readonly record struct Scope(Level Level, int Version, CancellationToken Token);
+
+    private Scope Begin(Level level) => new(level, _scopeVersions[(int)level], _scopes[(int)level].Token);
+
+    private bool IsCurrent(Scope scope) =>
+        !scope.Token.IsCancellationRequested && _scopeVersions[(int)scope.Level] == scope.Version;
+
+    /// <summary>Cancels in-flight requests for <paramref name="from"/> and every level below it.</summary>
+    private void Invalidate(Level from)
+    {
+        for (var level = (int)from; level < _scopes.Length; level++)
+        {
+            _scopes[level].Cancel();
+            _scopes[level] = new CancellationTokenSource();
+            _scopeVersions[level]++;
+        }
     }
 
     public ObservableCollection<AzureTenant> Tenants { get; } = [];
@@ -89,7 +114,8 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Error = $"Sign-in didn't finish. {ex.Message}";
+            _app.Log.Error("Azure sign-in failed", ex);
+            Error = $"Sign-in didn't finish. {UserText.Describe(ex)}";
         }
         finally
         {
@@ -100,7 +126,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     [RelayCommand]
     private async Task SignOutAsync()
     {
-        _cascadeCts?.Cancel();
+        Invalidate(Level.Tenant);
         Error = "";
         try
         {
@@ -120,15 +146,24 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     /// <summary>Called when Settings opens: pick up an existing sign-in.</summary>
     public async Task ActivateAsync()
     {
+        var activation = Begin(Level.Tenant);
         await _app.AzureRestore;
+        if (!IsCurrent(activation))
+            return; // The page was left meanwhile.
         Account = _azure.CurrentAccount;
         if (IsSignedIn && Tenants.Count == 0)
             await LoadTenantsAsync();
     }
 
-    // ---------- Cascading pickers ----------
+    /// <summary>Called when Settings closes: abandons every picker request and access check still in flight.</summary>
+    public void Deactivate()
+    {
+        Tenants.Clear();
+        ResetBelow(Level.Tenant);
+        OnPropertyChanged(nameof(ShowTenantPicker));
+    }
 
-    private enum Level { Tenant, Subscription, Account, Container }
+    // ---------- Cascading pickers ----------
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowTenantPicker))]
@@ -160,7 +195,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     {
         ResetBelow(Level.Subscription);
         if (value is not null)
-            _ = LoadLevelAsync(Subscriptions, ct => _azure.ListSubscriptionsAsync(value.Id, ct),
+            _ = LoadLevelAsync(Level.Subscription, Subscriptions, ct => _azure.ListSubscriptionsAsync(value.Id, ct),
                 p => SubscriptionPlaceholder = p, "Choose a subscription", "No subscriptions in this directory",
                 one => SelectedSubscription = one,
                 preferred: items => items.FirstOrDefault(i => i.Id == _app.Settings.AzureSubscriptionId));
@@ -170,7 +205,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     {
         ResetBelow(Level.Account);
         if (value is not null)
-            _ = LoadLevelAsync(StorageAccounts, ct => _azure.ListStorageAccountsAsync(value, ct),
+            _ = LoadLevelAsync(Level.Account, StorageAccounts, ct => _azure.ListStorageAccountsAsync(value, ct),
                 p => AccountPlaceholder = p, "Choose a storage account", "No storage accounts",
                 one => SelectedAccount = one, empty => HasNoStorageAccounts = empty,
                 preferred: items => items.FirstOrDefault(i => i.Name == _app.Settings.AzureStorageAccount));
@@ -181,7 +216,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         ResetBelow(Level.Container);
         CreateContainerCommand.NotifyCanExecuteChanged();
         if (value is not null)
-            _ = LoadLevelAsync(Containers, ct => _azure.ListContainersAsync(value, ct),
+            _ = LoadLevelAsync(Level.Container, Containers, ct => _azure.ListContainersAsync(value, ct),
                 p => ContainerPlaceholder = p, "Choose a container", "No containers yet. Create one.",
                 one => SelectedContainer = one,
                 preferred: items => items.FirstOrDefault(c => c.Name == _app.Settings.AzureContainerName));
@@ -189,6 +224,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
 
     partial void OnSelectedContainerChanged(AzureContainer? value)
     {
+        Invalidate(Level.Access);
         ClearAccess();
         if (value is not null && SelectedAccount is { } account)
         {
@@ -197,9 +233,17 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         }
     }
 
-    /// <summary>The chosen account and container are where builds upload (and what the picker preselects next time).</summary>
+    /// <summary>
+    /// The chosen account and container are where builds upload (and what the picker preselects next time).
+    /// Saved only as one consistent tuple: the account must belong to the selected tenant and subscription,
+    /// and the container must be one listed for it.
+    /// </summary>
     private void SaveTarget(AzureStorageAccount account, AzureContainer container)
     {
+        if (SelectedAccount != account || !Containers.Contains(container) ||
+            SelectedSubscription is not { } subscription || subscription.Id != account.SubscriptionId ||
+            subscription.TenantId != account.TenantId || (SelectedTenant is { } tenant && tenant.Id != account.TenantId))
+            return;
         var s = _app.Settings;
         if (s.AzureTenantId == account.TenantId && s.AzureSubscriptionId == account.SubscriptionId &&
             s.AzureStorageAccount == account.Name && s.AzureContainerName == container.Name)
@@ -214,7 +258,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Error = $"Your storage choice couldn't be saved. {ex.Message}";
+            Error = $"Your storage choice couldn't be saved. {UserText.Describe(ex)}";
         }
         TargetChanged?.Invoke();
     }
@@ -224,30 +268,29 @@ public sealed partial class AzureSetupViewModel : ObservableObject
 
     private async Task LoadTenantsAsync()
     {
-        _cascadeCts?.Cancel();
-        _cascadeCts = new CancellationTokenSource();
+        Tenants.Clear();
         ResetBelow(Level.Tenant);
-        await LoadLevelAsync(Tenants, ct => _azure.ListTenantsAsync(ct), p => TenantPlaceholder = p,
+        await LoadLevelAsync(Level.Tenant, Tenants, ct => _azure.ListTenantsAsync(ct), p => TenantPlaceholder = p,
             "Choose a directory", "Your account has no Azure directories", one => SelectedTenant = one,
             preferred: items => items.FirstOrDefault(t => t.Id == _app.Settings.AzureTenantId));
         OnPropertyChanged(nameof(ShowTenantPicker));
     }
 
     /// <summary>Loads one picker level: "Loading…" placeholder, then the items or an empty message; auto-picks a lone item.</summary>
-    private async Task LoadLevelAsync<T>(ObservableCollection<T> target, Func<CancellationToken, Task<IReadOnlyList<T>>> load,
+    private async Task LoadLevelAsync<T>(Level level, ObservableCollection<T> target, Func<CancellationToken, Task<IReadOnlyList<T>>> load,
         Action<string> setPlaceholder, string chooseText, string emptyText, Action<T> selectOnly, Action<bool>? setEmpty = null,
         Func<IReadOnlyList<T>, T?>? preferred = null)
         where T : class
     {
-        // A newer load of the same picker (the user changed the level above) wins; drop stale results.
-        var version = _loadVersions[target] = _loadVersions.GetValueOrDefault(target) + 1;
-        var ct = _cascadeCts?.Token ?? CancellationToken.None;
+        // The caller has just reset this level, so this request owns its current scope. Any later change at
+        // this level or above cancels the scope, and the stale result is dropped.
+        var scope = Begin(level);
         target.Clear();
         setPlaceholder("Loading…");
         try
         {
-            var items = await load(ct);
-            if (ct.IsCancellationRequested || _loadVersions[target] != version)
+            var items = await load(scope.Token);
+            if (!IsCurrent(scope))
                 return;
             foreach (var item in items)
                 target.Add(item);
@@ -261,15 +304,21 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         catch (OperationCanceledException)
         {
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsCurrent(scope))
         {
             setPlaceholder("Couldn't load");
             Error = ex.Message;
         }
+        catch (Exception)
+        {
+            // A superseded request failed; its error belongs to a selection that is no longer shown.
+        }
     }
 
+    /// <summary>Cancels requests at <paramref name="level"/> and below, and clears those pickers.</summary>
     private void ResetBelow(Level level)
     {
+        Invalidate(level);
         if (level == Level.Tenant) { SelectedTenant = null; }
         if (level <= Level.Subscription) { Subscriptions.Clear(); SelectedSubscription = null; SubscriptionPlaceholder = "Choose a directory first"; }
         if (level <= Level.Account) { StorageAccounts.Clear(); SelectedAccount = null; AccountPlaceholder = "Choose a subscription first"; HasNoStorageAccounts = false; }
@@ -321,9 +370,19 @@ public sealed partial class AzureSetupViewModel : ObservableObject
             return;
         }
         ContainerNameError = "";
+        var account = SelectedAccount!;
+        var scope = Begin(Level.Container);
         try
         {
-            await _azure.CreateContainerAsync(SelectedAccount!, name);
+            // Not cancelled when the picker moves on: the user asked for this container, so let Azure finish it.
+            await _azure.CreateContainerAsync(account, name);
+            if (!IsCurrent(scope) || SelectedAccount != account)
+            {
+                // Created in the account that was selected when Create was pressed. The picker now shows another
+                // account, so don't add or select it (and never save it against the account now shown).
+                _app.Log.Info("Azure: created a container, but the storage account selection changed meanwhile");
+                return;
+            }
             var created = new AzureContainer(name, AzureContainerPublicAccess.None);
             Containers.Add(created);
             NotifyPickers();
@@ -331,9 +390,13 @@ public sealed partial class AzureSetupViewModel : ObservableObject
             ContainerPlaceholder = "Choose a container";
             ContainerCreated?.Invoke();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsCurrent(scope) && SelectedAccount == account)
         {
             ContainerNameError = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            _app.Log.Warn($"Azure: creating a container in a no-longer-selected account failed: {ex.GetType().Name}");
         }
     }
 
@@ -371,14 +434,17 @@ public sealed partial class AzureSetupViewModel : ObservableObject
 
     /// <summary>One-word summary for the expander header.</summary>
     public string Status =>
-        ShowReady ? "Ready"
+        UsesConnectionString ? (_app.Settings.HasAzureConnectionString ? "Using a connection string" : "Connection string not set")
+        : ShowReady ? "Ready"
         : Access is not null ? "Needs attention"
         : HasNoStorageAccounts ? "No storage account"
         : IsSignedIn ? "Signed in"
-        : AzureUploadAuthentication.SelectMode(_app.Settings) == AzureUploadMode.ConnectionString ? "Using a connection string"
         : "Not signed in";
 
-    /// <summary>The connection-string fallback changed; the header status may too.</summary>
+    /// <summary>The user chose the Advanced connection string instead of signing in (Settings → Advanced).</summary>
+    private bool UsesConnectionString => _app.Settings.ResolveAzureAuthMode() == AzureAuthModes.ConnectionString;
+
+    /// <summary>The connection-string fallback or the upload mode changed; the header status may too.</summary>
     public void RefreshStatus() => OnPropertyChanged(nameof(Status));
 
     [RelayCommand]
@@ -388,52 +454,76 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     {
         if (SelectedAccount is not { } account || SelectedContainer is not { } container)
             return;
+        // A newer check (or a different selection) supersedes this one.
+        Invalidate(Level.Access);
+        var scope = Begin(Level.Access);
         IsChecking = true;
         FixError = "";
         try
         {
-            Access = await _azure.CheckAccessAsync(account, container.Name);
+            var access = await _azure.CheckAccessAsync(account, container.Name, scope.Token);
+            if (!IsCurrentTarget(scope, account, container))
+                return;
+            Access = access;
             OnPropertyChanged(nameof(TargetName));
             OnPropertyChanged(nameof(ReadyMessage));
             OnPropertyChanged(nameof(AskOwnerMessage));
         }
-        catch (Exception ex)
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex) when (IsCurrentTarget(scope, account, container))
         {
             FixError = $"Couldn't check access to {container.Name}. {ex.Message}";
         }
+        catch (Exception)
+        {
+            // A superseded check failed; it no longer describes the selected container.
+        }
         finally
         {
-            IsChecking = false;
+            if (IsCurrent(scope))
+                IsChecking = false;
         }
     }
+
+    /// <summary>True while a request's scope is current and the picker still shows the account and container it was for.</summary>
+    private bool IsCurrentTarget(Scope scope, AzureStorageAccount account, AzureContainer container) =>
+        IsCurrent(scope) && SelectedAccount == account && SelectedContainer == container;
 
     [RelayCommand]
     private async Task GrantAccessAsync()
     {
         if (SelectedAccount is not { } account || SelectedContainer is not { } container)
             return;
+        var scope = Begin(Level.Access);
         IsFixing = true;
         FixError = "";
         try
         {
+            // The write itself isn't cancelled by a picker change: the user asked for it.
             await _azure.AssignBlobDataContributorToMeAsync(account, container.Name);
             _app.Log.Info("Azure: assigned Storage Blob Data Contributor at the selected container");
         }
         catch (Exception ex) when (ex is AzureAccountException or InvalidOperationException)
         {
-            FixError = $"Couldn't assign the role. {ex.Message}";
-            IsFixing = false;
+            if (IsCurrentTarget(scope, account, container))
+            {
+                FixError = $"Couldn't assign the role. {ex.Message}";
+                IsFixing = false;
+            }
             return;
         }
+        if (!IsCurrentTarget(scope, account, container))
+            return;
         IsFixing = false;
 
         // Role assignments take a minute or two to apply: Core re-checks every 5 s for up to two minutes.
         IsWaitingForRole = true;
-        var ct = _cascadeCts?.Token ?? CancellationToken.None;
         try
         {
-            var access = await _azure.WaitForAccessAsync(account, container.Name, ct: ct);
-            if (SelectedAccount == account && SelectedContainer == container)
+            var access = await _azure.WaitForAccessAsync(account, container.Name, ct: scope.Token);
+            if (IsCurrentTarget(scope, account, container))
             {
                 Access = access;
                 if (!access.HasDataPlaneWrite)
@@ -442,15 +532,19 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            // The user moved on (changed the pickers or signed out).
+            // The user moved on (changed the pickers, signed out or left Settings).
         }
-        catch (AzureAccountException ex)
+        catch (AzureAccountException ex) when (IsCurrentTarget(scope, account, container))
         {
             FixError = $"Couldn't check access to {container.Name}. {ex.Message}";
         }
+        catch (AzureAccountException)
+        {
+        }
         finally
         {
-            IsWaitingForRole = false;
+            if (IsCurrent(scope))
+                IsWaitingForRole = false;
         }
     }
 
@@ -467,8 +561,12 @@ public sealed partial class AzureSetupViewModel : ObservableObject
             return;
         if (ConfirmPublicAccess is not null && !await ConfirmPublicAccess(account.Name, container.Name))
             return;
+        var scope = Begin(Level.Access);
+        if (!IsCurrentTarget(scope, account, container))
+            return; // The selection changed while the confirmation was open.
         IsFixing = true;
         FixError = "";
+        var error = "";
         try
         {
             await _azure.EnablePublicBlobAccessAsync(account, container.Name);
@@ -476,16 +574,14 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         }
         catch (AzureAccountException ex)
         {
-            FixError = $"Couldn't turn on public read access. {ex.Message}";
+            error = $"Couldn't turn on public read access. {ex.Message}";
         }
-        finally
-        {
-            IsFixing = false;
-        }
+        if (!IsCurrentTarget(scope, account, container))
+            return;
+        IsFixing = false;
         // Either way, show the current state: the account change may have succeeded even if the container's failed.
-        var error = FixError;
         await CheckAccessAsync();
-        if (error.Length > 0)
+        if (error.Length > 0 && SelectedAccount == account && SelectedContainer == container)
             FixError = error;
     }
 
@@ -500,6 +596,8 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     private void ClearAccess()
     {
         Access = null;
+        IsChecking = false;
+        IsFixing = false;
         IsWaitingForRole = false;
         FixError = "";
     }

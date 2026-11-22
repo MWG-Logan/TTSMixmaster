@@ -32,6 +32,12 @@ public enum ChipArtSource
     Generated,
 }
 
+/// <summary>
+/// The art <see cref="ChipImageBuilder.FetchArtAsync"/> found: its bytes, or null with whether a download
+/// timed out (so the caller can say so and retry later rather than remember "no art").
+/// </summary>
+public sealed record ChipArtFetch(byte[]? Art, bool TimedOut);
+
 /// <summary>A rendered chip face: PNG bytes and their SHA-256, which doubles as a content-addressed blob name.</summary>
 public sealed record ChipImage(byte[] Png, string Hash, int Width, int Height, ChipArtSource ArtSource)
 {

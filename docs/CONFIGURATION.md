@@ -27,7 +27,8 @@ The keys are snake_case, so old Python config files load unchanged. Unknown keys
 | `spotify_client_id`, `spotify_client_secret`, `spotify_user_id`, `spotify_redirect_uri`, `spotify_use_oauth` | Spotify. With OAuth (the default) only the client ID is needed; sign-in uses PKCE in your browser. The redirect URI must match your Spotify app registration (default `http://127.0.0.1:8888/callback`). |
 | `azure_tenant_id`, `azure_subscription_id`, `azure_storage_account`, `azure_container_name` | The storage target picked after **Sign in to Azure** |
 | `azure_client_id` | Override for the built-in Entra app ID (normally empty) |
-| `azure_storage_connection_string` | Advanced fallback instead of signing in |
+| `azure_auth_mode` | How builds upload: `signin` (the target picked after signing in) or `connection_string` (the Advanced fallback). Set by **Use a connection string** in Settings. A config without it is migrated on first load: a connection string with no picked account becomes `connection_string`, anything else `signin`. |
+| `azure_storage_connection_string` | Advanced fallback, used only while `azure_auth_mode` is `connection_string` |
 | `download_path`, `tts_output_path` | Override the audio / generated-files folders (empty = defaults above) |
 | `tts_saved_objects_path` | Tabletop Simulator's Saved Objects folder, for non-standard installs |
 | `audio_quality` | MP3 bitrate: 128, 192, 256 or 320 |

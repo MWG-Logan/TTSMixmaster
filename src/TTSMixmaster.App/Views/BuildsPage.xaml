@@ -49,16 +49,28 @@
             <local:TtsHowTo />
         </Border>
 
-        <InfoBar
-            Grid.Row="2"
-            Margin="0,8,0,0"
-            AutomationProperties.AutomationId="BuildsError"
-            IsClosable="False"
-            IsOpen="{x:Bind ViewModel.HasLoadError, Mode=OneWay}"
-            Visibility="{x:Bind ViewModel.HasLoadError, Mode=OneWay}"
-            Message="{x:Bind ViewModel.LoadError, Mode=OneWay}"
-            Severity="Error"
-            Title="Couldn't list your builds" />
+        <StackPanel Grid.Row="2">
+            <InfoBar
+                Margin="0,8,0,0"
+                AutomationProperties.AutomationId="BuildsError"
+                IsClosable="False"
+                IsOpen="{x:Bind ViewModel.HasLoadError, Mode=OneWay}"
+                Visibility="{x:Bind ViewModel.HasLoadError, Mode=OneWay}"
+                Message="{x:Bind ViewModel.LoadError, Mode=OneWay}"
+                Severity="Error"
+                Title="Couldn't list your builds" />
+
+            <!--  A damaged build.json is named here and left out of the list; it never stops the page.  -->
+            <InfoBar
+                Margin="0,8,0,0"
+                AutomationProperties.AutomationId="BuildsDamaged"
+                IsClosable="False"
+                IsOpen="{x:Bind ViewModel.HasDamagedBuilds, Mode=OneWay}"
+                Visibility="{x:Bind ViewModel.HasDamagedBuilds, Mode=OneWay}"
+                Message="{x:Bind ViewModel.DamagedBuilds, Mode=OneWay}"
+                Severity="Warning"
+                Title="Damaged builds aren't listed. Build these collections again to list them:" />
+        </StackPanel>
 
         <ListView
             Grid.Row="3"

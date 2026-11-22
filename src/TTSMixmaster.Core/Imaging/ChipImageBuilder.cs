@@ -9,10 +9,18 @@ namespace TTSMixmaster.Core.Imaging;
 /// frame, with the collection name on top. Output is deterministic for the same art, title, options and
 /// installed fonts (fonts only matter for characters Cinzel lacks).
 /// </summary>
-public sealed class ChipImageBuilder(HttpClient http)
+public sealed class ChipImageBuilder(HttpClient http, TimeSpan? artTimeout = null)
 {
     /// <summary>Art larger than this is ignored rather than downloaded.</summary>
     public const long MaxArtBytes = 20 * 1024 * 1024;
+
+    /// <summary>
+    /// The whole art request, headers and body, must finish within this. HttpClient.Timeout stops at the
+    /// headers (ResponseHeadersRead), so a server that stalls mid-body would otherwise hang the download.
+    /// </summary>
+    public static readonly TimeSpan DefaultArtTimeout = TimeSpan.FromSeconds(30);
+
+    private readonly TimeSpan _artTimeout = artTimeout ?? DefaultArtTimeout;
 
     /// <summary>How far the art is drawn past the window edge, so the frame's anti-aliased edge sits on art, not on nothing.</summary>
     private const float ArtBleed = 1.5f;
@@ -36,7 +44,7 @@ public sealed class ChipImageBuilder(HttpClient http)
 
         foreach (var (url, source) in candidates)
         {
-            var bytes = await TryDownloadAsync(url, ct);
+            var (bytes, _) = await TryDownloadAsync(url, ct);
             using var art = ChipArt.Decode(bytes);
             if (art is null) continue;
             ct.ThrowIfCancellationRequested();
@@ -48,20 +56,23 @@ public sealed class ChipImageBuilder(HttpClient http)
 
     /// <summary>
     /// Downloads the art <see cref="BuildFrontAsync"/> would use (the collection's, else its first track's) without
-    /// rendering, so a caller can re-render (title, options) without downloading again. Null: no usable art.
+    /// rendering, so a caller can re-render (title, options) without downloading again. No art: the result says
+    /// whether a download timed out (worth retrying later) or there simply was no usable art.
     /// </summary>
-    public async Task<byte[]?> FetchArtAsync(MusicCollection collection, CancellationToken ct = default)
+    public async Task<ChipArtFetch> FetchArtAsync(MusicCollection collection, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(collection);
         var track = collection.Tracks.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.ThumbnailUrl));
+        var timedOut = false;
         foreach (var url in new[] { collection.Summary.ThumbnailUrl, track?.ThumbnailUrl })
         {
-            var bytes = await TryDownloadAsync(url ?? "", ct);
+            var (bytes, timeout) = await TryDownloadAsync(url ?? "", ct);
+            timedOut |= timeout;
             using var art = ChipArt.Decode(bytes);
-            if (art is not null) return bytes;
+            if (art is not null) return new(bytes, false);
         }
         ct.ThrowIfCancellationRequested();
-        return null;
+        return new(null, timedOut);
     }
 
     /// <summary>True when <paramref name="bytes"/> is art the chip renderer accepts (PNG, JPEG or WebP that decodes).</summary>
@@ -135,31 +146,39 @@ public sealed class ChipImageBuilder(HttpClient http)
         canvas.DrawRect(new SKRect(target.Left, top, target.Right, target.Bottom), paint);
     }
 
-    private async Task<byte[]?> TryDownloadAsync(string url, CancellationToken ct)
+    /// <summary>Downloads art within the art timeout for the whole request. Only the caller's cancellation throws.</summary>
+    private async Task<(byte[]? Bytes, bool TimedOut)> TryDownloadAsync(string url, CancellationToken ct)
     {
         if (ArtUri(url) is not { } uri)
-            return null;
+            return (null, false);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(_artTimeout);
         try
         {
-            using var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
-            if (!response.IsSuccessStatusCode) return null;
-            if (response.Content.Headers.ContentLength > MaxArtBytes) return null;
-            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            if (!response.IsSuccessStatusCode) return (null, false);
+            if (response.Content.Headers.ContentLength > MaxArtBytes) return (null, false);
+            await using var stream = await response.Content.ReadAsStreamAsync(deadline.Token);
             using var buffer = new MemoryStream();
             var chunk = new byte[81920];
             int read;
-            while ((read = await stream.ReadAsync(chunk, ct)) > 0)
+            while ((read = await stream.ReadAsync(chunk, deadline.Token)) > 0)
             {
-                if (buffer.Length + read > MaxArtBytes) return null;
+                if (buffer.Length + read > MaxArtBytes) return (null, false);
                 buffer.Write(chunk, 0, read);
             }
-            return buffer.ToArray();
+            return (buffer.ToArray(), false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (OperationCanceledException)
+        {
+            // Our deadline, or HttpClient.Timeout while waiting for headers: the server took too long.
+            return (null, true);
+        }
         catch (Exception)
         {
-            // Network errors, timeouts, bad responses: any art problem just means the generated background.
-            return null;
+            // Network errors, bad responses: any art problem just means the generated background.
+            return (null, false);
         }
     }
 

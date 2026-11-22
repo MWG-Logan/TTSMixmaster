@@ -24,6 +24,7 @@ public sealed partial class SettingsPage : Page
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
         ViewModel.SaveNow();
+        ViewModel.AzureSetup.Deactivate();
         base.OnNavigatedFrom(e);
     }
 

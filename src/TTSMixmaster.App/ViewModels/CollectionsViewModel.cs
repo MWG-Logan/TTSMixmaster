@@ -212,8 +212,9 @@ public sealed partial class CollectionsViewModel(AppServices app) : ObservableOb
             }
             catch (Exception ex)
             {
+                app.Log.Error($"Listing {s.Kind} collections failed", ex);
                 lock (errors)
-                    errors.Add($"{Display.ServiceName(s.Kind)}: {ex.Message}");
+                    errors.Add($"{Display.ServiceName(s.Kind)}: {UserText.Describe(ex)}");
                 return [];
             }
         }).ToList();

@@ -20,19 +20,64 @@ public sealed record BuildRecord(
 {
     private const string RecordFileName = "build.json";
     private const string ThumbnailFileName = "build-thumbnail.png";
-    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
+
+    private static readonly JsonSerializerOptions Json = new()
+    {
+        WriteIndented = true,
+        // Strict, like Core's CollectionState: a missing member or a null where one isn't allowed is a JsonException.
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true,
+    };
 
     public MusicCollection Collection => new() { Summary = Summary, Tracks = [.. Uploads.Select(u => u.Track)] };
 
-    /// <summary>The build in <paramref name="exportFolder"/>, or null when there is none or it can't be read.</summary>
-    public static BuildRecord? Read(string exportFolder)
+    /// <summary>
+    /// The build in <paramref name="exportFolder"/>: <see cref="BuildRecordRead.Record"/> is null when there is
+    /// none, and <see cref="BuildRecordRead.IsDamaged"/> says a record is there but can't be read or used.
+    /// Never throws for a bad record.
+    /// </summary>
+    public static BuildRecordRead Read(string exportFolder)
     {
         try
         {
             var path = RecordPath(exportFolder);
-            return File.Exists(path) ? JsonSerializer.Deserialize<BuildRecord>(File.ReadAllBytes(path), Json) : null;
+            if (!File.Exists(path))
+                return new(null, false);
+            var record = JsonSerializer.Deserialize<BuildRecord>(File.ReadAllBytes(path), Json);
+            return record is not null && record.IsValid() ? new(record, false) : new(null, true);
         }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or NotSupportedException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or NotSupportedException
+                                       or ArgumentException or InvalidOperationException)
+        {
+            return new(null, true);
+        }
+    }
+
+    /// <summary>Total, null-safe check of everything the Builds page and Export to TTS use.</summary>
+    internal bool IsValid() =>
+        Summary is { Id: not null, Name: not null, Owner: not null, Description: not null, ThumbnailUrl: not null } summary &&
+        Enum.IsDefined(summary.Service) && Enum.IsDefined(summary.Kind) &&
+        Uploads is not null && Uploads.All(u =>
+            u is { FilePath: not null, PublicUrl: { Length: > 0 } } && Enum.IsDefined(u.Status) && IsValid(u.Track)) &&
+        Options is { ObjectNickname: not null, Description: not null, PrimaryImageUrl: not null, SecondaryImageUrl: not null } &&
+        LuaFile is not null;
+
+    private static bool IsValid(Track? track) =>
+        track is { Title: not null, Artist: not null, Album: not null, SourceUrl: not null, ServiceId: not null, ThumbnailUrl: not null } &&
+        Enum.IsDefined(track.Service);
+
+    /// <summary>The recorded Lua file, only if it is inside <paramref name="exportFolder"/> (a damaged or edited record can't point elsewhere).</summary>
+    public string? LuaFileIn(string exportFolder)
+    {
+        if (string.IsNullOrEmpty(LuaFile))
+            return null;
+        try
+        {
+            var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(exportFolder)) + Path.DirectorySeparatorChar;
+            var lua = Path.GetFullPath(LuaFile);
+            return lua.StartsWith(folder, StringComparison.OrdinalIgnoreCase) ? lua : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return null;
         }
@@ -72,3 +117,6 @@ public sealed record BuildRecord(
         File.Move(temp, path, overwrite: true);
     }
 }
+
+/// <summary>A folder's build record: the record, or nothing (no record, or a damaged one).</summary>
+public sealed record BuildRecordRead(BuildRecord? Record, bool IsDamaged);

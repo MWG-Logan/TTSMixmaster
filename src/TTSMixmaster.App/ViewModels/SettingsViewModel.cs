@@ -10,7 +10,8 @@ namespace TTSMixmaster.App.ViewModels;
 
 /// <summary>Connection state and the Test connection button for one service.</summary>
 public sealed partial class ConnectionViewModel(
-    string key, string name, Func<bool> isConfigured, Func<CancellationToken, Task<string?>> test, Action beforeTest) : ObservableObject
+    string key, string name, Func<bool> isConfigured, Func<CancellationToken, Task<string?>> test, Action beforeTest,
+    FileLog? log = null) : ObservableObject
 {
     private bool _testedOk;
 
@@ -62,7 +63,9 @@ public sealed partial class ConnectionViewModel(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            problem = ex.Message;
+            // Core's services report problems as safe text; anything thrown is mapped, with the detail logged.
+            log?.Error($"{Name} connection test failed", ex);
+            problem = UserText.Describe(ex);
         }
         finally
         {
@@ -98,7 +101,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         YouTube = Connection(ServiceKind.YouTube);
         Spotify = Connection(ServiceKind.Spotify);
         AzureSetup = new AzureSetupViewModel(app);
-        Azure = new ConnectionViewModel("Azure", "Azure Storage", () => _app.Uploader.IsConfigured, TestAzureAsync, SaveNow);
+        Azure = new ConnectionViewModel("Azure", "Azure Storage", () => _app.Uploader.IsConfigured, TestAzureAsync, SaveNow, app.Log);
         AzureSetup.TargetChanged += () =>
         {
             Azure.Invalidate();
@@ -116,8 +119,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Interactive sign-in and storage picking. The connection string is the fallback.</summary>
     public AzureSetupViewModel AzureSetup { get; }
 
-    /// <summary>Open the connection-string fallback by default only when sign-in can't be used.</summary>
-    public bool IsConnectionStringExpanded => !AzureSetup.IsSignInAvailable;
+    /// <summary>Open the connection-string fallback by default when it's in use or sign-in can't be used.</summary>
+    public bool IsConnectionStringExpanded => !AzureSetup.IsSignInAvailable || UseConnectionString;
     private IEnumerable<ConnectionViewModel> Connections => [LastFm, YouTube, Spotify, Azure];
 
     // Last.fm
@@ -137,6 +140,22 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool SpotifyUseOauth { get => _s.SpotifyUseOauth; set => Set(_s.SpotifyUseOauth, value, (s, v) => s.SpotifyUseOauth = v, Spotify); }
 
     // Azure
+
+    /// <summary>
+    /// The user's explicit choice of how builds upload: the Advanced connection string, or the account and
+    /// container picked after signing in. Nothing else switches it.
+    /// </summary>
+    public bool UseConnectionString
+    {
+        get => _s.ResolveAzureAuthMode() == AzureAuthModes.ConnectionString;
+        set
+        {
+            if (Set(_s.ResolveAzureAuthMode(), value ? AzureAuthModes.ConnectionString : AzureAuthModes.SignIn,
+                    (s, v) => s.AzureAuthMode = v, Azure))
+                AzureSetup.RefreshStatus();
+        }
+    }
+
     public string AzureConnectionString
     {
         get => _s.AzureStorageConnectionString;
@@ -207,7 +226,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         try
         {
             var result = await _app.YtDlpUpdater.UpdateAsync(ct);
-            _app.Log.Info(result.Succeeded ? $"yt-dlp updated to {result.Version}" : $"yt-dlp update failed: {result.Error}");
+            _app.Log.Info(result.Succeeded ? $"yt-dlp updated to {result.Version}" : $"yt-dlp update failed: {result.Error} ({result.Detail})");
             YtDlpResultSeverity = result.Succeeded ? InfoBarSeverity.Success : InfoBarSeverity.Error;
             YtDlpResultMessage = result.Succeeded ? $"yt-dlp {result.Version} is installed and will be used for the next build." : result.Error!;
             IsYtDlpResultOpen = true;
@@ -215,6 +234,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
+        }
+        catch (Exception ex)
+        {
+            // Core reports failures as results; this is the last boundary so nothing escapes to the dispatcher.
+            _app.Log.Error("yt-dlp update stopped unexpectedly", ex);
+            YtDlpResultSeverity = InfoBarSeverity.Error;
+            YtDlpResultMessage = "yt-dlp couldn't be updated, so nothing was changed. Details are in the log.";
+            IsYtDlpResultOpen = true;
         }
         finally
         {
@@ -260,12 +287,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             var problem = await _app.Downloader.CheckToolsAsync();
             AreToolsReady = problem is null;
-            ToolsStatus = problem?.ReplaceLineEndings(" ") ?? $"yt-dlp and ffmpeg are ready. yt-dlp: {_app.Tools.FindYtDlp()}";
+            ToolsStatus = problem is null ? $"yt-dlp and ffmpeg are ready. yt-dlp: {_app.Tools.FindYtDlp()}" : UserText.ToolsProblem(problem);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _app.Log.Error("Tools check failed", ex);
             AreToolsReady = false;
-            ToolsStatus = ex.Message;
+            ToolsStatus = $"Couldn't check yt-dlp and ffmpeg. {UserText.Describe(ex)}";
         }
     }
 
@@ -305,7 +333,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            SaveError = $"Your changes couldn't be saved to {SettingsFile}. {ex.Message}";
+            SaveError = $"Your changes couldn't be saved to {UserText.FileName(SettingsFile)}. {UserText.Describe(ex)}";
         }
     }
 
@@ -341,6 +369,6 @@ public sealed partial class SettingsViewModel : ObservableObject
     private ConnectionViewModel Connection(ServiceKind kind)
     {
         var service = _app.Service(kind);
-        return new ConnectionViewModel(kind.ToString(), Display.ServiceName(kind), () => service.IsConfigured, service.TestConnectionAsync, SaveNow);
+        return new ConnectionViewModel(kind.ToString(), Display.ServiceName(kind), () => service.IsConfigured, service.TestConnectionAsync, SaveNow, _app.Log);
     }
 }

@@ -65,6 +65,11 @@ checks the signature before creating a codec and the codec's detected format bef
 format Skia could decode (GIF, BMP, ICO, WBMP, HEIF, AVIF, …) is treated as no art. Art URLs are fetched over https
 only; a plain-http URL is upgraded to https, any other scheme is ignored.
 
+Compressed size says nothing about decoded size, so the header's dimensions are checked against a fixed budget
+(4096 x 4096 pixels, 64 MiB as RGBA) before anything is allocated; larger art is treated as no art. JPEG and WebP
+decode straight to at most 2048 px on the longest side; PNG (whose codec can't scale) decodes within the budget
+and is then resized to 2048.
+
 ## Window geometry
 
 `ChipGeometry` holds the window as constants, in pixel coordinates of the 478x478 art (pixel (x, y)
