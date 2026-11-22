@@ -105,7 +105,9 @@ account service, formatter, an HTTP handler that fails every request, the Docume
 config.json search) over a temporary data root, with every folder setting pointing into it. Export to TTS uses
 the real `TtsExporter` writing into a temporary Saved Objects folder. Async `[UITestMethod]`s are supported;
 awaiting yields the dispatcher, so `Progress<T>` reports and fire-and-forget loads run (`Wait.UntilAsync`
-polls for a condition). What's covered:
+polls for a condition). No test waits without a limit: signals go through `Wait.ForAsync` (or
+`TestApp.DownloadStartedAsync`), which fails after `Wait.Limit` (30 s) or, when the build ends first, with the
+build's result; held fakes give up after the same limit. What's covered:
 - `CollectionBuildTests`: load and retry, missing tools, the build states (running, done, partial failure,
   nothing downloaded, every upload failed, no Azure, signed out, cancel, rebuild).
 - `ExportToTtsTests`: Created, Updated, TtsNotFound, Failed and Conflict (Cancel / Replace / Keep both), the
@@ -134,6 +136,11 @@ it to a Saved Objects folder in the guest and finds the build on the Builds page
 only the processes setup started and restores the guest's data folder; the script stops only the app it
 launched. Nothing reaches a real music service or Azure. Look at the screenshots too: UI Automation can't see
 clipping, overlap or theming problems.
+
+Every external command the script runs (`winapp`, guest commands, ffmpeg) goes through `Invoke-Bounded`, which
+has a deadline (a `winapp ui` wait gets its own `-t` plus a minute) and kills the command's process tree when it
+passes. Before it writes the results the script stops anything it started that is still running, so it always
+exits on its own.
 
 ## CI wiring (owned by the workflows; not in this change)
 

@@ -126,6 +126,23 @@ public sealed class YouTubeAlbumTests
     }
 
     [TestMethod]
+    public async Task PlaylistSearchThatOnlyFindsAlbumsStopsAfterTwoPagesToSaveQuota()
+    {
+        // Final review finding 3: every page is album playlists, which Playlist search filters out; with fresh page
+        // tokens it used to keep requesting until YouTube ran out of results.
+        using var fake = new FakeHttp(); using var http = fake.Client();
+        for (var p = 0; p < 9; p++)
+        {
+            var items = string.Join(",", Enumerable.Range(0, 40).Select(i =>
+                $$$"""{"id":{"playlistId":"OLAK5uy_p{{{p}}}i{{{i}}}"},"snippet":{"title":"Album - A{{{i}}}","channelTitle":"YouTube"}}"""));
+            fake.Add($$"""{"items":[{{items}}],"nextPageToken":"t{{p + 1}}"}""");
+        }
+
+        Assert.IsEmpty(await new YouTubeService(Settings(), http).SearchAsync("an album title", CollectionKind.Playlist));
+        Assert.AreEqual(YouTubeService.SearchPages, fake.Requests);
+    }
+
+    [TestMethod]
     [DataRow("https://music.youtube.com/browse/MPREb_AbCdEfGhIjK")]
     [DataRow("https://music.youtube.com/browse/MPREb_AbCdEfGhIjK?si=x")]
     public async Task BrowseAlbumLinksExplainHowToGetAPlaylistLink(string url)

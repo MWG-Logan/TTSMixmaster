@@ -275,6 +275,35 @@ public sealed class TtsExportTests : IDisposable
         Assert.Contains("v2.mp3", File.ReadAllText(first.Path!));
     }
 
+    [TestMethod]
+    public async Task An_edit_made_while_a_replace_waits_on_a_locked_file_is_a_conflict_and_is_kept()
+    {
+        // Final review finding 1: another program holds the saved object open (no delete sharing), so the replace
+        // fails and retries; meanwhile that program writes an edit and closes. The retry must not overwrite it.
+        var collection = Collection();
+        var first = await Exporter().ExportToTtsAsync(collection, Uploads("https://example.com/v1.mp3"), new());
+        var json = first.Path!;
+        var holder = new FileStream(json, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var attempts = 0;
+        var editing = new LibraryLayout(_paths, () => _settings, (source, destination, overwrite) =>
+        {
+            if (destination != json || ++attempts > 1)
+            {
+                File.Move(source, destination, overwrite);
+                return;
+            }
+            File.WriteAllText(json, "USER EDIT WHILE LOCKED");
+            try { File.Move(source, destination, overwrite); }   // fails: the holder has it open
+            finally { holder.Dispose(); }
+        });
+
+        var result = await Exporter(editing).ExportToTtsAsync(collection, Uploads("https://example.com/v2.mp3"), new());
+
+        Assert.AreEqual(1, attempts, "the guard stops the retry before a second rename");
+        Assert.AreEqual(TtsExportOutcome.Conflict, result.Outcome);
+        Assert.AreEqual("USER EDIT WHILE LOCKED", File.ReadAllText(json));
+    }
+
     private static void AssertPng256(string path)
     {
         var bytes = File.ReadAllBytes(path);

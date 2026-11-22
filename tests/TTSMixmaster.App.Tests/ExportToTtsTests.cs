@@ -97,7 +97,31 @@ public sealed class ExportToTtsTests
         Assert.AreEqual(TtsExportOutcome.Failed, vm.ExportState.Result?.Outcome);
         Assert.IsTrue(vm.ExportState.IsFailed);
         Assert.IsFalse(vm.ExportState.IsExported);
-        Assert.StartsWith("Could not export to Tabletop Simulator's Saved Objects:", vm.ExportState.Error);
+        Assert.AreEqual("Couldn't export to Tabletop Simulator's Saved Objects. A file couldn't be read or written.", vm.ExportState.Error);
+        Assert.DoesNotContain(app.Root, vm.ExportState.Error, "no paths on screen");
+    }
+
+    [UITestMethod]
+    public void Export_errors_shown_in_the_UI_never_carry_the_exceptions_raw_text()
+    {
+        // Final review finding 5: Core's result message includes ex.Message (paths); the App words the cause itself.
+        using var app = new TestApp();
+        var state = new TtsExportViewModel(app.Services.TtsExporter, app.Services.Log);
+        const string Marker = @"C:\PRIVATE_MARKER\secret.json";
+
+        state.Result = new(TtsExportOutcome.Failed, null, $"Could not export: {Marker}", new IOException(Marker));
+        Assert.AreEqual("Couldn't export to Tabletop Simulator's Saved Objects. A file couldn't be read or written.", state.Error);
+
+        state.Result = new(TtsExportOutcome.Failed, null, $"Could not export: {Marker}", new UnauthorizedAccessException(Marker));
+        Assert.AreEqual("Couldn't export to Tabletop Simulator's Saved Objects. Windows denied access to a file or folder it needs.", state.Error);
+
+        state.Result = new(TtsExportOutcome.Updated, Marker, $"couldn't save its bookkeeping ({Marker})", new IOException(Marker));
+        Assert.IsTrue(state.IsExported);
+        Assert.AreEqual("Exported, but its bookkeeping couldn't be saved: A file couldn't be read or written. " +
+            "TTSMixmaster will still recognize it next time.", state.Error);
+
+        state.Result = new(TtsExportOutcome.TtsNotFound, null, $"no Saves folder at {Marker}");
+        Assert.AreEqual("", state.Error, "the not-found bar has its own fixed text");
     }
 
     [UITestMethod]

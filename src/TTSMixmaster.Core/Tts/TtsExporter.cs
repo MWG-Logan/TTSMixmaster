@@ -44,10 +44,12 @@ public enum TtsExportOutcome
 
 /// <param name="Path">The saved-object .json written (or, for a conflict, the one that was changed).</param>
 /// <param name="Message">
-/// User-readable detail for Conflict, TtsNotFound and Failed. On Created/Updated it is a warning: the object
-/// was exported, but its bookkeeping couldn't be saved (the next export still recognizes it).
+/// Detail for Conflict, TtsNotFound and Failed. On Created/Updated it is a warning: the object was exported, but
+/// its bookkeeping couldn't be saved (the next export still recognizes it). With a <paramref name="Cause"/> it
+/// includes the exception's raw text (paths), so it is for the log; a UI words the cause itself.
 /// </param>
-public sealed record TtsExportResult(TtsExportOutcome Outcome, string? Path, string? Message = null);
+/// <param name="Cause">The exception behind a Failed outcome or a warning, for the caller's error text and log.</param>
+public sealed record TtsExportResult(TtsExportOutcome Outcome, string? Path, string? Message = null, Exception? Cause = null);
 
 /// <summary>
 /// Writes a collection's music player straight into Tabletop Simulator's Saved Objects, in a
@@ -102,7 +104,7 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            return new(TtsExportOutcome.Failed, null, $"Could not export to Tabletop Simulator's Saved Objects: {ex.Message}");
+            return new(TtsExportOutcome.Failed, null, $"Could not export to Tabletop Simulator's Saved Objects: {ex.Message}", ex);
         }
         finally
         {
@@ -177,7 +179,7 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return new(outcome, target, $"Exported, but TTSMixmaster couldn't save its bookkeeping ({ex.Message}). " +
-                "It will still recognize this saved object next time.");
+                "It will still recognize this saved object next time.", ex);
         }
         return new(outcome, target);
     }
@@ -205,8 +207,9 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
 
     /// <summary>
     /// Renames a staged file into place. A file that was absent at the check is published without overwrite, so
-    /// one that appeared since is never replaced (returns false). A file we checked is re-verified just before
-    /// it is replaced, unless the user chose Replace.
+    /// one that appeared since is never replaced (returns false). A file we checked is re-verified before every
+    /// replace attempt (a retry waits while another program has it open, and that program may edit it), unless
+    /// the user chose Replace.
     /// </summary>
     private bool Publish(string temp, string destination, string? checkedSha, bool replace)
     {
@@ -214,18 +217,15 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
         {
             try
             {
-                layout.PublishStaged(temp, destination, overwrite: false);
-                return true;
+                return layout.PublishStaged(temp, destination, overwrite: false);
             }
             catch (IOException) when (File.Exists(destination))
             {
                 return false;
             }
         }
-        if (!replace && LibraryLayout.FileSha256(destination) is { } now && now != checkedSha)
-            return false;
-        layout.PublishStaged(temp, destination, overwrite: true);
-        return true;
+        return layout.PublishStaged(temp, destination, overwrite: true,
+            stillOk: replace ? null : () => LibraryLayout.FileSha256(destination) is not { } now || now == checkedSha);
     }
 
     private static TtsExportResult Appeared(string path) => new(TtsExportOutcome.Conflict, path,

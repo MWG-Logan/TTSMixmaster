@@ -86,5 +86,21 @@ public sealed class FileReplaceTests : IDisposable
         Assert.AreEqual(0, sleeps);
     }
 
+    [TestMethod]
+    public void A_guard_is_rechecked_before_every_attempt_and_stops_the_move_when_it_fails()
+    {
+        var destination = Write("object.json", "ours");
+        var source = Write("object.tmp", "new");
+        var checks = 0;
+        var moved = FileReplace.Move(source, destination, true,
+            (_, _, _) => throw new IOException("busy", unchecked((int)0x80070020)), _ => { },
+            stillOk: () => ++checks < 3);
+
+        Assert.IsFalse(moved);
+        Assert.AreEqual(3, checks, "checked before attempts 1, 2 and 3; the third check fails");
+        Assert.AreEqual("ours", File.ReadAllText(destination));
+        Assert.AreEqual("new", File.ReadAllText(source));
+    }
+
     public void Dispose() => Directory.Delete(_root, recursive: true);
 }

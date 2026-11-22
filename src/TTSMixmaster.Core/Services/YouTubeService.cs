@@ -48,36 +48,24 @@ public sealed class YouTubeService(Func<AppSettings> settings, HttpClient httpCl
     {
         ct.ThrowIfCancellationRequested();
         if (kind is not (CollectionKind.Playlist or CollectionKind.Album) || limit <= 0 || string.IsNullOrWhiteSpace(query)) return [];
-        if (kind == CollectionKind.Album) return await SearchAlbumsAsync(query, limit, ct);
-        var found = new List<CollectionSummary>();
-        // Preserve the legacy preference for official channels within an oversampled result window.
-        var target = (int)Math.Min((long)limit * 2, int.MaxValue);
-        await foreach (var page in PagesAsync("search", new() { ["part"] = "snippet", ["q"] = query, ["type"] = "playlist", ["maxResults"] = Math.Min(target, 50).ToString(CultureInfo.InvariantCulture) }, ct))
-        {
-            // Album playlists belong to the Album search, so one query in "All" doesn't list them twice.
-            found.AddRange(page.RequiredItems("items", "YouTube").Select(MapSummary).Where(x => x.Kind == CollectionKind.Playlist));
-            if (found.Count >= target) break;
-        }
-        return found.Take(target).OrderByDescending(x => IsOfficial(x.Owner)).Take(limit).Select(x => x with { Owner = CleanArtist(x.Owner) }).ToArray();
-    }
-
-    /// <summary>
-    /// The Data API has no album search: search playlists and keep the YouTube Music album playlists. Each search
-    /// page costs 100 quota units, so this reads at most <see cref="AlbumSearchPages"/> pages even when few match.
-    /// </summary>
-    private async Task<IReadOnlyList<CollectionSummary>> SearchAlbumsAsync(string query, int limit, CancellationToken ct)
-    {
+        // Album search keeps the YouTube Music album playlists; Playlist search leaves them out, so one query in "All"
+        // doesn't list them twice. Filtering can discard whole pages, so neither follows more than SearchPages pages:
+        // each search.list call is expensive in quota. Whatever was found by then is the result.
+        // Playlists keep the legacy preference for official channels within an oversampled result window.
+        var target = kind == CollectionKind.Album ? limit : (int)Math.Min((long)limit * 2, int.MaxValue);
         var found = new List<CollectionSummary>();
         var pages = 0;
         await foreach (var page in PagesAsync("search", new() { ["part"] = "snippet", ["q"] = query, ["type"] = "playlist", ["maxResults"] = "50" }, ct))
         {
-            found.AddRange(page.RequiredItems("items", "YouTube").Select(MapSummary).Where(x => x.Kind == CollectionKind.Album));
-            if (found.Count >= limit || ++pages >= AlbumSearchPages) break;
+            found.AddRange(page.RequiredItems("items", "YouTube").Select(MapSummary).Where(x => x.Kind == kind));
+            if (found.Count >= target || ++pages >= SearchPages) break;
         }
-        return found.Take(limit).ToArray();
+        if (kind == CollectionKind.Album) return found.Take(limit).ToArray();
+        return found.Take(target).OrderByDescending(x => IsOfficial(x.Owner)).Take(limit).Select(x => x with { Owner = CleanArtist(x.Owner) }).ToArray();
     }
 
-    private const int AlbumSearchPages = 2;
+    /// <summary>Search pages read per search, whatever is found (see <see cref="SearchAsync"/>).</summary>
+    internal const int SearchPages = 2;
     private const string AlbumPrefix = "OLAK5uy_";
 
     public async Task<MusicCollection> GetCollectionAsync(string idOrUrl, CancellationToken ct = default)

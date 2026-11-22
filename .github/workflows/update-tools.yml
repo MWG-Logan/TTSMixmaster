@@ -42,12 +42,38 @@ jobs:
           $current = $Matches[1]
           $latest = gh api repos/yt-dlp/yt-dlp/releases/latest --jq .tag_name
           if ($LASTEXITCODE -ne 0 -or -not $latest) { throw 'Could not read the latest yt-dlp release.' }
+          # The tag becomes a URL segment, a branch name and part of a PowerShell file: accept only yt-dlp's
+          # release naming (2026.10.26 or 2026.10.26.123456) and fail on anything else.
+          if ($latest -cnotmatch '^\d{4}\.\d{2}\.\d{2}(\.\d+)?\z') { throw "Unexpected yt-dlp release tag $($latest | ConvertTo-Json); refusing to use it." }
           "Pinned: $current  Latest: $latest"
           if ($latest -eq $current) { 'Up to date.'; "changed=false" >> $env:GITHUB_OUTPUT; exit 0 }
 
+          # Idempotent: an open PR for this version means done. A branch left without one (an earlier run pushed,
+          # then failed to open the PR) is rebuilt from dev and its PR opened. A PR closed without merging is a
+          # maintainer's call: warn instead of reopening it every week.
           $branch = "chore/yt-dlp-$latest"
-          git ls-remote --exit-code --heads origin $branch *> $null
-          if ($LASTEXITCODE -eq 0) { "Branch $branch already exists; a PR is probably open."; "changed=false" >> $env:GITHUB_OUTPUT; exit 0 }
+          $prs = @(gh pr list --head $branch --state all --json number,state --jq '.[] | "#\(.number) \(.state)"')
+          if ($LASTEXITCODE -ne 0) { throw "Could not list pull requests from $branch." }
+          if ($open = $prs | Where-Object { $_ -clike '* OPEN' } | Select-Object -First 1) {
+            "PR $open from $branch is already open."; "changed=false" >> $env:GITHUB_OUTPUT; exit 0
+          }
+          if ($prs) {
+            "::warning::The yt-dlp $latest PR ($($prs[0])) is not open. Reopen it or bump the pin by hand."
+            "changed=false" >> $env:GITHUB_OUTPUT; exit 0
+          }
+          $remote = git ls-remote --heads origin "refs/heads/$branch"
+          if ($LASTEXITCODE -ne 0) { throw "Could not query origin for $branch." }
+          $lease = ''   # the push replaces exactly this commit, or creates the branch if it's absent
+          if ($remote) {
+            $lease = ($remote -split '\s+')[0]
+            git fetch --no-tags --depth 1 origin "refs/heads/$branch"
+            if ($LASTEXITCODE -ne 0) { throw "Could not fetch $branch." }
+            $author = git log -1 --format=%ae FETCH_HEAD
+            if ($author -ne '41898282+github-actions[bot]@users.noreply.github.com') {
+              throw "$branch exists, wasn't pushed by this workflow and has no PR; not overwriting it."
+            }
+            "$branch exists without a pull request; rebuilding it from dev and opening the PR."
+          }
 
           $base = "https://github.com/yt-dlp/yt-dlp/releases/download/$latest"
           $work = Join-Path $env:RUNNER_TEMP 'yt-dlp'
@@ -67,13 +93,21 @@ jobs:
             $newPins[$asset] = $actual
           }
 
-          # Swap each architecture's URL+hash pair, then the version in comments/summaries.
+          # Swap each architecture's URL+hash pair, then the version in comments/summaries. The new values are
+          # inserted literally (a match evaluator, not a replacement pattern, so no '$' substitutions).
           foreach ($asset in 'yt-dlp.exe', 'yt-dlp_arm64.exe') {
             $pattern = "(?s)(releases/download/)$([regex]::Escape($current))(/$([regex]::Escape($asset))'\s*\r?\n\s*YtDlpSha256\s*=\s*')[0-9a-fA-F]{64}'"
             if ($pins -notmatch $pattern) { throw "Can't find the $asset pin block in $env:PIN_FILE." }
-            $pins = [regex]::Replace($pins, $pattern, "`${1}$latest`${2}$($newPins[$asset])'")
+            $hash = $newPins[$asset]
+            $pins = [regex]::Replace($pins, $pattern, [Text.RegularExpressions.MatchEvaluator] { param($m) $m.Groups[1].Value + $latest + $m.Groups[2].Value + $hash + "'" })
           }
           $pins = $pins.Replace("yt-dlp.exe $current", "yt-dlp.exe $latest").Replace("yt-dlp_arm64.exe $current", "yt-dlp_arm64.exe $latest").Replace("yt-dlp $current", "yt-dlp $latest")
+          # Propose only a file that still parses and pins exactly the new version.
+          $parseErrors = $null
+          [Management.Automation.Language.Parser]::ParseInput($pins, [ref]$null, [ref]$parseErrors) | Out-Null
+          if ($parseErrors) { throw "The updated $env:PIN_FILE doesn't parse: $($parseErrors[0].Message)" }
+          $pinned = @([regex]::Matches($pins, 'releases/download/([^/]+)/yt-dlp(_arm64)?\.exe') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+          if ($pinned.Count -ne 1 -or $pinned[0] -cne $latest) { throw "The updated $env:PIN_FILE doesn't pin exactly $latest." }
           [IO.File]::WriteAllText((Resolve-Path $env:PIN_FILE), $pins)
           git diff --stat
 
@@ -81,6 +115,7 @@ jobs:
           "version=$latest" >> $env:GITHUB_OUTPUT
           "previous=$current" >> $env:GITHUB_OUTPUT
           "branch=$branch" >> $env:GITHUB_OUTPUT
+          "lease=$lease" >> $env:GITHUB_OUTPUT
 
       - name: Open the pull request
         if: steps.bump.outputs.changed == 'true'
@@ -88,12 +123,14 @@ jobs:
           VERSION: ${{ steps.bump.outputs.version }}
           PREVIOUS: ${{ steps.bump.outputs.previous }}
           BRANCH: ${{ steps.bump.outputs.branch }}
+          LEASE: ${{ steps.bump.outputs.lease }}
+        # A failed push or PR creation fails the job (bash -e), so it shows; the next run recovers the branch.
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -c "$BRANCH"
           git commit -am "chore(tools): bump bundled yt-dlp to $VERSION"
-          git push origin "$BRANCH"
+          git push --force-with-lease="refs/heads/$BRANCH:$LEASE" origin "HEAD:refs/heads/$BRANCH"
           gh pr create --base dev --head "$BRANCH" \
             --title "chore(tools): bump bundled yt-dlp to $VERSION" \
             --body "Bumps the yt-dlp pinned in \`scripts/fetch-tools.ps1\` from $PREVIOUS to [$VERSION](https://github.com/yt-dlp/yt-dlp/releases/tag/$VERSION) for x64 and ARM64. Both hashes come from the release's SHA2-256SUMS and were re-verified by downloading the binaries.
