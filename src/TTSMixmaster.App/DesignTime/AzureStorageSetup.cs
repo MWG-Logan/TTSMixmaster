@@ -4,10 +4,10 @@ namespace TTSMixmaster.App.DesignTime;
 // implementation; names may shift slightly at integration (adapt here and in AzureSetupViewModel).
 
 public sealed record AzureAccount(string DisplayName, string Username);
-public sealed record AzureTenant(string Id, string Name);
-public sealed record AzureSubscription(string Id, string Name, string TenantId);
-public sealed record AzureStorageAccount(string Id, string Name, string ResourceGroup, string Location);
-public sealed record AzureContainer(string Name);
+public sealed record AzureTenant(string Id, string Name) { public override string ToString() => Name; }
+public sealed record AzureSubscription(string Id, string Name, string TenantId) { public override string ToString() => Name; }
+public sealed record AzureStorageAccount(string Id, string Name, string ResourceGroup, string Location) { public override string ToString() => Name; }
+public sealed record AzureContainer(string Name) { public override string ToString() => Name; }
 
 public enum ContainerPublicLevel { None, Blob, Container }
 

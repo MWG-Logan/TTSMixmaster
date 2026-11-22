@@ -302,9 +302,7 @@
                                 <Border
                                     Width="184"
                                     Height="184"
-                                    Padding="14"
-                                    AutomationProperties.AutomationId="ChipPreview"
-                                    AutomationProperties.Name="{x:Bind ViewModel.ChipPreviewDescription, Mode=OneWay}"
+                                    Padding="12"
                                     Background="{StaticResource ChipCartridgeBrush}"
                                     BorderBrush="{StaticResource ChipCartridgeEdgeBrush}"
                                     BorderThickness="2"
@@ -318,6 +316,8 @@
                                                     Source="{x:Bind h:Bind.ServiceIcon(ViewModel.Service), Mode=OneTime}"
                                                     Visibility="{x:Bind h:Bind.Collapsed(ViewModel.HasCustomChipImage), Mode=OneWay}" />
                                                 <Image
+                                                    AutomationProperties.AutomationId="ChipPreview"
+                                                    AutomationProperties.Name="{x:Bind ViewModel.ChipPreviewDescription, Mode=OneWay}"
                                                     Source="{x:Bind h:Bind.FileImage(ViewModel.CustomChipImagePath), Mode=OneWay}"
                                                     Stretch="UniformToFill"
                                                     Visibility="{x:Bind ViewModel.HasCustomChipImage, Mode=OneWay}" />

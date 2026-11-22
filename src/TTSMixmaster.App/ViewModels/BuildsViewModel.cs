@@ -17,6 +17,8 @@ public sealed partial class BuildItemViewModel(string folder) : ObservableObject
     public string Details => $"Built {BuiltAt:d MMM yyyy, HH:mm} · {Folder}";
     public bool HasLua => _luaFile is not null;
 
+    public override string ToString() => Name; // UI Automation name of the row
+
     [ObservableProperty] public partial string CopyStatus { get; set; } = "";
 
     [RelayCommand]

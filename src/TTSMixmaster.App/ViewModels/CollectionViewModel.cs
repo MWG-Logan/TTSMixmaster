@@ -29,6 +29,8 @@ public sealed partial class TrackRowViewModel(int number, Track track) : Observa
     /// <summary>Spoken status for screen readers: the icon alone isn't accessible.</summary>
     public string AccessibleStatus => string.IsNullOrEmpty(Message) ? Status.ToString() : $"{Status}: {Message}";
 
+    public override string ToString() => $"{Number}. {Title}, {Artist}"; // UI Automation name of the row
+
     partial void OnStatusChanged(TrackStatus value) => OnPropertyChanged(nameof(AccessibleStatus));
     partial void OnMessageChanged(string value) => OnPropertyChanged(nameof(AccessibleStatus));
 }

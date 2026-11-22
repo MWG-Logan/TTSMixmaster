@@ -156,7 +156,7 @@
         <!--  Outcomes and one-click fixes. Each fix is a button; nothing changes in Azure on its own.  -->
         <InfoBar
             AutomationProperties.AutomationId="AzureError"
-            IsClosable="True"
+            IsClosable="False"
             IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
             Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}"
             Message="{x:Bind ViewModel.Error, Mode=OneWay}"
@@ -262,7 +262,7 @@
 
         <InfoBar
             AutomationProperties.AutomationId="AzureFixError"
-            IsClosable="True"
+            IsClosable="False"
             IsOpen="{x:Bind ViewModel.HasFixError, Mode=OneWay}"
             Visibility="{x:Bind ViewModel.HasFixError, Mode=OneWay}"
             Message="{x:Bind ViewModel.FixError, Mode=OneWay}"

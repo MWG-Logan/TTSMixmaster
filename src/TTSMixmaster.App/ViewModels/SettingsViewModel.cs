@@ -22,6 +22,8 @@ public sealed partial class ConnectionViewModel(
     public string ResultId => $"{key}TestResult";
     public string TestHelpText => $"Checks these details with {Name}.";
 
+    public override string ToString() => Name; // UI Automation name when hosted in a ContentControl
+
     [ObservableProperty] public partial bool IsTesting { get; set; }
 
     [ObservableProperty] public partial string Status { get; set; } = "";
@@ -271,7 +273,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>Debounced so typing a key doesn't rewrite config.json on every keystroke.</summary>
-    private async void ScheduleSave()
+    private void ScheduleSave() => _ = SaveSoonAsync();
+
+    private async Task SaveSoonAsync()
     {
         var version = ++_saveVersion;
         await Task.Delay(600);

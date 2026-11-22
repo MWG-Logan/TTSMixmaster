@@ -95,7 +95,7 @@
             Grid.Row="3"
             Margin="0,8,0,0"
             AutomationProperties.AutomationId="CollectionsError"
-            IsClosable="True"
+            IsClosable="False"
             IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
             Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}"
             Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
