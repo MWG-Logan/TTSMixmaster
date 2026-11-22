@@ -71,6 +71,20 @@ is not a workaround (WinUI self-contained needs the app's own exe manifest).
 - `config.json` stays readable by the .NET app (same snake_case keys) so existing users keep their settings.
 - Secrets never get logged or committed.
 
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in GitHub Issues for MWG-Logan/TTSMixmaster (`gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root, created lazily. See `docs/agents/domain.md`.
+
 ## Git
 
 - Work on feature branches; `main` is release, `dev` is integration.
