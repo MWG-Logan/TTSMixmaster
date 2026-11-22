@@ -17,6 +17,8 @@ namespace TTSMixmaster.Core.Tests.Files;
 /// Regression tests for Astra's review of 69ed452 (core-file-management-review-69ed452.md), findings 1-7.
 /// Each one failed on f2f4d50 and passes with the reserved-namespace layout (docs/adr/0001-library-layout.md).
 /// </summary>
+[TestClass]
+[DoNotParallelize]
 public sealed class ReviewRound2Tests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("tts-round2-").FullName;
@@ -44,53 +46,53 @@ public sealed class ReviewRound2Tests : IDisposable
         Tracks = [track ?? Song],
     };
 
-    [Fact]
+    [TestMethod]
     public async Task Finding1_temp_sweep_never_deletes_final_tracks_or_exports_with_temp_like_names()
     {
         var track = Song with { Artist = ".tts-tmp-Band" };
         var collection = Collection(track);
-        var first = Assert.Single(await Downloader().DownloadAsync(collection));
+        var first = Assert.ContainsSingle(await Downloader().DownloadAsync(collection));
         var bytes = File.ReadAllBytes(first.FilePath!);
         File.SetLastWriteTimeUtc(first.FilePath!, DateTime.UtcNow.AddDays(-2));
         _runner.Calls = 0;
 
-        var again = Assert.Single(await Downloader().DownloadAsync(collection));
+        var again = Assert.ContainsSingle(await Downloader().DownloadAsync(collection));
 
-        Assert.Equal(TrackStatus.Skipped, again.Status);
-        Assert.Equal(0, _runner.Calls);
-        Assert.Equal(bytes, File.ReadAllBytes(first.FilePath!));
+        Assert.AreEqual(TrackStatus.Skipped, again.Status);
+        Assert.AreEqual(0, _runner.Calls);
+        Assert.AreSequenceEqual(bytes, File.ReadAllBytes(first.FilePath!));
 
         var exportCollection = Collection(name: ".tts-tmp-Playlist");
         var old = await new TtsFormatter(Layout).GenerateAsync(exportCollection, [], new());
         foreach (var file in old.WrittenFiles) File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddDays(-2));
         var broken = new LibraryLayout(_paths, () => _settings, (_, _, _) => throw new IOException("rename failed"));
-        await Assert.ThrowsAsync<IOException>(() => new TtsFormatter(broken).GenerateAsync(exportCollection, [], new()));
-        Assert.All(old.WrittenFiles, f => Assert.True(File.Exists(f)));
+        await Assert.ThrowsExactlyAsync<IOException>(() => new TtsFormatter(broken).GenerateAsync(exportCollection, [], new()));
+        foreach (var f in old.WrittenFiles) Assert.IsTrue(File.Exists(f));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Finding2_equal_roots_never_let_an_export_replace_library_state()
     {
         _settings.TtsOutputPath = _settings.DownloadPath;
         var collection = Collection(name: "collection");
-        Assert.Equal(TrackStatus.Done, Assert.Single(await Downloader().DownloadAsync(collection)).Status);
+        Assert.AreEqual(TrackStatus.Done, Assert.ContainsSingle(await Downloader().DownloadAsync(collection)).Status);
 
         await new TtsFormatter(Layout).GenerateAsync(collection, [], new());
         _runner.Calls = 0;
 
         var folder = Layout.AudioFolder(collection);
-        Assert.Single(Layout.ReadState(folder).Tracks);
-        Assert.Equal(TrackStatus.Skipped, Assert.Single(await Downloader().DownloadAsync(collection)).Status);
-        Assert.Equal(0, _runner.Calls);
+        Assert.ContainsSingle(Layout.ReadState(folder).Tracks);
+        Assert.AreEqual(TrackStatus.Skipped, Assert.ContainsSingle(await Downloader().DownloadAsync(collection)).Status);
+        Assert.AreEqual(0, _runner.Calls);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Finding3_a_real_collection_suffix_collision_never_overwrites_the_other_collections_exports()
     {
         // Real 40-bit SHA-256 prefix collision found by the review; nothing is mocked.
         var a = Collection(Song with { Album = "Studio" }, id: "probe-1090565");
         var b = Collection(Song with { Album = "Live" }, id: "probe-2406488");
-        Assert.Equal(LibraryLayout.CollectionFolderSuffix(a.Summary), LibraryLayout.CollectionFolderSuffix(b.Summary));
+        Assert.AreEqual(LibraryLayout.CollectionFolderSuffix(a.Summary), LibraryLayout.CollectionFolderSuffix(b.Summary));
         var formatter = new TtsFormatter(Layout);
         var original = await formatter.GenerateAsync(a, [], new());
 
@@ -101,7 +103,7 @@ public sealed class ReviewRound2Tests : IDisposable
         Assert.DoesNotContain("(Live)", File.ReadAllText(original.WrittenFiles[0]));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Finding4_existing_blob_without_a_matching_full_hash_is_never_reused()
     {
         var path = Path.Combine(_root, "track.mp3");
@@ -110,29 +112,29 @@ public sealed class ReviewRound2Tests : IDisposable
         var uploader = new AzureBlobUploader(() => new() { AzureStorageConnectionString = "test", AzureContainerName = "music" },
             clientFactory: _ => new SingleBlobContainer(blob));
 
-        var result = Assert.Single(await uploader.UploadAsync([new(Song, path, TrackStatus.Done)]));
+        var result = Assert.ContainsSingle(await uploader.UploadAsync([new(Song, path, TrackStatus.Done)]));
 
-        Assert.Equal(TrackStatus.Failed, result.Status);
-        Assert.Null(result.PublicUrl);
-        Assert.Equal(0, blob.Uploads);
+        Assert.AreEqual(TrackStatus.Failed, result.Status);
+        Assert.IsNull(result.PublicUrl);
+        Assert.AreEqual(0, blob.Uploads);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Finding5_same_track_key_with_changed_display_text_reuses_the_cached_file_and_blob()
     {
-        var first = Assert.Single(await Downloader().DownloadAsync(Collection(Song)));
+        var first = Assert.ContainsSingle(await Downloader().DownloadAsync(Collection(Song)));
         _runner.Calls = 0;
 
-        var retitled = Assert.Single(await Downloader().DownloadAsync(Collection(Song with { Title = "Song (Remastered)" })));
+        var retitled = Assert.ContainsSingle(await Downloader().DownloadAsync(Collection(Song with { Title = "Song (Remastered)" })));
         var metadataOnly = Song with { ServiceId = "", Title = "Café" };
-        var nfc = Assert.Single(await Downloader().DownloadAsync(Collection(metadataOnly, id: "meta")));
-        var nfd = Assert.Single(await Downloader().DownloadAsync(Collection(metadataOnly with { Title = "Café" }, id: "meta")));
+        var nfc = Assert.ContainsSingle(await Downloader().DownloadAsync(Collection(metadataOnly, id: "meta")));
+        var nfd = Assert.ContainsSingle(await Downloader().DownloadAsync(Collection(metadataOnly with { Title = "Café" }, id: "meta")));
 
-        Assert.Equal(TrackStatus.Skipped, retitled.Status);
-        Assert.Equal(first.FilePath, retitled.FilePath);
-        Assert.Equal(TrackStatus.Skipped, nfd.Status);
-        Assert.Equal(nfc.FilePath, nfd.FilePath);
-        Assert.Equal(1, _runner.Calls); // only the first metadata-only download
+        Assert.AreEqual(TrackStatus.Skipped, retitled.Status);
+        Assert.AreEqual(first.FilePath, retitled.FilePath);
+        Assert.AreEqual(TrackStatus.Skipped, nfd.Status);
+        Assert.AreEqual(nfc.FilePath, nfd.FilePath);
+        Assert.AreEqual(1, _runner.Calls); // only the first metadata-only download
 
         // Same bytes share one blob, whatever the display name.
         var container = new UrlContainer();
@@ -140,10 +142,10 @@ public sealed class ReviewRound2Tests : IDisposable
             clientFactory: _ => container);
         var uploads = await uploader.UploadAsync([new(Song, first.FilePath!, TrackStatus.Done),
             new(Song with { Title = "Renamed" }, first.FilePath!, TrackStatus.Done)]);
-        Assert.Equal(uploads[0].PublicUrl, uploads[1].PublicUrl);
+        Assert.AreEqual(uploads[0].PublicUrl, uploads[1].PublicUrl);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Finding6_two_processes_updating_one_collection_never_lose_an_entry()
     {
         var folder = Layout.PrepareAudioFolder(Collection());
@@ -172,7 +174,7 @@ public sealed class ReviewRound2Tests : IDisposable
             var timer = Stopwatch.StartNew();
             while (!File.Exists(Path.Combine(folder, "A.ready")) && !File.Exists(Path.Combine(folder, "B.ready")))
             {
-                Assert.True(timer.Elapsed < TimeSpan.FromSeconds(30), "Neither writer started.");
+                Assert.IsTrue(timer.Elapsed < TimeSpan.FromSeconds(30), "Neither writer started.");
                 await Task.Delay(10);
             }
             // Without cross-process serialization both writers are now inside their update with the same
@@ -183,8 +185,8 @@ public sealed class ReviewRound2Tests : IDisposable
             File.WriteAllText(Path.Combine(folder, "B.go"), "go");
             await a.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
             await b.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
-            Assert.Equal(0, a.ExitCode);
-            Assert.Equal(0, b.ExitCode);
+            Assert.AreEqual(0, a.ExitCode);
+            Assert.AreEqual(0, b.ExitCode);
             Assert.Contains("A", Layout.ReadState(folder).Tracks.Keys);
             Assert.Contains("B", Layout.ReadState(folder).Tracks.Keys);
         }
@@ -195,26 +197,26 @@ public sealed class ReviewRound2Tests : IDisposable
         }
     }
 
-    [Theory]
-    [InlineData("""{"schema":1,"collection":{"service":null,"id":"id"},"tracks":{}}""")]
-    [InlineData("""{"schema":1,"tracks":{"spotify:track":null}}""")]
-    [InlineData("""{"schema":1,"tracks":{"spotify:track":{"file":null,"length":5}}}""")]
-    [InlineData("""{"schema":1}""")]
-    [InlineData("""{"tracks":{}}""")]
-    [InlineData("""{"SaveName":"","ObjectStates":[]}""")]
+    [TestMethod]
+    [DataRow("""{"schema":1,"collection":{"service":null,"id":"id"},"tracks":{}}""")]
+    [DataRow("""{"schema":1,"tracks":{"spotify:track":null}}""")]
+    [DataRow("""{"schema":1,"tracks":{"spotify:track":{"file":null,"length":5}}}""")]
+    [DataRow("""{"schema":1}""")]
+    [DataRow("""{"tracks":{}}""")]
+    [DataRow("""{"SaveName":"","ObjectStates":[]}""")]
     public async Task Finding7_invalid_or_foreign_state_is_quarantined_and_the_batch_continues(string invalid)
     {
         var collection = Collection();
-        Assert.Equal(TrackStatus.Done, Assert.Single(await Downloader().DownloadAsync(collection)).Status);
+        Assert.AreEqual(TrackStatus.Done, Assert.ContainsSingle(await Downloader().DownloadAsync(collection)).Status);
         var folder = Layout.AudioFolder(collection);
         File.WriteAllText(StateFile(folder), invalid);
         _runner.Calls = 0;
 
-        var again = Assert.Single(await Downloader().DownloadAsync(collection));
+        var again = Assert.ContainsSingle(await Downloader().DownloadAsync(collection));
 
-        Assert.Equal(TrackStatus.Skipped, again.Status);
-        Assert.Equal(0, _runner.Calls);
-        Assert.Single(Directory.GetFiles(Path.GetDirectoryName(StateFile(folder))!, LibraryLayout.StateFileName + ".corrupt-*"));
+        Assert.AreEqual(TrackStatus.Skipped, again.Status);
+        Assert.AreEqual(0, _runner.Calls);
+        Assert.ContainsSingle(Directory.GetFiles(Path.GetDirectoryName(StateFile(folder))!, LibraryLayout.StateFileName + ".corrupt-*"));
     }
 
     private static string StateFile(string folder) => LibraryLayout.StatePath(folder);

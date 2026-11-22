@@ -3,33 +3,35 @@ using TTSMixmaster.Core.Audio;
 
 namespace TTSMixmaster.Core.Tests.Audio;
 
+[TestClass]
+[DoNotParallelize]
 public sealed class ProcessRunnerTests
 {
     private static readonly string PowerShell = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe");
 
-    [Fact]
+    [TestMethod]
     public async Task Reads_both_streams_without_deadlock_and_preserves_exit_code()
     {
         var result = await new ProcessRunner().RunAsync(PowerShell,
             ["-NoProfile", "-NonInteractive", "-Command",
                 "[Console]::Out.Write(('o' * 100000)); [Console]::Error.Write(('e' * 100000)); exit 7"],
             TimeSpan.FromSeconds(30));
-        Assert.Equal(7, result.ExitCode);
-        Assert.Equal(new string('o', 100000), result.StandardOutput);
-        Assert.Equal(new string('e', 100000), result.StandardError);
+        Assert.AreEqual(7, result.ExitCode);
+        Assert.AreEqual(new string('o', 100000), result.StandardOutput);
+        Assert.AreEqual(new string('e', 100000), result.StandardError);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Timeout_terminates_process_and_reports_timeout()
     {
         var elapsed = Stopwatch.StartNew();
-        await Assert.ThrowsAsync<TimeoutException>(() => new ProcessRunner().RunAsync(PowerShell,
+        await Assert.ThrowsExactlyAsync<TimeoutException>(() => new ProcessRunner().RunAsync(PowerShell,
             ["-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 60"], TimeSpan.FromSeconds(1)));
-        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(30));
+        Assert.IsTrue(elapsed.Elapsed < TimeSpan.FromSeconds(30));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Cancellation_kills_child_process_before_returning()
     {
         var pidFile = Path.Combine(Path.GetTempPath(), $"tts-child-{Guid.NewGuid():N}.txt");
@@ -56,9 +58,9 @@ public sealed class ProcessRunnerTests
             }
             using var child = Process.GetProcessById(childId);
             cts.Cancel();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+            await Assert.ThrowsAsync<OperationCanceledException>(() => running);
             await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.True(child.HasExited);
+            Assert.IsTrue(child.HasExited);
         }
         finally
         {
