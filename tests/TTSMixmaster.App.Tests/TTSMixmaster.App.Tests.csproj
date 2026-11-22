@@ -25,6 +25,12 @@
     <SelfContained>true</SelfContained>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!--
+      The App grants this project InternalsVisibleTo (AppServices' test constructor), which also exposes the
+      Windows App SDK bootstrap types it generates (NativeMethods, AutoInitialize). This host generates its own
+      copies, and the compiler correctly uses those; CS0436 just reports the duplicate.
+    -->
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
