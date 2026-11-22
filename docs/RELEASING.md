@@ -24,9 +24,12 @@ The release notes are a fixed downloads table followed by GitHub's generated not
 the previous `v*` tag.
 
 To rebuild an existing version (for example after a signing hiccup), run the workflow manually
-(**Actions → Build and Release TTSMixmaster → Run workflow**) with **force_release** ticked. It
-rebuilds from the branch you pick and replaces the assets on the existing release. It doesn't
-move the tag.
+(**Actions → Build and Release TTSMixmaster → Run workflow**) with **force_release** ticked, on the
+commit the tag `v<Version>` points at. It rebuilds that commit and replaces the assets on the existing
+release. Tags are treated as immutable: if the branch has moved past the tag, the run fails and asks
+you to bump `<Version>` instead, because different code under the same version would never reach
+installed copies (App Installer only updates to a higher version) and the tag would no longer describe
+the assets.
 
 ## What a release contains
 

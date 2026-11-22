@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       force_release:
-        description: 'Rebuild and re-upload the release assets even if the version tag already exists'
+        description: 'Rebuild and re-upload the assets of the existing version tag (only when that tag is this commit)'
         required: false
         type: boolean
         default: false
@@ -66,7 +66,15 @@ jobs:
           tag="v$VERSION"
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
             if [ "$FORCE" = "true" ]; then
-              echo "Tag $tag exists; force_release requested, rebuilding and re-uploading assets."
+              # Tags are immutable in practice: force_release only re-uploads assets built from the
+              # tagged commit itself. Different code needs a new version.
+              git fetch --no-tags --depth=1 origin "+refs/tags/$tag:refs/tags/$tag"
+              tag_commit="$(git rev-parse "refs/tags/$tag^{commit}")"
+              if [ "$tag_commit" != "$GITHUB_SHA" ]; then
+                echo "::error file=Directory.Build.props::Tag $tag points at $tag_commit, but this run is building $GITHUB_SHA. force_release only rebuilds the tagged commit. To release this code, bump <Version> in Directory.Build.props."
+                exit 1
+              fi
+              echo "Tag $tag is this commit; force_release requested, rebuilding and re-uploading assets."
               echo "should_release=true" >> "$GITHUB_OUTPUT"
             else
               echo "Tag $tag exists; nothing to release. Bump <Version> in Directory.Build.props to publish a new release."
@@ -303,6 +311,12 @@ jobs:
         run: |
           tag="v$VERSION"
           if gh release view "$tag" >/dev/null 2>&1; then
+            # force_release: the check job only allows this when the tag is this commit; re-check here.
+            tag_commit="$(git rev-parse -q --verify "refs/tags/$tag^{commit}" || true)"
+            if [ "$tag_commit" != "$GITHUB_SHA" ]; then
+              echo "::error::Release $tag is tagged at ${tag_commit:-an unknown commit}, not $GITHUB_SHA. Bump <Version> in Directory.Build.props to release this code."
+              exit 1
+            fi
             echo "Release $tag exists (force_release); replacing its assets."
             gh release upload "$tag" dist/* --clobber
             echo "created=false" >> "$GITHUB_OUTPUT"
