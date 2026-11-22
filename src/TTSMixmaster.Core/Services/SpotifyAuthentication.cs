@@ -14,6 +14,16 @@ internal sealed class SpotifyAuthentication(Func<AppSettings> settings, HttpClie
     private DateTimeOffset _expiresAt;
     private (string ClientId, string Secret, bool OAuth, string Redirect) _configuration;
 
+    /// <summary>Every permission the app asks for. A refreshed sign-in that lacks one is forgotten so the user signs in again.</summary>
+    internal const string Scopes = "playlist-read-private playlist-read-collaborative user-library-read user-top-read user-read-recently-played";
+
+    /// <summary>Drops the saved sign-in and the in-memory token, so the next request signs in again.</summary>
+    internal void ForgetSignIn()
+    {
+        _accessToken = "";
+        store.Clear();
+    }
+
     internal async Task<string> GetTokenAsync(CancellationToken ct, string? rejectedToken = null)
     {
         await _gate.WaitAsync(ct);
@@ -38,6 +48,13 @@ internal sealed class SpotifyAuthentication(Func<AppSettings> settings, HttpClie
                         store.Clear();
                         throw new ServiceException("Spotify sign-in has expired or was revoked. Connect again to sign in.");
                     }
+                    if (MissingScopes(token))
+                    {
+                        // Signed in before a permission was added (e.g. saved albums): ask again rather than fail per request.
+                        _accessToken = "";
+                        store.Clear();
+                        throw new ServiceException("Spotify needs you to sign in again to approve new permissions, such as reading your saved albums. Connect Spotify again in Settings.");
+                    }
                 }
                 else token = await AuthorizeAsync(configuration.SpotifyClientId, configuration.SpotifyRedirectUri, ct);
                 refresh = token.Text("refresh_token") is { Length: > 0 } replacement ? replacement : refresh;
@@ -58,6 +75,14 @@ internal sealed class SpotifyAuthentication(Func<AppSettings> settings, HttpClie
         finally { _gate.Release(); }
     }
 
+    /// <summary>True when the token response lists its scopes and one we ask for is absent. Spotify may omit <c>scope</c>; then nothing is assumed missing.</summary>
+    private static bool MissingScopes(JsonElement token)
+    {
+        if (token.Get("scope").ValueKind != JsonValueKind.String) return false;
+        var granted = token.Text("scope").Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+        return Scopes.Split(' ').Any(x => !granted.Contains(x));
+    }
+
     private async Task<JsonElement> ExchangeAsync(Dictionary<string, string> values, string? basic, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://accounts.spotify.com/api/token") { Content = new FormUrlEncodedContent(values) };
@@ -75,7 +100,7 @@ internal sealed class SpotifyAuthentication(Func<AppSettings> settings, HttpClie
         var authorize = new Uri("https://accounts.spotify.com/authorize?" + ServiceHttp.Query(new Dictionary<string, string>
         {
             ["client_id"] = clientId, ["response_type"] = "code", ["redirect_uri"] = redirect.AbsoluteUri,
-            ["scope"] = "playlist-read-private playlist-read-collaborative user-library-read user-top-read user-read-recently-played",
+            ["scope"] = Scopes,
             ["state"] = state, ["code_challenge_method"] = "S256", ["code_challenge"] = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)))
         }));
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
