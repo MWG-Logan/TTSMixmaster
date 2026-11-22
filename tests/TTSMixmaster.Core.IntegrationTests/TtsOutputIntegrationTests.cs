@@ -98,7 +98,10 @@ public sealed class TtsOutputIntegrationTests : IDisposable
         using var media = new LocalMediaServer();
         var thumbnail = media.Serve("art/cover.png", MediaFixtures.Png(512, 512), "image/png");
         var collection = Collection(thumbnail.AbsoluteUri);
-        using var http = new HttpClient();
+        // Art is fetched over HTTPS only: the exporter upgrades this http:// URL. The loopback server speaks plain
+        // HTTP, so this handler stands in for TLS on that one host and port and records what was asked for.
+        using var tls = new LoopbackTlsStandIn(thumbnail);
+        using var http = new HttpClient(tls);
         var exporter = new TtsExporter(_layout, new TtsSavedObjects(() => _settings), http);
 
         var created = await exporter.ExportToTtsAsync(collection, Uploads(), new(), ct: _context.CancellationToken);
@@ -110,6 +113,9 @@ public sealed class TtsOutputIntegrationTests : IDisposable
         var png = Path.ChangeExtension(created.Path!, ".png");
         Assert.AreSequenceEqual(new[] { Path.GetFileName(created.Path!), Path.GetFileName(png) }.Order(),
             Directory.GetFileSystemEntries(appFolder).Select(Path.GetFileName).Order(), "only the pair: no temp or reserved folders");
+        var requested = Assert.ContainsSingle(tls.Requested);
+        Assert.AreEqual(Uri.UriSchemeHttps, requested.Scheme, "the art URL is upgraded to HTTPS before it is fetched");
+        Assert.AreEqual(thumbnail.AbsolutePath, requested.AbsolutePath);
         Assert.Contains("/art/cover.png", media.Requests);
 
         // TTS reads the .json as a saved object and the same-named .png as its thumbnail.
@@ -126,6 +132,8 @@ public sealed class TtsOutputIntegrationTests : IDisposable
             Assert.IsNotNull(bitmap, "the thumbnail must be a decodable image");
             Assert.AreEqual(256, bitmap.Width);
             Assert.AreEqual(256, bitmap.Height);
+            // The served art (solid 20 80 C0), not the generated placeholder.
+            Assert.AreEqual(new SkiaSharp.SKColor(0x20, 0x80, 0xC0), bitmap.GetPixel(128, 128));
         }
 
         // Bookkeeping lives in the collection's library folder, not in Saved Objects.
@@ -153,4 +161,23 @@ public sealed class TtsOutputIntegrationTests : IDisposable
     }
 
     public void Dispose() => _root.Dispose();
+
+    /// <summary>
+    /// Sends HTTPS requests for the loopback server's host and port to it over plain HTTP (a test-only stand-in
+    /// for TLS) and refuses everything else, so nothing leaves the machine.
+    /// </summary>
+    private sealed class LoopbackTlsStandIn(Uri server) : DelegatingHandler(new HttpClientHandler())
+    {
+        public List<Uri> Requested { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var uri = request.RequestUri!;
+            Requested.Add(uri);
+            if (uri.Scheme != Uri.UriSchemeHttps || uri.Host != server.Host || uri.Port != server.Port)
+                throw new HttpRequestException($"Unexpected request in this test: {uri}");
+            request.RequestUri = new UriBuilder(uri) { Scheme = Uri.UriSchemeHttp }.Uri;
+            return base.SendAsync(request, cancellationToken);
+        }
+    }
 }
