@@ -21,7 +21,7 @@ public sealed class AzureBlobUploader(
     Func<AppSettings, BlobContainerClient>? clientFactory = null,
     Func<string, TokenCredential>? credentialProvider = null,
     Func<BlobContainerClient, CancellationToken, Task<bool?>>? anonymousReadProbe = null,
-    LibraryLayout? library = null) : IAudioUploader
+    LibraryLayout? library = null) : IAzureBlobUploader
 {
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
     private readonly Func<AppSettings, BlobContainerClient> _clientFactory = clientFactory ??

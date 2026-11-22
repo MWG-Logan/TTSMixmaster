@@ -23,21 +23,22 @@ public sealed class AppServices : IDisposable
 {
     private readonly Dictionary<string, CollectionViewModel> _openCollections = [];
 
-    private AppServices(AppPaths paths)
+    /// <param name="fakes">Tests only: Core seams to use instead of the real services (null: the real ones).</param>
+    internal AppServices(AppPaths paths, AppServiceFakes? fakes = null)
     {
         Paths = paths;
         Log = new FileLog(paths.LogDirectory);
         Store = new SettingsStore(paths.SettingsFile);
-        ImportedSettingsFrom = ImportLegacySettings(paths, Store, Log);
+        ImportedSettingsFrom = ImportLegacySettings(paths, Store, Log, fakes?.FindLegacySettingsFile ?? AppPaths.FindLegacySettingsFile);
         Settings = LoadSettings(Store, Log);
         Log.Info($"TTSMixmaster {Version} starting; data in {paths.DataRoot}");
 
-        Http = new HttpClient { Timeout = TimeSpan.FromSeconds(100) };
+        Http = fakes?.HttpHandler is { } handler ? new HttpClient(handler) : new HttpClient { Timeout = TimeSpan.FromSeconds(100) };
         Http.DefaultRequestHeaders.UserAgent.ParseAdd($"TTSMixmaster/{Version}");
 
         Layout = new LibraryLayout(paths, () => Settings);
         Catalog = new ServiceCatalog(() => Settings, Http, paths, OpenBrowserAsync);
-        MusicServices = [.. Catalog.All];
+        MusicServices = fakes?.MusicServices ?? [.. Catalog.All];
 #if DEV_SOURCE
         // Verification builds only: a local collection stands in for YouTube (see DevLocalMusicService).
         MusicServices = [.. MusicServices.Select(s => s.Kind == ServiceKind.YouTube
@@ -45,12 +46,12 @@ public sealed class AppServices : IDisposable
 #endif
         Tools = new ToolLocator(paths);
         var processes = new ProcessRunner();
-        Downloader = new AudioDownloader(Tools, processes, Layout, () => Settings);
+        Downloader = fakes?.Downloader ?? new AudioDownloader(Tools, processes, Layout, () => Settings);
         YtDlpUpdater = new YtDlpUpdater(paths, Http, processes);
-        Azure = new AzureAccountService(() => Settings, paths, () => WindowHandle);
-        Uploader = new AzureBlobUploader(() => Settings, credentialProvider: Azure.GetCredential, library: Layout);
-        Formatter = new TtsFormatter(Layout);
-        SavedObjects = new TtsSavedObjects(() => Settings);
+        Azure = fakes?.Azure ?? new AzureAccountService(() => Settings, paths, () => WindowHandle);
+        Uploader = fakes?.Uploader ?? new AzureBlobUploader(() => Settings, credentialProvider: Azure.GetCredential, library: Layout);
+        Formatter = fakes?.Formatter ?? new TtsFormatter(Layout);
+        SavedObjects = new TtsSavedObjects(() => Settings, fakes?.DocumentsFolder);
         TtsExporter = new TtsExporter(Layout, SavedObjects, Http);
         Chips = new ChipImageBuilder(Http);
     }
@@ -80,9 +81,9 @@ public sealed class AppServices : IDisposable
     public YtDlpUpdater YtDlpUpdater { get; }
 
     /// <summary>Interactive Azure sign-in, the storage picker and its explicit fixes. Lives for the app's lifetime.</summary>
-    public AzureAccountService Azure { get; }
+    public IAzureAccountService Azure { get; }
 
-    public AzureBlobUploader Uploader { get; }
+    public IAzureBlobUploader Uploader { get; }
     public ITtsFormatter Formatter { get; }
     public TtsSavedObjects SavedObjects { get; }
 
@@ -200,9 +201,9 @@ public sealed class AppServices : IDisposable
     /// %LOCALAPPDATA%\TTSMixmaster\config.json, so existing users keep their keys. Never runs again once
     /// the new settings file exists. Values are never logged.
     /// </summary>
-    private static string? ImportLegacySettings(AppPaths paths, SettingsStore store, FileLog log)
+    private static string? ImportLegacySettings(AppPaths paths, SettingsStore store, FileLog log, Func<string?> findLegacy)
     {
-        if (File.Exists(store.FilePath) || AppPaths.FindLegacySettingsFile() is not { } legacy ||
+        if (File.Exists(store.FilePath) || findLegacy() is not { } legacy ||
             string.Equals(Path.GetFullPath(legacy), Path.GetFullPath(store.FilePath), StringComparison.OrdinalIgnoreCase))
             return null;
         try
@@ -239,6 +240,28 @@ public sealed class AppServices : IDisposable
             return new AppSettings();
         }
     }
+}
+
+/// <summary>
+/// Tests only (TTSMixmaster.App.Tests): Core seams <see cref="AppServices"/> uses instead of the real services,
+/// so view models run against the real composition root with no network, Azure, tools or user folders.
+/// </summary>
+internal sealed record AppServiceFakes
+{
+    public IReadOnlyList<IMusicService>? MusicServices { get; init; }
+    public IAudioDownloader? Downloader { get; init; }
+    public IAzureAccountService? Azure { get; init; }
+    public IAzureBlobUploader? Uploader { get; init; }
+    public ITtsFormatter? Formatter { get; init; }
+
+    /// <summary>Replaces the network for every Core service that uses the shared HttpClient.</summary>
+    public HttpMessageHandler? HttpHandler { get; init; }
+
+    /// <summary>Stands in for Documents when locating Tabletop Simulator's Saved Objects.</summary>
+    public Func<string>? DocumentsFolder { get; init; }
+
+    /// <summary>Stands in for the first-run search for a Python-era config.json.</summary>
+    public Func<string?>? FindLegacySettingsFile { get; init; }
 }
 
 /// <summary>What the Collection page should open: a known summary, or a pasted link.</summary>

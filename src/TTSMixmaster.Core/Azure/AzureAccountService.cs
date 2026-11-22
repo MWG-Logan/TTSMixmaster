@@ -17,7 +17,7 @@ using TTSMixmaster.Core.Configuration;
 namespace TTSMixmaster.Core.Azure;
 
 /// <summary>Explicit sign-in and resource picker operations. Construction never opens a browser or contacts Azure.</summary>
-public sealed class AzureAccountService
+public sealed class AzureAccountService : IAzureAccountService
 {
     private const string ArmScope = "https://management.azure.com/.default";
     private const string StorageScope = "https://storage.azure.com/.default";

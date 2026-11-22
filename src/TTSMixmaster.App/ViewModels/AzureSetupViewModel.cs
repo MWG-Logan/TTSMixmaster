@@ -18,7 +18,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     public const string RoleName = "Storage Blob Data Contributor";
 
     private readonly AppServices _app;
-    private readonly AzureAccountService _azure;
+    private readonly IAzureAccountService _azure;
     private CancellationTokenSource? _cascadeCts;
     private readonly Dictionary<object, int> _loadVersions = [];
 
