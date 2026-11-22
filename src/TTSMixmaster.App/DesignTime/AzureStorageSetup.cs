@@ -34,7 +34,8 @@ public interface IAzureStorageSetup
     Task<IReadOnlyList<AzureContainer>> ListContainersAsync(AzureStorageAccount account, CancellationToken ct = default);
 
     Task<AzureAccessCheck> CheckAccessAsync(AzureStorageAccount account, AzureContainer container, CancellationToken ct = default);
-    Task AssignBlobDataContributorToMeAsync(AzureStorageAccount account, CancellationToken ct = default);
+    /// <summary>Assigns Storage Blob Data Contributor to the signed-in user at this container only.</summary>
+    Task AssignBlobDataContributorToMeAsync(AzureStorageAccount account, AzureContainer container, CancellationToken ct = default);
     Task EnablePublicBlobAccessAsync(AzureStorageAccount account, AzureContainer container, CancellationToken ct = default);
     Task<AzureContainer> CreateContainerAsync(AzureStorageAccount account, string name, CancellationToken ct = default);
 }
@@ -125,7 +126,7 @@ internal sealed class FakeAzureStorageSetup : IAzureStorageSetup
             s.Containers.GetValueOrDefault(container.Name));
     }
 
-    public async Task AssignBlobDataContributorToMeAsync(AzureStorageAccount account, CancellationToken ct = default)
+    public async Task AssignBlobDataContributorToMeAsync(AzureStorageAccount account, AzureContainer container, CancellationToken ct = default)
     {
         await Task.Delay(1000, ct);
         var s = _accounts[account.Id];

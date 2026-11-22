@@ -200,6 +200,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
             foreach (var item in items)
                 target.Add(item);
             setPlaceholder(items.Count == 0 ? emptyText : chooseText);
+            NotifyPickers();
             setEmpty?.Invoke(items.Count == 0);
             if (items.Count == 1)
                 selectOnly(items[0]);
@@ -217,10 +218,23 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     private void ResetBelow(Level level)
     {
         if (level == Level.Tenant) { SelectedTenant = null; }
-        if (level <= Level.Subscription) { Subscriptions.Clear(); SelectedSubscription = null; SubscriptionPlaceholder = ""; }
-        if (level <= Level.Account) { StorageAccounts.Clear(); SelectedAccount = null; AccountPlaceholder = ""; HasNoStorageAccounts = false; }
-        if (level <= Level.Container) { Containers.Clear(); SelectedContainer = null; ContainerPlaceholder = ""; }
+        if (level <= Level.Subscription) { Subscriptions.Clear(); SelectedSubscription = null; SubscriptionPlaceholder = "Choose a directory first"; }
+        if (level <= Level.Account) { StorageAccounts.Clear(); SelectedAccount = null; AccountPlaceholder = "Choose a subscription first"; HasNoStorageAccounts = false; }
+        if (level <= Level.Container) { Containers.Clear(); SelectedContainer = null; ContainerPlaceholder = "Choose a storage account first"; }
         ClearAccess();
+        NotifyPickers();
+    }
+
+    // A picker is usable once the level above has loaded something into it.
+    public bool CanPickSubscription => Subscriptions.Count > 0;
+    public bool CanPickAccount => StorageAccounts.Count > 0;
+    public bool CanPickContainer => Containers.Count > 0;
+
+    private void NotifyPickers()
+    {
+        OnPropertyChanged(nameof(CanPickSubscription));
+        OnPropertyChanged(nameof(CanPickAccount));
+        OnPropertyChanged(nameof(CanPickContainer));
     }
 
     [RelayCommand]
@@ -258,6 +272,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
         {
             var created = await _azure.CreateContainerAsync(SelectedAccount!, name);
             Containers.Add(created);
+            NotifyPickers();
             SelectedContainer = created;
             ContainerPlaceholder = "Choose a container";
             ContainerCreated?.Invoke();
@@ -298,7 +313,7 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     public string TargetName => SelectedAccount is { } a && SelectedContainer is { } c ? $"{a.Name}/{c.Name}" : "";
     public string ReadyMessage => $"Builds upload to {TargetName}, and Tabletop Simulator can stream from it.";
     public string AskOwnerMessage =>
-        $"Uploading needs the {RoleName} role on {SelectedAccount?.Name}, and your account can't assign it. Ask an owner of the storage account (or its subscription) to give it to you, then choose Check again.";
+        $"Uploading needs the {RoleName} role on {TargetName}, and your account can't assign it. Ask an owner of the storage account or its subscription to give it to you, then choose Check again.";
 
     /// <summary>One-word summary for the expander header.</summary>
     public string Status =>
@@ -342,13 +357,13 @@ public sealed partial class AzureSetupViewModel : ObservableObject
     [RelayCommand]
     private async Task GrantAccessAsync()
     {
-        if (SelectedAccount is not { } account)
+        if (SelectedAccount is not { } account || SelectedContainer is not { } container)
             return;
         IsFixing = true;
         FixError = "";
         try
         {
-            await _azure.AssignBlobDataContributorToMeAsync(account);
+            await _azure.AssignBlobDataContributorToMeAsync(account, container);
         }
         catch (Exception ex)
         {

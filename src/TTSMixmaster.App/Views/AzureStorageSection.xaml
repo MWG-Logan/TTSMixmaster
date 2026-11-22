@@ -69,6 +69,7 @@
                     <ComboBox
                         Width="{StaticResource PickerWidth}"
                         AutomationProperties.AutomationId="AzureSubscription"
+                        IsEnabled="{x:Bind ViewModel.CanPickSubscription, Mode=OneWay}"
                         AutomationProperties.Name="Subscription"
                         ItemsSource="{x:Bind ViewModel.Subscriptions, Mode=OneTime}"
                         PlaceholderText="{x:Bind ViewModel.SubscriptionPlaceholder, Mode=OneWay}"
@@ -85,6 +86,7 @@
                     <ComboBox
                         Width="{StaticResource PickerWidth}"
                         AutomationProperties.AutomationId="AzureStorageAccount"
+                        IsEnabled="{x:Bind ViewModel.CanPickAccount, Mode=OneWay}"
                         AutomationProperties.Name="Storage account"
                         ItemsSource="{x:Bind ViewModel.StorageAccounts, Mode=OneTime}"
                         PlaceholderText="{x:Bind ViewModel.AccountPlaceholder, Mode=OneWay}"
@@ -135,6 +137,7 @@
                         <ComboBox
                             Width="{StaticResource PickerWidth}"
                             AutomationProperties.AutomationId="AzureContainer"
+                        IsEnabled="{x:Bind ViewModel.CanPickContainer, Mode=OneWay}"
                             AutomationProperties.Name="Container"
                             ItemsSource="{x:Bind ViewModel.Containers, Mode=OneTime}"
                             PlaceholderText="{x:Bind ViewModel.ContainerPlaceholder, Mode=OneWay}"
@@ -193,7 +196,7 @@
             IsClosable="False"
             IsOpen="{x:Bind ViewModel.ShowGrant, Mode=OneWay}"
             Visibility="{x:Bind ViewModel.ShowGrant, Mode=OneWay}"
-            Message="Uploading needs the Storage Blob Data Contributor role on this storage account. Your account is allowed to give it to you."
+            Message="Uploading needs the Storage Blob Data Contributor role on this container. Your account is allowed to give it to you, for this container only."
             Severity="Warning"
             Title="You can't upload here yet">
             <InfoBar.ActionButton>
@@ -246,7 +249,7 @@
             IsClosable="False"
             IsOpen="{x:Bind ViewModel.ShowMakePublic, Mode=OneWay}"
             Visibility="{x:Bind ViewModel.ShowMakePublic, Mode=OneWay}"
-            Message="Tabletop Simulator downloads music without signing in, so this container must allow anonymous reads. Anyone with a file's link can play it; nobody can list, change or delete files."
+            Message="Tabletop Simulator downloads music without signing in, so files here must be readable by link. Anyone with a file's link can play it; nobody can list, change or delete files. This also turns on public access for the storage account, which re-enables any other container there that was already set to public."
             Severity="Warning"
             Title="Tabletop Simulator can't read these files yet">
             <InfoBar.ActionButton>
