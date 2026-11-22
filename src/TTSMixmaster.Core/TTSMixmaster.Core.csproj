@@ -15,6 +15,23 @@
     <PackageReference Include="Azure.Storage.Blobs" Version="12.30.2" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="11.0.0" />
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
+    <!-- Chip image rendering (MIT). Native libs come from SkiaSharp.NativeAssets.Win32 /
+         HarfBuzzSharp.NativeAssets.Win32, which ship win-x64, win-arm64 and win-x86. -->
+    <PackageReference Include="SkiaSharp" Version="4.157.0" />
+    <PackageReference Include="SkiaSharp.HarfBuzz" Version="4.157.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TTSMixmaster.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Chip art and title font; see Imaging/README.md. Logical names are what ChipAssets loads. -->
+    <EmbeddedResource Include="Assets\Chip\front.png" LogicalName="Chip/front.png" />
+    <EmbeddedResource Include="Assets\Chip\back.png" LogicalName="Chip/back.png" />
+    <EmbeddedResource Include="Assets\Chip\frame.png" LogicalName="Chip/frame.png" />
+    <EmbeddedResource Include="Assets\Chip\Fonts\Cinzel-Bold.ttf" LogicalName="Chip/Cinzel-Bold.ttf" />
+    <None Include="Assets\Chip\Fonts\OFL.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="Licenses\Cinzel-OFL.txt" />
   </ItemGroup>
 
 </Project>
