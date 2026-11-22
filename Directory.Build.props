@@ -1,0 +1,36 @@
+<Project>
+  <!--
+    Single source of truth for the TTSMixmaster version.
+
+    Bump <Version> (plain MAJOR.MINOR.PATCH, no pre-release suffix: MSIX versions
+    can't carry one) and merge to main to cut a release. The release workflow
+    reads it, tags v<Version>, and stamps it into the assemblies, the MSIX bundle
+    and the .appinstaller (as MAJOR.MINOR.PATCH.0). See docs/RELEASING.md.
+  -->
+  <PropertyGroup>
+    <Version>2.0.0</Version>
+  </PropertyGroup>
+
+  <!--
+    NuGet audit over direct and transitive packages. High (NU1903) and critical (NU1904) advisories
+    fail the build; low/moderate ones stay warnings to triage.
+  -->
+  <PropertyGroup>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1903;NU1904</WarningsAsErrors>
+  </PropertyGroup>
+
+  <!--
+    .NET analyzers at the recommended level, plus the code-style rules in .editorconfig (IDE*) during
+    command-line and CI builds, not just in the IDE. The build must stay at zero warnings.
+  -->
+  <PropertyGroup>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+
+    <!-- Lets Windows-targeted projects restore on Linux (GitHub's automatic NuGet dependency submission
+         runs there, and fails with NETSDK1100 without this). No effect on Windows builds. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+</Project>

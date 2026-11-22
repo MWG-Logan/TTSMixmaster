@@ -1,0 +1,71 @@
+name: CI
+
+# Test layers (docs/TESTING.md): unit, App UI-thread, integration (real yt-dlp/ffmpeg + Azurite).
+# Runs on pushes and PRs to dev/main, and is called by build-and-release.yml before any release build.
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  AZURITE_VERSION: '3.38.0'
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up .NET (from global.json)
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Build
+        run: dotnet build TTSMixmaster.slnx -c Release -p:Platform=x64 -m:1
+
+      - name: Unit tests
+        run: dotnet test --project tests/TTSMixmaster.Core.Tests -c Release --no-build -- --report-trx --results-directory TestResults/unit
+
+      - name: App UI-thread tests
+        run: dotnet test --project tests/TTSMixmaster.App.Tests -c Release -p:Platform=x64 --no-build -- --report-trx --results-directory TestResults/app
+
+      - name: Fetch yt-dlp and ffmpeg (pinned, hash-verified)
+        shell: pwsh
+        run: ./scripts/fetch-tools.ps1 -OutputFolder tests/.tools -Arch x64
+
+      - name: Install Azurite
+        run: npm install -g azurite@${{ env.AZURITE_VERSION }}
+
+      - name: Integration tests
+        run: dotnet test --project tests/TTSMixmaster.Core.IntegrationTests -c Release --no-build -- --filter "TestCategory=Integration" --report-trx --results-directory TestResults/integration
+
+      # Integration tests report Inconclusive when tools or Azurite are missing. Locally that's a skip;
+      # in CI both are installed above, so anything not executed means the environment broke.
+      - name: Require every integration test to run
+        shell: pwsh
+        run: |
+          $trx = Get-ChildItem TestResults/integration -Filter *.trx -Recurse | Select-Object -First 1
+          if (-not $trx) { throw 'No integration TRX found.' }
+          [xml]$x = Get-Content $trx.FullName
+          $c = $x.TestRun.ResultSummary.Counters
+          "total=$($c.total) executed=$($c.executed) passed=$($c.passed) notExecuted=$($c.notExecuted) inconclusive=$($c.inconclusive)"
+          if ([int]$c.total -eq 0 -or [int]$c.notExecuted -gt 0 -or [int]$c.inconclusive -gt 0 -or [int]$c.passed -ne [int]$c.total) {
+            throw 'Some integration tests did not run or pass; see the counts above.'
+          }
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results
+          path: TestResults/

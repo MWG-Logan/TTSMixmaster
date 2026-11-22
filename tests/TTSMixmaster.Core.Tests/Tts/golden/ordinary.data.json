@@ -1,0 +1,24 @@
+{
+  "name": "Evening Mix",
+  "playlist": [
+    {
+      "name": "Artist One - Opening (First)",
+      "url": "https://example.com/audio/one.mp3",
+      "volume": 0.8,
+      "pitch": 1.0,
+      "loop": false,
+      "loopstart": 0.0
+    },
+    {
+      "name": "Artist Two - Missing",
+      "url": "",
+      "volume": 0.8,
+      "pitch": 1.0,
+      "loop": false,
+      "loopstart": 0.0
+    }
+  ],
+  "currentTrack": 0,
+  "shuffle": false,
+  "repeat": false
+}

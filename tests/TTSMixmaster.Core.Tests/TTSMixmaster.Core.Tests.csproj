@@ -1,0 +1,21 @@
+<Project Sdk="MSTest.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Program.cs owns Main: it runs the Microsoft.Testing.Platform host, or the child-process
+         helper the cross-process tests start (see Files/ReviewRound2Tests.cs, StateWriter). -->
+    <GenerateTestingPlatformEntryPoint>false</GenerateTestingPlatformEntryPoint>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TTSMixmaster.Core\TTSMixmaster.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Crashes end with an exit code, never a WER dialog on the desktop (inherited by child processes). -->
+    <Compile Include="..\Shared\NoCrashDialogs.cs" Link="Shared\NoCrashDialogs.cs" />
+  </ItemGroup>
+
+</Project>

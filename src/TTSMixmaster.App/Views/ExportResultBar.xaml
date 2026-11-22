@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="TTSMixmaster.App.Views.ExportResultBar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--  The outcome of Export to TTS, shared by the Collection page and the Builds rows.  -->
+    <StackPanel Spacing="8">
+        <InfoBar
+            AutomationProperties.AutomationId="ExportSucceeded"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.IsExported, Mode=OneWay}"
+            Message="{x:Bind ViewModel.SuccessMessage, Mode=OneWay}"
+            Severity="Success"
+            Title="{x:Bind ViewModel.SuccessTitle, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.IsExported, Mode=OneWay}">
+            <InfoBar.ActionButton>
+                <Button
+                    AutomationProperties.AutomationId="ShowExportInFolder"
+                    Command="{x:Bind ViewModel.ShowInFolderCommand}"
+                    Content="Show in folder" />
+            </InfoBar.ActionButton>
+        </InfoBar>
+        <InfoBar
+            AutomationProperties.AutomationId="ExportTtsNotFound"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.IsTtsMissing, Mode=OneWay}"
+            Message="It keeps saved objects in Documents\My Games\Tabletop Simulator, and that folder isn't here. If TTS is installed somewhere else, choose its Saved Objects folder in Settings."
+            Severity="Warning"
+            Title="Couldn't find Tabletop Simulator"
+            Visibility="{x:Bind ViewModel.IsTtsMissing, Mode=OneWay}">
+            <InfoBar.ActionButton>
+                <Button
+                    AutomationProperties.AutomationId="OpenSettingsFromExport"
+                    Click="OpenSettings_Click"
+                    Content="Open Settings" />
+            </InfoBar.ActionButton>
+        </InfoBar>
+        <InfoBar
+            AutomationProperties.AutomationId="ExportFailed"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.IsFailed, Mode=OneWay}"
+            Message="{x:Bind ViewModel.Error, Mode=OneWay}"
+            Severity="Error"
+            Title="Export didn't finish"
+            Visibility="{x:Bind ViewModel.IsFailed, Mode=OneWay}" />
+    </StackPanel>
+</UserControl>

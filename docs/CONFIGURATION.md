@@ -1,231 +1,45 @@
-# Configuration Reference
+# Configuration
 
-## Environment Variables
+TTSMixmaster is configured from its **Settings** page. You shouldn't need to edit files by hand.
 
-All API credentials are optional - configure only the services you want to use:
+## Where settings live
 
-### Last.fm Configuration
-- `LASTFM_API_KEY` - Your Last.fm API key (for collections access)
-- `LASTFM_API_SECRET` - Your Last.fm API secret (for collections access)
-- `LASTFM_USERNAME` - Your Last.fm username (for personal collections)
+| What | Location |
+|---|---|
+| Settings | `%LOCALAPPDATA%\TTSMixmaster\config.json` |
+| Spotify sign-in (refresh token, DPAPI-encrypted for your Windows account) | `%LOCALAPPDATA%\TTSMixmaster\spotify_token.json` |
+| Azure sign-in (authentication record; tokens are in the encrypted MSAL cache) | `%LOCALAPPDATA%\TTSMixmaster\azure-authentication-record.json` |
+| Logs | `%LOCALAPPDATA%\TTSMixmaster\logs\` |
+| Updated yt-dlp | `%LOCALAPPDATA%\TTSMixmaster\tools\` (the bundled copy ships with the app) |
+| Downloaded audio (default) | `Music\TTSMixmaster\<Collection> [<service>-<id>]\` |
+| Exported objects | `Documents\My Games\Tabletop Simulator\Saves\Saved Objects\TTSMixmaster\` |
 
-### YouTube Configuration
-- `YOUTUBE_API_KEY` - Your YouTube Data API v3 key (for playlist access)
-- `YOUTUBE_CHANNEL_ID` - Your YouTube Channel ID (optional, for personal playlists)
+On first run the app imports a `config.json` left by the old Python version (next to the old app or in its working folder) once. Old sign-in tokens aren't carried over, so you sign in to Spotify again.
 
-### Spotify Configuration
-- `SPOTIFY_CLIENT_ID` - Your Spotify Client ID (for playlist access)
-- `SPOTIFY_CLIENT_SECRET` - Your Spotify Client Secret (for playlist access)
-- `SPOTIFY_USER_ID` - Your Spotify User ID (optional, for personal playlists)
-- `SPOTIFY_REDIRECT_URI` - OAuth redirect URI (default: http://127.0.0.1:8888/callback)
-- `SPOTIFY_USE_OAUTH` - Use OAuth for user data access (default: true, set to false for public data only)
+## config.json keys
 
-### Azure Storage Configuration
-- `AZURE_STORAGE_CONNECTION_STRING` - Azure Storage connection string (optional, for cloud uploads)
-- `AZURE_CONTAINER_NAME` - Azure Storage container name (optional, defaults to "tts-audio")
-- `azure_blob_freshness_days` - Delta upload window (config.json only). When re-uploading,
-  a blob is left untouched if it was modified within this many days; older blobs are
-  replaced in place (the blob name and public URL stay the same). Default: `1`. Set to
-  `0` to always replace.
+The keys are snake_case, so old Python config files load unchanged. Unknown keys are ignored.
 
-### Application Settings
-- `DOWNLOAD_PATH` - Path for downloaded files (default: ./downloads)
-- `TTS_OUTPUT_PATH` - Path for TTS formatted files (default: ./tts_formatted)
-- `AUDIO_QUALITY` - Audio quality in kbps: 128, 192, 256, 320 (default: 192)
-- `THEME` - UI theme: dark, light (default: dark)
-- `WINDOW_SIZE` - Application window size (default: 1200x800)
+| Key | Purpose |
+|---|---|
+| `lastfm_api_key`, `lastfm_api_secret`, `lastfm_username` | Last.fm charts (top, loved, recent tracks) |
+| `youtube_api_key`, `youtube_channel_id` | YouTube Data API (public playlists) |
+| `spotify_client_id`, `spotify_client_secret`, `spotify_user_id`, `spotify_redirect_uri`, `spotify_use_oauth` | Spotify. With OAuth (the default) only the client ID is needed; sign-in uses PKCE in your browser. The redirect URI must match your Spotify app registration (default `http://127.0.0.1:8888/callback`). |
+| `azure_tenant_id`, `azure_subscription_id`, `azure_storage_account`, `azure_container_name` | The storage target picked after **Sign in to Azure** |
+| `azure_client_id` | Override for the built-in Entra app ID (normally empty) |
+| `azure_auth_mode` | How builds upload: `signin` (the target picked after signing in) or `connection_string` (the Advanced fallback). Set by **Use a connection string** in Settings. A config without it is migrated on first load: a connection string with no picked account becomes `connection_string`, anything else `signin`. |
+| `azure_storage_connection_string` | Advanced fallback, used only while `azure_auth_mode` is `connection_string` |
+| `download_path`, `tts_output_path` | Override the audio / generated-files folders (empty = defaults above) |
+| `tts_saved_objects_path` | Tabletop Simulator's Saved Objects folder, for non-standard installs |
+| `audio_quality` | MP3 bitrate: 128, 192, 256 or 320 |
+| `theme` | `system`, `light` or `dark` |
 
-## GUI Configuration
+`azure_blob_freshness_days` is still accepted for old files but no longer used: uploads are content-addressed, so identical audio is reused and different audio never overwrites anything.
 
-The application provides a comprehensive configuration interface:
+## Azure storage
 
-### API Settings
-Multi-service credentials and connection testing:
-- Last.fm API key, secret, and username
-- YouTube Data API v3 key and channel ID
-- Spotify Client ID, secret, and user ID
+Sign in from **Settings → Azure**, then pick a subscription, storage account and container. Uploads use your own Microsoft Entra account, so you need the **Storage Blob Data Contributor** role on the account. Tabletop Simulator streams the files anonymously, so the container must allow anonymous blob read. The picker checks both and offers one-click fixes when your account is allowed to make them. See [AZURE_SETUP.md](AZURE_SETUP.md).
 
-### Azure Settings
-Cloud storage configuration for uploads:
-- Connection string
-- Container name
-- Upload options
+## Backing up and moving to another PC
 
-### Path Settings
-Customizable paths for:
-- Downloads directory
-- Uploads directory
-- TTS output directory
-
-### Audio Settings
-- Quality selection (128, 192, 256, 320 kbps)
-- Search engine preferences
-- Download options
-
-### Theme Settings
-- Dark/light mode selection
-- Window size configuration
-- UI preferences
-
-## Configuration Files
-
-### .env File
-Contains sensitive API credentials and configuration:
-```env
-# Last.fm Configuration
-LASTFM_API_KEY=your_api_key_here
-LASTFM_API_SECRET=your_api_secret_here
-LASTFM_USERNAME=your_username
-
-# YouTube Configuration
-YOUTUBE_API_KEY=your_youtube_api_key_here
-YOUTUBE_CHANNEL_ID=your_channel_id_optional
-
-# Spotify Configuration
-SPOTIFY_CLIENT_ID=your_spotify_client_id_here
-SPOTIFY_CLIENT_SECRET=your_spotify_client_secret_here
-SPOTIFY_USER_ID=your_spotify_user_id_optional
-SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback
-SPOTIFY_USE_OAUTH=true
-
-# Azure Configuration
-AZURE_STORAGE_CONNECTION_STRING=your_azure_connection_string
-AZURE_CONTAINER_NAME=tts-audio
-```
-
-### config.json File
-Contains application settings and preferences:
-```json
-{
-  "download_path": "./downloads",
-  "tts_output_path": "./tts_formatted",
-  "azure_blob_freshness_days": 1,
-  "audio_quality": "192",
-  "theme": "dark",
-  "window_size": "1200x800"
-}
-```
-
-## Service-Specific Configuration
-
-### Last.fm Setup
-1. Visit https://www.last.fm/api/account/create
-2. Create an API account
-3. Get your API key and secret
-4. Add your Last.fm username
-
-### YouTube Setup
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create or select a project
-3. Enable YouTube Data API v3
-4. Create an API key
-5. (Optional) Add your Channel ID
-
-### Spotify Setup
-1. Visit [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/)
-2. Create a new app (or use an existing one)
-3. In the app settings, add `http://127.0.0.1:8888/callback` as a Redirect URI
-4. Get Client ID and Client Secret from the app dashboard
-5. **For Development Mode Apps**: Add your Spotify account email to the "User Management" section
-6. (Optional) Add your Spotify User ID for additional features
-
-**Important**: The application uses OAuth Authorization Code flow to access user playlists and private data. When you first connect to Spotify, your browser will open automatically to authenticate. After logging in and granting permissions, the application will save your credentials for future use.
-
-**Redirect URI**: The default redirect URI is `http://127.0.0.1:8888/callback`. Make sure this exactly matches the URI in your Spotify app settings. If you need to change it, update both the Spotify Dashboard and the `spotify_redirect_uri` setting in your config.
-
-### Azure Setup
-1. Create an Azure Storage account
-2. Get the connection string
-3. Choose or create a container name
-
-## Default Values
-
-### Paths
-- Download Path: `./downloads`
-- TTS Output Path: `./tts_formatted`
-
-### Audio Settings
-- Quality: 192 kbps
-- Search Engine: YouTube
-- Format: MP3
-
-### UI Settings
-- Theme: Dark
-- Window Size: 1200x800
-- Tab: Configuration (on startup)
-
-### Azure Settings
-- Container Name: "tts-audio"
-- Public Access: Blob level
-- Upload Timeout: 300 seconds
-
-## Configuration Validation
-
-### Required vs Optional
-- **Required for Basic Usage**: None (application works without any API credentials)
-- **Required for Last.fm**: API key, secret, username
-- **Required for YouTube**: API key
-- **Required for Spotify**: Client ID, Client Secret
-- **Required for Azure**: Connection string
-
-### Testing Configuration
-Use the built-in test buttons to validate:
-- Last.fm: Tests API credentials and user access
-- YouTube: Tests API key and quota
-- Spotify: Tests Client ID and Secret
-- Azure: Tests connection and container access
-
-### Common Configuration Issues
-- Invalid API credentials
-- Expired API keys
-- Incorrect usernames or IDs
-- Network connectivity issues
-- Service quotas exceeded
-
-## Advanced Configuration
-
-### Custom Paths
-You can set custom paths for all directories:
-```env
-DOWNLOAD_PATH=/custom/downloads
-TTS_OUTPUT_PATH=/custom/tts_output
-```
-
-### Audio Quality Settings
-Supported quality levels:
-- 128 kbps: Basic quality, smaller files
-- 192 kbps: Good quality, balanced size
-- 256 kbps: High quality, larger files
-- 320 kbps: Maximum quality, largest files
-
-### Theme Customization
-- Dark: Default dark theme
-- Light: Light theme for bright environments
-- System: Follows system theme (if supported)
-
-### Window Configuration
-- Standard: 1200x800 (default)
-- Compact: 1000x600
-- Large: 1400x900
-- Custom: Set any valid dimensions
-
-## Backup and Restore
-
-### Backing Up Configuration
-Important files to backup:
-- `.env` - API credentials
-- `config.json` - Application settings
-- Custom path directories
-
-### Restoring Configuration
-1. Copy backed up files to project directory
-2. Verify file permissions
-3. Test configuration using built-in test buttons
-4. Update any expired credentials
-
-### Migration Between Systems
-1. Export `.env` and `config.json`
-2. Set up new environment
-3. Import configuration files
-4. Update paths if necessary
-5. Test all services
+Copy `%LOCALAPPDATA%\TTSMixmaster\config.json`. Sign-in data is encrypted for your Windows account and doesn't move between machines; sign in again on the new PC.

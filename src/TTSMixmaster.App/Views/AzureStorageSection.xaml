@@ -1,0 +1,281 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="TTSMixmaster.App.Views.AzureStorageSection"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:az="using:TTSMixmaster.Core.Azure"
+    xmlns:tk="using:CommunityToolkit.WinUI.Controls">
+
+    <UserControl.Resources>
+        <x:Double x:Key="PickerWidth">320</x:Double>
+    </UserControl.Resources>
+
+    <!--  Settings → Storage: sign in, pick where audio goes, then fix access with explicit buttons.  -->
+    <StackPanel Spacing="{StaticResource SettingsCardSpacing}">
+        <tk:SettingsExpander
+            AutomationProperties.AutomationId="AzureSettings"
+            Description="Builds upload audio here, and Tabletop Simulator streams it from there."
+            Header="Azure Storage"
+            IsExpanded="True">
+            <tk:SettingsExpander.HeaderIcon>
+                <FontIcon Glyph="&#xE753;" />
+            </tk:SettingsExpander.HeaderIcon>
+            <TextBlock
+                AutomationProperties.AutomationId="AzureStatus"
+                Style="{StaticResource SecondaryTextStyle}"
+                Text="{x:Bind ViewModel.Status, Mode=OneWay}" />
+            <tk:SettingsExpander.Items>
+                <tk:SettingsCard Description="{x:Bind ViewModel.AccountDescription, Mode=OneWay}" Header="Account">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <ProgressRing
+                            Width="20"
+                            Height="20"
+                            AutomationProperties.Name="Signing in"
+                            IsActive="{x:Bind ViewModel.IsSigningIn, Mode=OneWay}" />
+                        <Button
+                            AutomationProperties.AutomationId="AzureSignIn"
+                            Command="{x:Bind ViewModel.SignInCommand}"
+                            Content="Sign in to Azure"
+                            Style="{StaticResource AccentButtonStyle}"
+                            Visibility="{x:Bind ViewModel.IsSignedOut, Mode=OneWay}" />
+                        <Button
+                            AutomationProperties.AutomationId="AzureSignOut"
+                            Command="{x:Bind ViewModel.SignOutCommand}"
+                            Content="Sign out"
+                            Visibility="{x:Bind ViewModel.IsSignedIn, Mode=OneWay}" />
+                    </StackPanel>
+                </tk:SettingsCard>
+
+                <tk:SettingsCard
+                    Description="Your account belongs to more than one."
+                    Header="Directory"
+                    Visibility="{x:Bind ViewModel.ShowTenantPicker, Mode=OneWay}">
+                    <ComboBox
+                        Width="{StaticResource PickerWidth}"
+                        AutomationProperties.AutomationId="AzureTenant"
+                        AutomationProperties.Name="Directory"
+                        ItemsSource="{x:Bind ViewModel.Tenants, Mode=OneTime}"
+                        PlaceholderText="{x:Bind ViewModel.TenantPlaceholder, Mode=OneWay}"
+                        SelectedItem="{x:Bind ViewModel.SelectedTenant, Mode=TwoWay}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="az:AzureTenant">
+                                <TextBlock Text="{x:Bind DisplayName, Mode=OneTime}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </tk:SettingsCard>
+
+                <tk:SettingsCard Header="Subscription" Visibility="{x:Bind ViewModel.IsSignedIn, Mode=OneWay}">
+                    <ComboBox
+                        Width="{StaticResource PickerWidth}"
+                        AutomationProperties.AutomationId="AzureSubscription"
+                        IsEnabled="{x:Bind ViewModel.CanPickSubscription, Mode=OneWay}"
+                        AutomationProperties.Name="Subscription"
+                        ItemsSource="{x:Bind ViewModel.Subscriptions, Mode=OneTime}"
+                        PlaceholderText="{x:Bind ViewModel.SubscriptionPlaceholder, Mode=OneWay}"
+                        SelectedItem="{x:Bind ViewModel.SelectedSubscription, Mode=TwoWay}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="az:AzureSubscription">
+                                <TextBlock Text="{x:Bind DisplayName, Mode=OneTime}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </tk:SettingsCard>
+
+                <tk:SettingsCard Header="Storage account" Visibility="{x:Bind ViewModel.IsSignedIn, Mode=OneWay}">
+                    <ComboBox
+                        Width="{StaticResource PickerWidth}"
+                        AutomationProperties.AutomationId="AzureStorageAccount"
+                        IsEnabled="{x:Bind ViewModel.CanPickAccount, Mode=OneWay}"
+                        AutomationProperties.Name="Storage account"
+                        ItemsSource="{x:Bind ViewModel.StorageAccounts, Mode=OneTime}"
+                        PlaceholderText="{x:Bind ViewModel.AccountPlaceholder, Mode=OneWay}"
+                        SelectedItem="{x:Bind ViewModel.SelectedAccount, Mode=TwoWay}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="az:AzureStorageAccount">
+                                <StackPanel>
+                                    <TextBlock Text="{x:Bind Name, Mode=OneTime}" />
+                                    <TextBlock Style="{StaticResource SecondaryCaptionStyle}">
+                                        <Run Text="Resource group " /><Run Text="{x:Bind ResourceGroup, Mode=OneTime}" />
+                                    </TextBlock>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </tk:SettingsCard>
+
+                <tk:SettingsCard Header="Container" Visibility="{x:Bind ViewModel.IsSignedIn, Mode=OneWay}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button
+                            x:Name="NewContainerButton"
+                            AutomationProperties.AutomationId="AzureNewContainer"
+                            Content="New container"
+                            IsEnabled="{x:Bind ViewModel.HasSelectedAccount, Mode=OneWay}">
+                            <Button.Flyout>
+                                <Flyout x:Name="NewContainerFlyout" Placement="Bottom">
+                                    <StackPanel Width="280" Spacing="12">
+                                        <TextBox
+                                            AutomationProperties.AutomationId="AzureNewContainerName"
+                                            Header="Container name"
+                                            Text="{x:Bind ViewModel.NewContainerName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock
+                                            Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind ViewModel.ContainerNameError, Mode=OneWay}"
+                                            TextWrapping="Wrap"
+                                            Visibility="{x:Bind ViewModel.HasContainerNameError, Mode=OneWay}" />
+                                        <Button
+                                            HorizontalAlignment="Right"
+                                            AutomationProperties.AutomationId="AzureCreateContainer"
+                                            Command="{x:Bind ViewModel.CreateContainerCommand}"
+                                            Content="Create"
+                                            Style="{StaticResource AccentButtonStyle}" />
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                        <ComboBox
+                            Width="{StaticResource PickerWidth}"
+                            AutomationProperties.AutomationId="AzureContainer"
+                        IsEnabled="{x:Bind ViewModel.CanPickContainer, Mode=OneWay}"
+                            AutomationProperties.Name="Container"
+                            ItemsSource="{x:Bind ViewModel.Containers, Mode=OneTime}"
+                            PlaceholderText="{x:Bind ViewModel.ContainerPlaceholder, Mode=OneWay}"
+                            SelectedItem="{x:Bind ViewModel.SelectedContainer, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="az:AzureContainer">
+                                    <TextBlock Text="{x:Bind Name, Mode=OneTime}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+                </tk:SettingsCard>
+            </tk:SettingsExpander.Items>
+        </tk:SettingsExpander>
+
+        <!--  Outcomes and one-click fixes. Each fix is a button; nothing changes in Azure on its own.  -->
+        <InfoBar
+            AutomationProperties.AutomationId="AzureError"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}"
+            Message="{x:Bind ViewModel.Error, Mode=OneWay}"
+            Severity="Error"
+            Title="Something went wrong with Azure" />
+
+        <InfoBar
+            AutomationProperties.AutomationId="AzureNoAccounts"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.HasNoStorageAccounts, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.HasNoStorageAccounts, Mode=OneWay}"
+            Message="Create one in the Azure portal (Standard, locally-redundant is plenty), then choose the subscription again."
+            Severity="Informational"
+            Title="This subscription has no storage accounts">
+            <InfoBar.ActionButton>
+                <Button
+                    AutomationProperties.AutomationId="AzureOpenPortal"
+                    Command="{x:Bind ViewModel.OpenPortalCommand}"
+                    Content="Open the Azure portal" />
+            </InfoBar.ActionButton>
+        </InfoBar>
+
+        <InfoBar
+            AutomationProperties.AutomationId="AzureChecking"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.IsChecking, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.IsChecking, Mode=OneWay}"
+            Severity="Informational"
+            Title="Checking access…">
+            <InfoBar.Content>
+                <ProgressBar Margin="0,0,0,12" IsIndeterminate="True" />
+            </InfoBar.Content>
+        </InfoBar>
+
+        <InfoBar
+            AutomationProperties.AutomationId="AzureNeedsRole"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.ShowGrant, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.ShowGrant, Mode=OneWay}"
+            Message="Uploading needs the Storage Blob Data Contributor role on this container. Your account is allowed to give it to you, for this container only."
+            Severity="Warning"
+            Title="You can't upload here yet">
+            <InfoBar.ActionButton>
+                <Button
+                    AutomationProperties.AutomationId="AzureGrantAccess"
+                    Command="{x:Bind ViewModel.GrantAccessCommand}"
+                    Content="Grant me access" />
+            </InfoBar.ActionButton>
+        </InfoBar>
+
+        <InfoBar
+            AutomationProperties.AutomationId="AzureWaitingForRole"
+            AutomationProperties.LiveSetting="Polite"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.IsWaitingForRole, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.IsWaitingForRole, Mode=OneWay}"
+            Message="Role changes can take a minute or two to apply. This checks again on its own."
+            Severity="Informational"
+            Title="Access granted, waiting for Azure">
+            <InfoBar.Content>
+                <ProgressBar Margin="0,0,0,12" IsIndeterminate="True" />
+            </InfoBar.Content>
+        </InfoBar>
+
+        <InfoBar
+            AutomationProperties.AutomationId="AzureAskOwner"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.ShowAskOwner, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.ShowAskOwner, Mode=OneWay}"
+            Message="{x:Bind ViewModel.AskOwnerMessage, Mode=OneWay}"
+            Severity="Error"
+            Title="Ask an owner for access">
+            <InfoBar.ActionButton>
+                <Button
+                    AutomationProperties.AutomationId="AzureCopyRoleName"
+                    Command="{x:Bind ViewModel.CopyRoleNameCommand}"
+                    Content="Copy role name" />
+            </InfoBar.ActionButton>
+            <InfoBar.Content>
+                <Button
+                    Margin="0,0,0,12"
+                    AutomationProperties.AutomationId="AzureCheckAgain"
+                    Command="{x:Bind ViewModel.CheckAgainCommand}"
+                    Content="Check again" />
+            </InfoBar.Content>
+        </InfoBar>
+
+        <InfoBar
+            AutomationProperties.AutomationId="AzureNeedsPublic"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.ShowMakePublic, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.ShowMakePublic, Mode=OneWay}"
+            Message="Tabletop Simulator downloads music without signing in, so files here must be readable by link. Anyone with a file's link can play it; nobody can list, change or delete files. This also turns on public access for the storage account, which re-enables any other container there that was already set to public."
+            Severity="Warning"
+            Title="Tabletop Simulator can't read these files yet">
+            <InfoBar.ActionButton>
+                <Button
+                    AutomationProperties.AutomationId="AzureAllowPublic"
+                    Command="{x:Bind ViewModel.MakePublicCommand}"
+                    Content="Allow public read access" />
+            </InfoBar.ActionButton>
+        </InfoBar>
+
+        <InfoBar
+            AutomationProperties.AutomationId="AzureFixError"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.HasFixError, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.HasFixError, Mode=OneWay}"
+            Message="{x:Bind ViewModel.FixError, Mode=OneWay}"
+            Severity="Error"
+            Title="That didn't work" />
+
+        <InfoBar
+            AutomationProperties.AutomationId="AzureReady"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.ShowReady, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.ShowReady, Mode=OneWay}"
+            Message="{x:Bind ViewModel.ReadyMessage, Mode=OneWay}"
+            Severity="Success"
+            Title="Ready to upload" />
+    </StackPanel>
+</UserControl>

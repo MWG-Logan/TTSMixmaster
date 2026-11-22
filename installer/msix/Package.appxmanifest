@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX manifest for TTSMixmaster. The app is built unpackaged (WindowsPackageType=None,
+  Windows App SDK self-contained); scripts/package-release.ps1 packages its publish folder
+  with `winapp package` using this manifest, plus a resources.pri merged from the app's
+  TTSMixmaster.pri and these icons (priconfig.xml).
+
+  Identity/@Version (from <Version> in Directory.Build.props, as X.Y.Z.0) and
+  Identity/@ProcessorArchitecture are stamped at package time.
+
+  Identity/@Publisher must equal the Trusted Signing certificate subject exactly, or the MSIX
+  can't be signed or installed. If the certificate subject ever changes, change it here.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap10 rescap">
+
+  <Identity
+    Name="MorningwoodGaming.TTSMixmaster"
+    Publisher="CN=Morningwood Gaming LLC, O=Morningwood Gaming LLC, L=Farmington Hills, S=Michigan, C=US"
+    Version="0.0.0.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>TTSMixmaster</DisplayName>
+    <PublisherDisplayName>Morningwood Gaming LLC</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <uap10:PackageIntegrity>
+      <uap10:Content Enforcement="on" />
+    </uap10:PackageIntegrity>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="TTSMixmaster"
+      Executable="TTSMixmaster.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="TTSMixmaster"
+        Description="Turn music playlists into Tabletop Simulator music players"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\MedTile.png"
+        Square44x44Logo="Assets\AppList.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\WideTile.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

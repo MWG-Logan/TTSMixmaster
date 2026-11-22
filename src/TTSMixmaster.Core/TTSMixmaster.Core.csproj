@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Identity" />
+    <PackageReference Include="Azure.Identity.Broker" />
+    <PackageReference Include="Azure.ResourceManager" />
+    <PackageReference Include="Azure.ResourceManager.Storage" />
+    <PackageReference Include="Azure.ResourceManager.Authorization" />
+    <PackageReference Include="Azure.Storage.Blobs" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    <PackageReference Include="TagLibSharp" />
+    <!-- Chip image rendering (MIT). Native libs come from SkiaSharp.NativeAssets.Win32 /
+         HarfBuzzSharp.NativeAssets.Win32, which ship win-x64, win-arm64 and win-x86. -->
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="SkiaSharp.HarfBuzz" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TTSMixmaster.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Chip art and title font; see Imaging/README.md. Logical names are what ChipAssets loads. -->
+    <EmbeddedResource Include="Assets\Chip\front.png" LogicalName="Chip/front.png" />
+    <EmbeddedResource Include="Assets\Chip\back.png" LogicalName="Chip/back.png" />
+    <EmbeddedResource Include="Assets\Chip\frame.png" LogicalName="Chip/frame.png" />
+    <EmbeddedResource Include="Assets\Chip\Fonts\Cinzel-Bold.ttf" LogicalName="Chip/Cinzel-Bold.ttf" />
+    <None Include="Assets\Chip\Fonts\OFL.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="Licenses\Cinzel-OFL.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TTSMixmaster.Core.Tests" />
+  </ItemGroup>
+
+</Project>

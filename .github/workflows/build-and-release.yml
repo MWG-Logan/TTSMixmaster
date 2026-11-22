@@ -1,5 +1,11 @@
 name: Build and Release TTSMixmaster
 
+# Release = bump <Version> in Directory.Build.props and merge to main (docs/RELEASING.md).
+# If tag v<Version> already exists, the run stops after the check job: no build, tag or release.
+#
+# Assets: TTSMixmaster.appinstaller + TTSMixmaster-v<ver>.msixbundle (x64 + ARM64, signed) and
+# one portable zip per architecture.
+
 on:
   push:
     branches:
@@ -7,382 +13,341 @@ on:
   workflow_dispatch:
     inputs:
       force_release:
-        description: 'Force a release even if the version tag already exists'
+        description: 'Rebuild and re-upload the assets of the existing version tag (only when that tag is this commit)'
         required: false
         type: boolean
         default: false
 
-env:
-  PYTHON_VERSION: "3.11"
-  PROJECT_NAME: "TTSMixmaster"
-
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  WINAPP_VERSION: 'v0.8.0'
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
 
 jobs:
   check:
     runs-on: ubuntu-latest
-
     outputs:
       version: ${{ steps.version.outputs.version }}
       should_release: ${{ steps.gate.outputs.should_release }}
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
-    - name: Read version from pyproject.toml
-      id: version
-      run: |
-        version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-        echo "version=$version" >> "$GITHUB_OUTPUT"
-        echo "Project version (pyproject.toml): $version"
-
-    - name: Determine whether to release
-      id: gate
-      run: |
-        version="${{ steps.version.outputs.version }}"
-        tag="v$version"
-        if git rev-parse "$tag" >/dev/null 2>&1; then
-          echo "Tag $tag already exists."
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force_release }}" = "true" ]; then
-            echo "Force release requested; proceeding anyway."
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Nothing to release - bump 'version' in pyproject.toml to publish a new release."
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
+      - name: Read version from Directory.Build.props
+        id: version
+        run: |
+          version="$(dotnet msbuild Directory.Build.props -nologo -getProperty:Version | tr -d '[:space:]')"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error file=Directory.Build.props::<Version> must be MAJOR.MINOR.PATCH (got '$version')."
+            exit 1
           fi
-        else
-          echo "Tag $tag does not exist; a new release will be built and published."
-          echo "should_release=true" >> "$GITHUB_OUTPUT"
-        fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version: $version"
 
-  build:
+      - name: Decide whether to release
+        id: gate
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force_release }}
+        run: |
+          tag="v$VERSION"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            if [ "$FORCE" = "true" ]; then
+              # Tags are immutable in practice: force_release only re-uploads assets built from the
+              # tagged commit itself. Different code needs a new version.
+              git fetch --no-tags --depth=1 origin "+refs/tags/$tag:refs/tags/$tag"
+              tag_commit="$(git rev-parse "refs/tags/$tag^{commit}")"
+              if [ "$tag_commit" != "$GITHUB_SHA" ]; then
+                echo "::error file=Directory.Build.props::Tag $tag points at $tag_commit, but this run is building $GITHUB_SHA. force_release only rebuilds the tagged commit. To release this code, bump <Version> in Directory.Build.props."
+                exit 1
+              fi
+              echo "Tag $tag is this commit; force_release requested, rebuilding and re-uploading assets."
+              echo "should_release=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Tag $tag exists; nothing to release. Bump <Version> in Directory.Build.props to publish a new release."
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "Tag $tag does not exist; building release $tag."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
     needs: check
     if: needs.check.outputs.should_release == 'true'
-    runs-on: windows-latest
+    uses: ./.github/workflows/ci.yml
 
+  build:
+    needs: [check, test]
+    if: needs.check.outputs.should_release == 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write   # OIDC for azure/login
+    strategy:
+      fail-fast: true
+      matrix:
+        arch: [x64, arm64]
+    env:
+      ARCH: ${{ matrix.arch }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Set up WinApp CLI
+        uses: microsoft/setup-WinAppCli@9288bd0729bd3f71e2ed1b9eb247dc91470b824e # v0.3.0
+        with:
+          version: ${{ env.WINAPP_VERSION }}
+
+      - name: Publish app and fetch yt-dlp/ffmpeg
+        run: ./scripts/package-release.ps1 -Arch $env:ARCH -Stage Publish
+
+      - name: Azure login
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Only our own binaries. yt-dlp, ffmpeg and the .NET / Windows App SDK runtime files
+      # are third-party and keep their publishers' signatures (or none).
+      - name: Sign app binaries
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}
+          files: |
+            ${{ github.workspace }}\artifacts\publish\${{ matrix.arch }}\TTSMixmaster.exe
+            ${{ github.workspace }}\artifacts\publish\${{ matrix.arch }}\TTSMixmaster.dll
+            ${{ github.workspace }}\artifacts\publish\${{ matrix.arch }}\TTSMixmaster.Core.dll
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify app binary signatures
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object { [version]$_.Directory.Parent.Name } | Select-Object -Last 1
+          if (-not $signtool) { throw 'signtool.exe not found.' }
+          foreach ($name in 'TTSMixmaster.exe', 'TTSMixmaster.dll', 'TTSMixmaster.Core.dll') {
+            & $signtool.FullName verify /pa /q "artifacts/publish/$env:ARCH/$name"
+            if ($LASTEXITCODE -ne 0) { throw "Signature check failed: $name" }
+            Write-Output "Signed: $name"
+          }
+
+      # The portable zip (released as is) and this architecture's unsigned .msix (bundled and
+      # signed by the bundle job), both built from the signed publish folder.
+      - name: Build portable zip and MSIX
+        run: ./scripts/package-release.ps1 -Arch $env:ARCH -Stage Package
+
+      - name: Upload build outputs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-${{ matrix.arch }}
+          path: |
+            artifacts/release/*-portable-${{ matrix.arch }}.zip
+            artifacts/msix/*-${{ matrix.arch }}.msix
+          if-no-files-found: error
+          retention-days: 7
+
+  bundle:
+    needs: [check, build]
+    if: needs.check.outputs.should_release == 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write   # OIDC for azure/login
     env:
       VERSION: ${{ needs.check.outputs.version }}
-
+    defaults:
+      run:
+        shell: pwsh
     steps:
-    - name: Azure login
-      uses: azure/login@v3
-      with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install .
-        pip install pyinstaller
-      shell: pwsh
-    
-    - name: Create version file
-      run: |
-        $version = "${{ needs.check.outputs.version }}"
-        $content = "__version__ = `"$version`""
-        New-Item -Path "src" -ItemType Directory -Force
-        Set-Content -Path "src/_version.py" -Value $content -Encoding utf8
-        echo "Wrote src/_version.py for version $version"
-      shell: pwsh
-    
-    - name: Build with PyInstaller
-      run: |
-        # Build single-file portable executable
-        pyinstaller TTSMixmaster-onefile.spec --clean --noconfirm
-        
-        # Verify single executable was created
-        if (-not (Test-Path "dist\TTSMixmaster.exe")) {
-          throw "Single-file build failed - executable not found"
-        }
-        
-        # Also build directory version for installer
-        pyinstaller main.py --name 'TTSMixmaster-installer' --clean --noconfirm --distpath dist_installer --collect-data customtkinter --collect-data imageio_ffmpeg --collect-binaries imageio_ffmpeg
-        if (-not (Test-Path "dist_installer\TTSMixmaster-installer\TTSMixmaster-installer.exe")) {
-          throw "Installer build failed - executable not found"
-        }
-        
-        echo "Both builds completed successfully"
-      shell: pwsh
-    
-    - name: Verify build
-      run: |
-        # Check single-file executable
-        $singleExe = "dist\TTSMixmaster.exe"
-        if (Test-Path $singleExe) {
-          $fileInfo = Get-Item $singleExe
-          echo "Single-file executable size: $($fileInfo.Length) bytes"
-          echo "Single-file executable created: $($fileInfo.CreationTime)"
-        } else {
-          throw "Single-file executable not found at $singleExe"
-        }
-        
-        # Check installer executable
-        $installerExe = "dist_installer\TTSMixmaster-installer\TTSMixmaster-installer.exe"
-        if (Test-Path $installerExe) {
-          $fileInfo = Get-Item $installerExe
-          echo "Installer executable size: $($fileInfo.Length) bytes"
-          echo "Installer executable created: $($fileInfo.CreationTime)"
-        } else {
-          throw "Installer executable not found at $installerExe"
-        }
-      shell: pwsh
-    
-    - name: Sign executable with Azure Trusted Signing
-      uses: azure/artifact-signing-action@v2
-      with:
-        endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-        signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
-        certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}
-        files-folder: dist
-        files-folder-filter: exe
-        files-folder-recurse: false
-        files-folder-depth: 1
-        file-digest: SHA256
-        timestamp-rfc3161: http://timestamp.acs.microsoft.com
-        timestamp-digest: SHA256
-    
-    - name: Sign installer executable with Azure Trusted Signing
-      uses: azure/artifact-signing-action@v2
-      with:
-        endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-        signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
-        certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}
-        files-folder: dist_installer\TTSMixmaster-installer
-        files-folder-filter: exe
-        files-folder-recurse: false
-        files-folder-depth: 1
-        file-digest: SHA256
-        timestamp-rfc3161: http://timestamp.acs.microsoft.com
-        timestamp-digest: SHA256
-    
-    - name: Install WiX Toolset
-      run: |
-        # Install WiX Toolset v4 as a .NET global tool
-        dotnet tool install --global wix --version 4.0.5
-        
-        # Verify installation and show version
-        wix --version
-        echo "WiX Toolset installed successfully"
-      shell: pwsh
-    
-    - name: Build MSI with WiX MSBuild
-      run: |
-        $version = "${{ needs.check.outputs.version }}"
-        
-        # Convert version to 4-part format required by WiX v4
-        $versionParts = $version.Split('.')
-        if ($versionParts.Length -eq 3) {
-          $wixVersion = "$version.0"
-        } elseif ($versionParts.Length -eq 2) {
-          $wixVersion = "$version.0.0"
-        } elseif ($versionParts.Length -eq 1) {
-          $wixVersion = "$version.0.0.0"
-        } else {
-          $wixVersion = $version
-        }
-        
-        echo "Building MSI with WiX MSBuild integration..."
-        echo "Version: $wixVersion"
-        echo "PyInstaller output: dist_installer\TTSMixmaster-installer"
-        
-        # Build using MSBuild with the .wixproj file
-        # This will automatically harvest files using HarvestDirectory
-        cd installer
-        dotnet build TTSMixmaster.wixproj -c Release -p:Version=$wixVersion -p:OutputVersion=$version -p:PyInstallerOutputDir="..\dist_installer\TTSMixmaster-installer" -v:normal
-        
-        # Move the MSI to the expected location
-        $msiFile = "bin\Release\TTSMixmaster-v$version-Setup.msi"
-        if (Test-Path $msiFile) {
-          Copy-Item $msiFile "..\dist\TTSMixmaster-v$version-Setup.msi"
-          $msiInfo = Get-Item "..\dist\TTSMixmaster-v$version-Setup.msi"
-          echo "✅ MSI created successfully: $($msiInfo.Name)"
-          echo "📦 MSI size: $($msiInfo.Length) bytes"
-          echo "msi_path=dist\TTSMixmaster-v$version-Setup.msi" >> $env:GITHUB_OUTPUT
-          echo "msi_name=TTSMixmaster-v$version-Setup.msi" >> $env:GITHUB_OUTPUT
-        } else {
-          echo "❌ MSI file not found at $msiFile"
-          echo "Listing installer bin directory:"
-          Get-ChildItem "bin" -Recurse -ErrorAction SilentlyContinue
-          throw "MSI creation failed - file not found"
-        }
-        
-        cd ..
-      shell: pwsh
-      id: create_msi
-    
-    - name: Sign MSI with Azure Trusted Signing
-      uses: azure/artifact-signing-action@v2
-      with:
-        endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-        signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
-        certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}
-        files-folder: dist
-        files-folder-filter: msi
-        files-folder-recurse: false
-        files-folder-depth: 1
-        file-digest: SHA256
-        timestamp-rfc3161: http://timestamp.acs.microsoft.com
-        timestamp-digest: SHA256
+      - name: Set up .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: TTSMixmaster-Build-v${{ needs.check.outputs.version }}
-        path: |
-          dist/TTSMixmaster-v*-Setup.msi
-          dist/TTSMixmaster.exe
-          dist_installer/TTSMixmaster-installer/
-        retention-days: 30
+      - name: Set up WinApp CLI
+        uses: microsoft/setup-WinAppCli@9288bd0729bd3f71e2ed1b9eb247dc91470b824e # v0.3.0
+        with:
+          version: ${{ env.WINAPP_VERSION }}
+
+      # Lands as artifacts/release/*.zip and artifacts/msix/*.msix.
+      - name: Download build outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: build-*
+          merge-multiple: true
+          path: artifacts
+
+      - name: Build MSIX bundle and App Installer file
+        run: ./scripts/package-release.ps1 -Stage Bundle -ReleasesUrl "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases"
+
+      - name: Azure login
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Signing the bundle covers the x64 and ARM64 packages inside it. Its publisher
+      # (installer/msix/Package.appxmanifest) must equal the certificate subject.
+      - name: Sign MSIX bundle
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}
+          files: ${{ github.workspace }}\artifacts\release\TTSMixmaster-v${{ env.VERSION }}.msixbundle
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify bundle signature and release files
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object { [version]$_.Directory.Parent.Name } | Select-Object -Last 1
+          if (-not $signtool) { throw 'signtool.exe not found.' }
+          & $signtool.FullName verify /pa /q "artifacts/release/TTSMixmaster-v$env:VERSION.msixbundle"
+          if ($LASTEXITCODE -ne 0) { throw 'MSIX bundle signature check failed.' }
+          $expected = @("TTSMixmaster-v$env:VERSION.msixbundle", 'TTSMixmaster.appinstaller',
+            "TTSMixmaster-v$env:VERSION-portable-x64.zip", "TTSMixmaster-v$env:VERSION-portable-arm64.zip")
+          foreach ($name in $expected) {
+            $file = Get-Item "artifacts/release/$name"
+            '{0,-48} {1,10:N1} MB' -f $file.Name, ($file.Length / 1MB)
+          }
+          Get-Content artifacts/release/TTSMixmaster.appinstaller
+
+      - name: Upload release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: artifacts/release/*
+          if-no-files-found: error
+          retention-days: 30
 
   release:
-    needs: [check, build]
-    runs-on: ubuntu-latest
+    needs: [check, bundle]
     if: needs.check.outputs.should_release == 'true'
-    
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      created: ${{ steps.publish.outputs.created }}
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    
-    - name: Download build artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: TTSMixmaster-Build-v${{ needs.check.outputs.version }}
-        path: ./artifacts
-    
-    - name: Verify artifacts and permissions
-      run: |
-        echo "=== Verifying downloaded artifacts ==="
-        ls -la ./artifacts/
-        echo ""
-        echo "=== Checking artifact directory structure (recursive) ==="
-        find ./artifacts -type f -name "*.msi" -o -name "*.exe" -o -name "*.zip" | head -20
-        echo ""
-        echo "=== Full directory tree ==="
-        tree ./artifacts/ || find ./artifacts -type f | head -20
-        echo ""
-        echo "=== GitHub Token Info ==="
-        echo "Actor: ${{ github.actor }}"
-        echo "Repository: ${{ github.repository }}"
-        echo "Event: ${{ github.event_name }}"
-        echo "Ref: ${{ github.ref }}"
-    
-    - name: Generate changelog
-      id: changelog
-      run: |
-        VERSION="v${{ needs.check.outputs.version }}"
-        
-        # Get the previous tag
-        PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -v "^$VERSION$" | head -n1)
-        
-        if [ -z "$PREVIOUS_TAG" ]; then
-          echo "No previous tag found, using initial commit"
-          PREVIOUS_TAG=$(git rev-list --max-parents=0 HEAD)
-        fi
-        
-        echo "Generating changelog from $PREVIOUS_TAG to $VERSION"
-        
-        # Generate changelog
-        CHANGELOG=$(cat << 'EOF'
-        ## What's Changed
-        
-        EOF
-        )
-        
-        # Get commits since last tag
-        COMMITS=$(git log --pretty=format:"* %s (%h)" $PREVIOUS_TAG..HEAD)
-        
-        if [ -n "$COMMITS" ]; then
-          CHANGELOG="$CHANGELOG
-        
-        ### Commits:
-        $COMMITS"
-        else
-          CHANGELOG="$CHANGELOG
-        
-        * Initial release"
-        fi
-        
-        # Add build information
-        CHANGELOG="$CHANGELOG
-        
-        ## Downloads
-        
-        - **TTSMixmaster-v${{ needs.check.outputs.version }}-Setup.msi** - Windows installer (recommended)
-        - **TTSMixmaster.exe** - Portable single-file executable
-        
-        ## Installation
-        
-        ### Windows Installer (MSI)
-        1. Download the \`.msi\` installer
-        2. Run the installer
-        3. Follow the installation wizard
-        4. Launch TTSMixmaster from the Start Menu or Desktop shortcut
-        
-        ### Portable Version
-        1. Download \`TTSMixmaster.exe\`
-        2. Run the executable directly - no installation required!
-        
-        ## System Requirements
-        
-        - Windows 10 or later (64-bit)
-        - 100MB free disk space
-        - Internet connection for Last.fm integration
-        
-        ## Notes
-        
-        - Both the MSI installer and portable executable are digitally signed with Azure Trusted Signing
-        - The MSI installer creates Start Menu and Desktop shortcuts automatically
-        - First-time users should check the [documentation](https://github.com/${{ github.repository }}/tree/main/docs) for setup instructions
-        - Report issues on the [GitHub Issues](https://github.com/${{ github.repository }}/issues) page"
-        
-        # Save changelog to file and output
-        echo "$CHANGELOG" > changelog.md
-        echo "changelog<<EOF" >> $GITHUB_OUTPUT
-        echo "$CHANGELOG" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-    
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: v${{ needs.check.outputs.version }}
-        target_commitish: ${{ github.sha }}
-        name: TTSMixmaster v${{ needs.check.outputs.version }}
-        body: ${{ steps.changelog.outputs.changelog }}
-        draft: false
-        prerelease: false
-        files: |
-          ./artifacts/dist/TTSMixmaster-v*-Setup.msi
-          ./artifacts/dist/TTSMixmaster.exe
-        token: ${{ secrets.GITHUB_TOKEN }}
-        fail_on_unmatched_files: true
-    
-    - name: Update latest release info
-      run: |
-        echo "✅ Release v${{ needs.check.outputs.version }} created successfully!"
-        echo "🔗 View release: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.check.outputs.version }}"
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # tags, to find the previous release
+
+      - name: Download release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: dist
+
+      - name: Check release files
+        run: |
+          ls -l dist
+          for f in "TTSMixmaster-v$VERSION.msixbundle" TTSMixmaster.appinstaller \
+                   "TTSMixmaster-v$VERSION-portable-x64.zip" "TTSMixmaster-v$VERSION-portable-arm64.zip"; do
+            test -f "dist/$f" || { echo "::error::Missing $f"; exit 1; }
+          done
+          test "$(find dist -type f | wc -l)" -eq 4 || { echo "::error::Expected exactly 4 release files"; exit 1; }
+
+      - name: Write release notes header
+        run: |
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION"
+          cat > notes.md <<NOTES
+          ## Downloads
+
+          **Recommended: [TTSMixmaster.appinstaller]($base/TTSMixmaster.appinstaller)**. Open it to install TTSMixmaster
+          with App Installer. It installs the right build for your PC (x64 or ARM64) and keeps the app up to date.
+
+          | Download | What it is |
+          |---|---|
+          | [TTSMixmaster.appinstaller]($base/TTSMixmaster.appinstaller) | **Install with automatic updates (recommended).** |
+          | [TTSMixmaster-v$VERSION.msixbundle]($base/TTSMixmaster-v$VERSION.msixbundle) | The same signed MSIX package (x64 + ARM64) for offline installs and IT deployment (Intune, Configuration Manager). Installed directly, it doesn't update itself. |
+          | [portable-x64.zip]($base/TTSMixmaster-v$VERSION-portable-x64.zip) | Portable for most PCs: unzip and run \`TTSMixmaster.exe\`. |
+          | [portable-arm64.zip]($base/TTSMixmaster-v$VERSION-portable-arm64.zip) | Portable for Windows on Arm (Snapdragon) PCs. |
+
+          The MSIX bundle and the TTSMixmaster binaries are code-signed with Azure Trusted Signing.
+          yt-dlp and FFmpeg are bundled next to the app (FFmpeg is GPL; see \`ffmpeg-LICENSE.txt\` and \`scripts/fetch-tools.ps1\` for the pinned source releases).
+
+          NOTES
+          cat notes.md
+
+      - name: Create or update GitHub release
+        id: publish
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            # force_release: the check job only allows this when the tag is this commit; re-check here.
+            tag_commit="$(git rev-parse -q --verify "refs/tags/$tag^{commit}" || true)"
+            if [ "$tag_commit" != "$GITHUB_SHA" ]; then
+              echo "::error::Release $tag is tagged at ${tag_commit:-an unknown commit}, not $GITHUB_SHA. Bump <Version> in Directory.Build.props to release this code."
+              exit 1
+            fi
+            echo "Release $tag exists (force_release); replacing its assets."
+            gh release upload "$tag" dist/* --clobber
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          args=(--title "TTSMixmaster $tag" --notes-file notes.md --generate-notes)
+          # A brand-new tag is created on the commit this run built.
+          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            args+=(--target "$GITHUB_SHA")
+          fi
+          # Anchor the generated notes on the closest lower v* tag.
+          prev="$(git tag --list 'v*' | grep -vxF "$tag" | { cat; echo "$tag"; } | sort -V | grep -B1 -xF "$tag" | grep -vxF "$tag" || true)"
+          if [ -n "$prev" ]; then
+            echo "Release notes since $prev"
+            args+=(--notes-start-tag "$prev")
+          fi
+          # Installed copies poll releases/latest/download/TTSMixmaster.appinstaller, so the
+          # new release must become "latest".
+          gh release create "$tag" dist/* --latest "${args[@]}"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+  # Optional winget submission for a newly created release (not for a force_release re-upload).
+  # Called directly: a release created with GITHUB_TOKEN doesn't trigger `release: published` workflows.
+  winget:
+    needs: [check, release]
+    if: needs.release.outputs.created == 'true' && vars.WINGET_ENABLED == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/winget.yml
+    with:
+      tag: v${{ needs.check.outputs.version }}
+    secrets:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}

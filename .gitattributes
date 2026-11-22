@@ -1,0 +1,28 @@
+# Normalize line endings: LF in the repository and in working trees, on every OS.
+# .editorconfig uses end_of_line = lf to match.
+* text=auto eol=lf
+
+# Windows batch files need CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Shell scripts must stay LF.
+*.sh text eol=lf
+
+# Binary files: no line-ending conversion or textual diffs.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.pfx binary
+*.snk binary
+*.zip binary
+*.msix binary
+*.msixbundle binary
+*.mp3 binary
