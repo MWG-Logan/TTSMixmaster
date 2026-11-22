@@ -15,7 +15,7 @@ and a few end-to-end UI Automation checks against the running app.
 | Unit | `tests/TTSMixmaster.Core.Tests` | 327 | Core logic with fakes (HTTP, processes, clock, folders) | Windows | Every PR and push |
 | Integration | `tests/TTSMixmaster.Core.IntegrationTests` (`[TestCategory("Integration")]`) | 10 | Real filesystem, real yt-dlp/ffmpeg against a loopback media server, uploader against Azurite, formatter/exporter writing into an injected TTS root | `tests/.tools` (fetch-tools), Azurite; Inconclusive without them | Windows runner, after fetch-tools |
 | App (UI thread) | `tests/TTSMixmaster.App.Tests` | 84 | View models against the real composition root with Core faked, converters, the export result bar and its dialog, on the WinUI dispatcher (`[UITestMethod]`) | Windows App SDK (self-contained), an interactive session | Windows runner |
-| End to end | `tests/e2e/ui-smoke.ps1` | 9 checks (16 with `-DevSource`) | The running app through UI Automation (`winapp ui`), AutomationId selectors: every page, Settings, and with `-DevSource` a Build (navigating away mid-build and finding it under Builds › In progress) + Export to TTS | winapp CLI, Windows Sandbox (or local desktop); `-DevSource`: node + Azurite on the host | Locally / Sandbox, against a build or the published folder |
+| End to end | `tests/e2e/ui-smoke.ps1` | 9 checks (17 with `-DevSource`) | The running app through UI Automation (`winapp ui`), AutomationId selectors: every page, Settings, and with `-DevSource` a Build (navigating away mid-build and finding it under Builds › In progress) + Export to TTS, and the Albums tab's search | winapp CLI, Windows Sandbox (or local desktop); `-DevSource`: node + Azurite on the host | Locally / Sandbox, against a build or the published folder |
 
 Counts are test cases (data rows count once each) as of the e2e/App-test work in November 2026.
 
@@ -123,16 +123,19 @@ build's result; held fakes give up after the same limit. What's covered:
 **End to end.** `tests/e2e/ui-smoke.ps1` follows the `winui-ui-testing` batch pattern: one script,
 AutomationId selectors, `test-results.json` plus screenshots (one per page and state, and one per failing
 check) in `tests/e2e/artifacts/` (gitignored). Every check is required: any failure exits 1. Run it against
-Windows Sandbox, not the owner's desktop. It opens every page; in Settings it checks that an unconfigured
+Windows Sandbox, not the owner's desktop. It opens every page (Collections shows its first-run "Connect a music
+service" state when the guest has no service set up); in Settings it checks that an unconfigured
 service (Spotify) can't be tested, that a failing Azure Test connection shows the error InfoBar
-(`AzureTestResult`), and that an edited value is saved to the guest's config.json and survives leaving the page.
+(`AzureTestResult`, after turning on Use a connection string), and that an edited value is saved to the guest's
+config.json and survives leaving the page.
 
 With `-DevSource` (Sandbox, a `-p:TtsmDevSource=true` publish with the tools copied in) it also builds the dev
 collection and exports it. `guest/setup.ps1` runs in the guest: it moves any existing TTSMixmaster data folder
 aside, starts Azurite (the host's node.exe and Azurite, copied in) and a media server on loopback, creates the
 `tts-audio` container, and writes config.json and dev-collection.json. The run then checks Test connection
 succeeds against Azurite, opens the collection, builds it (real yt-dlp and ffmpeg, upload to Azurite), exports
-it to a Saved Objects folder in the guest and finds the build on the Builds page. `guest/teardown.ps1` stops
+it to a Saved Objects folder in the guest and finds the build on the Builds page. The dev collection file also
+holds an album: on the Albums tab, searching "E2E" lists it (and not the playlist) and opens it. `guest/teardown.ps1` stops
 only the processes setup started and restores the guest's data folder; the script stops only the app it
 launched. Nothing reaches a real music service or Azure. Look at the screenshots too: UI Automation can't see
 clipping, overlap or theming problems.

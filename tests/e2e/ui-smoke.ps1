@@ -10,7 +10,7 @@
 # Checks: every page opens; Settings shows an unconfigured service as "Not set up" with Test connection disabled,
 # a failing Azure Test connection shows the error InfoBar, an edited value is saved to config.json and survives
 # leaving the page. With -DevSource (Sandbox only) it also builds the dev collection end to end (navigating away
-# mid-build and finding it under Builds > In progress) and exports it:
+# mid-build and finding it under Builds > In progress), exports it, and searches the Albums tab for the fixture album:
 #   dotnet publish src/TTSMixmaster.App -c Release -p:Platform=x64 -p:TtsmDevSource=true -o <folder>
 #   copy tests/.tools/{yt-dlp,ffmpeg,ffprobe}.exe into <folder>   (scripts/fetch-tools.ps1 -OutputFolder tests/.tools)
 # and needs node (with `npm install -g azurite`) on the host: node.exe and Azurite are copied into the guest, where
@@ -335,7 +335,17 @@ try {
         Invoke-Ui @('wait-for', 'NavView', '-t', '10000')
         Save-Screenshot '01-initial.png'
     }
-    Test-UI 'Collections page opens' { Open-Page 'NavCollections' 'SearchBox' '02-collections.png' }
+    # With no music service set up the page is the first-run "Connect a music service" state, without search;
+    # with one (always with -DevSource) it has the search box.
+    Test-UI 'Collections page opens' {
+        Invoke-Ui @('invoke', 'NavCollections') | Out-Null
+        if ($DevSource) { Invoke-Ui @('wait-for', 'SearchBox', '-t', '10000') | Out-Null }
+        else {
+            try { Invoke-Ui @('wait-for', 'OpenSettingsFromEmpty', '-t', '10000') | Out-Null }
+            catch { Invoke-Ui @('wait-for', 'SearchBox', '-t', '1000') | Out-Null } # this guest has a service set up
+        }
+        Save-Screenshot '02-collections.png'
+    }
     Test-UI 'Builds page opens' { Open-Page 'NavBuilds' 'RefreshBuilds' '03-builds.png' }
     Test-UI 'Settings page opens' { Open-Page 'NavSettings' 'LastFmSettings' '04-settings.png' }
 
@@ -353,7 +363,9 @@ try {
             Invoke-Ui @('set-value', 'AzureConnectionString', 'DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:9/devstoreaccount1;') | Out-Null
         }
         Invoke-Ui @('set-value', 'AzureContainerName', 'e2e-missing') | Out-Null
-        Invoke-Ui @('wait-for', 'TestAzure', '-t', '5000') | Out-Null
+        # The connection string is used (and testable) only with "Use a connection string" on.
+        if ((Get-UiProperty 'TestAzure' 'IsEnabled') -ne 'True') { Invoke-Ui @('invoke', 'AzureUseConnectionString') | Out-Null }
+        Invoke-Ui @('wait-for', 'TestAzure', '--property', 'IsEnabled', '--value', 'True', '-t', '5000') | Out-Null
         Invoke-Ui @('invoke', 'TestAzure') | Out-Null
         Invoke-Ui @('wait-for', 'AzureTestResult', '-t', '90000') | Out-Null
         Invoke-Ui @('wait-for', "Couldn't connect to Azure Storage", '--root', 'AzureTestResult', '-t', '90000') | Out-Null
@@ -431,6 +443,29 @@ try {
             if ($nav -ne 'Builds') { throw "The Builds nav item still reads '$nav' after the build finished." }
             try { Invoke-Ui @('wait-for', 'InProgressList', '-t', '1000') | Out-Null; $listed = $true } catch { $listed = $false }
             if ($listed) { throw 'The finished build is still listed under In progress.' }
+        }
+        # Albums tab: search is kind-aware, so "E2E" finds the fixture album and not the E2E Tavern playlist.
+        Test-UI 'Albums: search and open a fixture album' {
+            Invoke-Ui @('invoke', 'NavCollections') | Out-Null
+            Invoke-Ui @('wait-for', 'KindAlbums', '-t', '10000') | Out-Null
+            Invoke-Ui @('invoke', 'KindAlbums') | Out-Null
+            # SearchBox is an AutoSuggestBox (a Group): type into its text box, then press its search (query) button.
+            $edit = ((Invoke-Ui @('search', '--type', 'Edit', '--root', 'SearchBox', '--max', '1', '--json')) -join "`n" | ConvertFrom-Json).matches[0].selector
+            if (-not $edit) { throw 'No text box inside SearchBox.' }
+            Invoke-Ui @('set-value', $edit, 'E2E') | Out-Null
+            # Submit: Enter in the text box, as a user would (XAML drops posted keys, so real input).
+            Invoke-Ui @('send-keys', 'enter', '--target', $edit, '--via', 'send-input') | Out-Null
+            Invoke-Ui @('wait-for', "Results for $([char]0x201C)E2E$([char]0x201D)", '--type', 'Text', '-t', '15000') | Out-Null # the list heading
+            Invoke-Ui @('wait-for', 'E2E Moonlit Sessions', '--type', 'ListItem', '--root', 'CollectionsList', '-t', '15000') | Out-Null
+            try { Invoke-Ui @('wait-for', 'E2E Tavern', '--type', 'ListItem', '--root', 'CollectionsList', '-t', '1000') | Out-Null; $playlist = $true }
+            catch { $playlist = $false }
+            if ($playlist) { throw 'The Albums search lists the E2E Tavern playlist.' }
+            Save-Screenshot '11-albums-search.png'
+            Invoke-ListItem 'CollectionsList' 'E2E Moonlit Sessions'
+            Invoke-Ui @('wait-for', 'CollectionTitle', '--value', 'E2E Moonlit Sessions', '-t', '15000') | Out-Null
+            Invoke-Ui @('wait-for', 'Moonrise', '--type', 'ListItem', '--root', 'TrackList', '-t', '15000') | Out-Null
+            Invoke-Ui @('wait-for', 'Night Shift', '--type', 'ListItem', '--root', 'TrackList', '-t', '5000') | Out-Null
+            Save-Screenshot '12-album-open.png'
         }
     }
     Test-UI 'Final screenshot delivered' { Save-Screenshot '99-final.png' }

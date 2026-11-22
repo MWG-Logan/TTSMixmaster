@@ -81,14 +81,25 @@ $connection = "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;Accoun
 } | ConvertTo-Json | Set-Content (Join-Path $data 'config.json') -Encoding utf8
 
 $track = "http://127.0.0.1:$MediaPort/tone.mp3"
-[ordered]@{
-    id = 'e2e-collection'; name = 'E2E Tavern'; description = 'Local test collection for the e2e smoke run'; thumbnailUrl = ''
-    tracks = @(
-        [ordered]@{ title = 'Opening Tone'; artist = 'E2E'; album = 'Smoke'; durationSeconds = 3; sourceUrl = "${track}?1" },
-        # Served slowly, so the build is still running while the e2e run navigates away and back.
-        [ordered]@{ title = 'Slow Tone'; artist = 'E2E'; album = 'Smoke'; durationSeconds = 3; sourceUrl = "${track}?2&delay=15000" },
-        [ordered]@{ title = 'Closing Tone'; artist = 'E2E'; album = 'Smoke'; durationSeconds = 3; sourceUrl = "${track}?3" }
-    )
-} | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $data 'dev-collection.json') -Encoding utf8
+# A playlist (built and exported) and an album (found through the Albums tab's search).
+ConvertTo-Json -Depth 4 -InputObject @(
+    [ordered]@{
+        id = 'e2e-collection'; name = 'E2E Tavern'; description = 'Local test collection for the e2e smoke run'; thumbnailUrl = ''
+        tracks = @(
+            [ordered]@{ title = 'Opening Tone'; artist = 'E2E'; album = 'Smoke'; durationSeconds = 3; sourceUrl = "${track}?1" },
+            # Served slowly, so the build is still running while the e2e run navigates away and back.
+            [ordered]@{ title = 'Slow Tone'; artist = 'E2E'; album = 'Smoke'; durationSeconds = 3; sourceUrl = "${track}?2&delay=15000" },
+            [ordered]@{ title = 'Closing Tone'; artist = 'E2E'; album = 'Smoke'; durationSeconds = 3; sourceUrl = "${track}?3" }
+        )
+    },
+    [ordered]@{
+        id = 'e2e-album'; name = 'E2E Moonlit Sessions'; kind = 'Album'; owner = 'The E2E Band'
+        description = 'Local test album for the e2e smoke run'; thumbnailUrl = ''
+        tracks = @(
+            [ordered]@{ title = 'Moonrise'; artist = 'The E2E Band'; album = 'E2E Moonlit Sessions'; durationSeconds = 3; sourceUrl = "${track}?a1" },
+            [ordered]@{ title = 'Night Shift'; artist = 'The E2E Band'; album = 'E2E Moonlit Sessions'; durationSeconds = 3; sourceUrl = "${track}?a2" }
+        )
+    }
+) | Set-Content (Join-Path $data 'dev-collection.json') -Encoding utf8
 
 Write-Output "ready: blob $endpoint, media $track, saved objects $root\Saved Objects"
