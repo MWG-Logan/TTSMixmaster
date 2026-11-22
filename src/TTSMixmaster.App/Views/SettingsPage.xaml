@@ -1,0 +1,372 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="TTSMixmaster.App.Views.SettingsPage"
+    NavigationCacheMode="Required"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:TTSMixmaster.App.Views"
+    xmlns:tk="using:CommunityToolkit.WinUI.Controls"
+    xmlns:vm="using:TTSMixmaster.App.ViewModels">
+
+    <Page.Resources>
+        <x:Double x:Key="FieldWidth">320</x:Double>
+
+        <!--  Shared by every service: status text, Test connection row, and the inline result.  -->
+        <DataTemplate x:Key="ConnectionStatusTemplate" x:DataType="vm:ConnectionViewModel">
+            <TextBlock Style="{StaticResource SecondaryTextStyle}" Text="{x:Bind Status, Mode=OneWay}" />
+        </DataTemplate>
+        <DataTemplate x:Key="ConnectionTestTemplate" x:DataType="vm:ConnectionViewModel">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button
+                    AutomationProperties.AutomationId="{x:Bind TestButtonId, Mode=OneTime}"
+                    AutomationProperties.HelpText="{x:Bind TestHelpText, Mode=OneTime}"
+                    Command="{x:Bind TestCommand}"
+                    Content="Test connection" />
+                <ProgressRing
+                    Width="20"
+                    Height="20"
+                    AutomationProperties.Name="Testing connection"
+                    IsActive="{x:Bind IsTesting, Mode=OneWay}" />
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate x:Key="ConnectionResultTemplate" x:DataType="vm:ConnectionViewModel">
+            <InfoBar
+                AutomationProperties.AutomationId="{x:Bind ResultId, Mode=OneTime}"
+                IsOpen="{x:Bind IsResultOpen, Mode=TwoWay}"
+                Message="{x:Bind ResultMessage, Mode=OneWay}"
+                Severity="{x:Bind ResultSeverity, Mode=OneWay}"
+                Title="{x:Bind ResultTitle, Mode=OneWay}" />
+        </DataTemplate>
+    </Page.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <TextBlock
+            Margin="40,28,40,16"
+            AutomationProperties.HeadingLevel="Level1"
+            Style="{StaticResource TitleTextBlockStyle}"
+            Text="Settings" />
+
+        <ScrollViewer Grid.Row="1" Padding="{StaticResource PagePadding}">
+            <StackPanel
+                MaxWidth="{StaticResource SettingsMaxWidth}"
+                Margin="0,0,0,36"
+                HorizontalAlignment="Stretch"
+                Spacing="{StaticResource SettingsCardSpacing}">
+
+                <InfoBar
+                    AutomationProperties.AutomationId="SaveError"
+                    IsClosable="False"
+                    IsOpen="{x:Bind ViewModel.HasSaveError, Mode=OneWay}"
+                    Message="{x:Bind ViewModel.SaveError, Mode=OneWay}"
+                    Severity="Error"
+                    Title="Settings weren't saved" />
+
+                <!--  ============ Music services ============  -->
+                <TextBlock
+                    Margin="1,0,0,6"
+                    AutomationProperties.HeadingLevel="Level2"
+                    Style="{StaticResource BodyStrongTextBlockStyle}"
+                    Text="Music services" />
+
+                <tk:SettingsExpander
+                    AutomationProperties.AutomationId="LastFmSettings"
+                    Description="Your loved, top and recent tracks as charts."
+                    Header="Last.fm">
+                    <tk:SettingsExpander.HeaderIcon>
+                        <ImageIcon Source="ms-appx:///Assets/Services/lastfm.svg" />
+                    </tk:SettingsExpander.HeaderIcon>
+                    <ContentControl Content="{x:Bind ViewModel.LastFm, Mode=OneTime}" ContentTemplate="{StaticResource ConnectionStatusTemplate}" IsTabStop="False" />
+                    <tk:SettingsExpander.Items>
+                        <tk:SettingsCard Description="From last.fm/api/accounts." Header="API key">
+                            <PasswordBox
+                                Width="{StaticResource FieldWidth}"
+                                AutomationProperties.AutomationId="LastfmApiKey"
+                                AutomationProperties.Name="Last.fm API key"
+                                Password="{x:Bind ViewModel.LastfmApiKey, Mode=TwoWay}" />
+                        </tk:SettingsCard>
+                        <tk:SettingsCard Description="Shown next to the API key on the same page." Header="Shared secret">
+                            <PasswordBox
+                                Width="{StaticResource FieldWidth}"
+                                AutomationProperties.AutomationId="LastfmApiSecret"
+                                AutomationProperties.Name="Last.fm shared secret"
+                                Password="{x:Bind ViewModel.LastfmApiSecret, Mode=TwoWay}" />
+                        </tk:SettingsCard>
+                        <tk:SettingsCard Description="Whose charts to show." Header="Username">
+                            <TextBox
+                                Width="{StaticResource FieldWidth}"
+                                AutomationProperties.AutomationId="LastfmUsername"
+                                AutomationProperties.Name="Last.fm username"
+                                Text="{x:Bind ViewModel.LastfmUsername, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        </tk:SettingsCard>
+                        <tk:SettingsCard ContentAlignment="Left">
+                            <ContentControl Content="{x:Bind ViewModel.LastFm, Mode=OneTime}" ContentTemplate="{StaticResource ConnectionTestTemplate}" IsTabStop="False" />
+                        </tk:SettingsCard>
+                    </tk:SettingsExpander.Items>
+                </tk:SettingsExpander>
+                <ContentControl
+                    HorizontalContentAlignment="Stretch"
+                    Content="{x:Bind ViewModel.LastFm, Mode=OneTime}"
+                    ContentTemplate="{StaticResource ConnectionResultTemplate}"
+                    IsTabStop="False" />
+
+                <tk:SettingsExpander
+                    AutomationProperties.AutomationId="YouTubeSettings"
+                    Description="Your playlists, and public playlist search."
+                    Header="YouTube">
+                    <tk:SettingsExpander.HeaderIcon>
+                        <ImageIcon Source="ms-appx:///Assets/Services/youtube.svg" />
+                    </tk:SettingsExpander.HeaderIcon>
+                    <ContentControl Content="{x:Bind ViewModel.YouTube, Mode=OneTime}" ContentTemplate="{StaticResource ConnectionStatusTemplate}" IsTabStop="False" />
+                    <tk:SettingsExpander.Items>
+                        <tk:SettingsCard Description="A YouTube Data API v3 key from Google Cloud Console." Header="API key">
+                            <PasswordBox
+                                Width="{StaticResource FieldWidth}"
+                                AutomationProperties.AutomationId="YoutubeApiKey"
+                                AutomationProperties.Name="YouTube API key"
+                                Password="{x:Bind ViewModel.YoutubeApiKey, Mode=TwoWay}" />
+                        </tk:SettingsCard>
+                        <tk:SettingsCard Description="Needed to list your own playlists. Starts with UC." Header="Channel ID">
+                            <TextBox
+                                Width="{StaticResource FieldWidth}"
+                                AutomationProperties.AutomationId="YoutubeChannelId"
+                                AutomationProperties.Name="YouTube channel ID"
+                                Text="{x:Bind ViewModel.YoutubeChannelId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        </tk:SettingsCard>
+                        <tk:SettingsCard ContentAlignment="Left">
+                            <ContentControl Content="{x:Bind ViewModel.YouTube, Mode=OneTime}" ContentTemplate="{StaticResource ConnectionTestTemplate}" IsTabStop="False" />
+                        </tk:SettingsCard>
+                    </tk:SettingsExpander.Items>
+                </tk:SettingsExpander>
+                <ContentControl
+                    HorizontalContentAlignment="Stretch"
+                    Content="{x:Bind ViewModel.YouTube, Mode=OneTime}"
+                    ContentTemplate="{StaticResource ConnectionResultTemplate}"
+                    IsTabStop="False" />
+
+                <tk:SettingsExpander
+                    AutomationProperties.AutomationId="SpotifySettings"
+                    Description="Your playlists, liked songs and top tracks."
+                    Header="Spotify">
+                    <tk:SettingsExpander.HeaderIcon>
+                        <ImageIcon Source="ms-appx:///Assets/Services/spotify.svg" />
+                    </tk:SettingsExpander.HeaderIcon>
+                    <ContentControl Content="{x:Bind ViewModel.Spotify, Mode=OneTime}" ContentTemplate="{StaticResource ConnectionStatusTemplate}" IsTabStop="False" />
+                    <tk:SettingsExpander.Items>
+                        <tk:SettingsCard Description="From your app in the Spotify developer dashboard." Header="Client ID">
+                            <TextBox
+                                Width="{StaticResource FieldWidth}"
+                                AutomationProperties.AutomationId="SpotifyClientId"
+                                AutomationProperties.Name="Spotify client ID"
+                                Text="{x:Bind ViewModel.SpotifyClientId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        </tk:SettingsCard>
+                        <tk:SettingsCard Header="Client secret">
+                            <PasswordBox
+                                Width="{StaticResource FieldWidth}"
+                                AutomationProperties.AutomationId="SpotifyClientSecret"
+                                AutomationProperties.Name="Spotify client secret"
+                                Password="{x:Bind ViewModel.SpotifyClientSecret, Mode=TwoWay}" />
+                        </tk:SettingsCard>
+                        <tk:SettingsCard Description="Optional. Leave empty to use the account you sign in with." Header="User ID">
+                            <TextBox
+                                Width="{StaticResource FieldWidth}"
+                                AutomationProperties.AutomationId="SpotifyUserId"
+                                AutomationProperties.Name="Spotify user ID"
+                                Text="{x:Bind ViewModel.SpotifyUserId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        </tk:SettingsCard>
+                        <tk:SettingsCard Description="Needed for liked songs and private playlists. Opens your browser once to sign in." Header="Sign in with Spotify">
+                            <ToggleSwitch
+                                AutomationProperties.AutomationId="SpotifyUseOauth"
+                                AutomationProperties.Name="Sign in with Spotify"
+                                IsOn="{x:Bind ViewModel.SpotifyUseOauth, Mode=TwoWay}" />
+                        </tk:SettingsCard>
+                        <tk:SettingsCard
+                            Description="Must match a redirect URI in your Spotify app settings."
+                            Header="Redirect URI"
+                            IsEnabled="{x:Bind ViewModel.SpotifyUseOauth, Mode=OneWay}">
+                            <TextBox
+                                Width="{StaticResource FieldWidth}"
+                                AutomationProperties.AutomationId="SpotifyRedirectUri"
+                                AutomationProperties.Name="Spotify redirect URI"
+                                InputScope="Url"
+                                Text="{x:Bind ViewModel.SpotifyRedirectUri, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        </tk:SettingsCard>
+                        <tk:SettingsCard ContentAlignment="Left">
+                            <ContentControl Content="{x:Bind ViewModel.Spotify, Mode=OneTime}" ContentTemplate="{StaticResource ConnectionTestTemplate}" IsTabStop="False" />
+                        </tk:SettingsCard>
+                    </tk:SettingsExpander.Items>
+                </tk:SettingsExpander>
+                <ContentControl
+                    HorizontalContentAlignment="Stretch"
+                    Content="{x:Bind ViewModel.Spotify, Mode=OneTime}"
+                    ContentTemplate="{StaticResource ConnectionResultTemplate}"
+                    IsTabStop="False" />
+
+                <!--  ============ Storage ============  -->
+                <TextBlock
+                    AutomationProperties.HeadingLevel="Level2"
+                    Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"
+                    Text="Storage" />
+
+                <local:AzureStorageSection ViewModel="{x:Bind ViewModel.AzureSetup, Mode=OneTime}" />
+
+                <tk:SettingsExpander
+                    AutomationProperties.AutomationId="AzureAdvanced"
+                    Description="For existing setups, or if you can't sign in. Copy it from the storage account's Access keys page."
+                    Header="Advanced: use a connection string instead"
+                    IsExpanded="{x:Bind ViewModel.IsConnectionStringExpanded, Mode=OneTime}">
+                    <tk:SettingsExpander.HeaderIcon>
+                        <FontIcon Glyph="&#xE8D7;" />
+                    </tk:SettingsExpander.HeaderIcon>
+                    <ContentControl
+                        Content="{x:Bind ViewModel.Azure, Mode=OneTime}"
+                        ContentTemplate="{StaticResource ConnectionStatusTemplate}"
+                        IsTabStop="False" />
+                    <tk:SettingsExpander.Items>
+                        <tk:SettingsCard Description="Used instead of sign-in when it's filled in." Header="Connection string">
+                            <PasswordBox
+                                Width="{StaticResource FieldWidth}"
+                                AutomationProperties.AutomationId="AzureConnectionString"
+                                AutomationProperties.Name="Azure Storage connection string"
+                                Password="{x:Bind ViewModel.AzureConnectionString, Mode=TwoWay}" />
+                        </tk:SettingsCard>
+                        <tk:SettingsCard Description="Created if it doesn't exist, with public read access for files." Header="Container">
+                            <TextBox
+                                Width="{StaticResource FieldWidth}"
+                                AutomationProperties.AutomationId="AzureContainerName"
+                                AutomationProperties.Name="Azure container name"
+                                Text="{x:Bind ViewModel.AzureContainerName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        </tk:SettingsCard>
+                        <tk:SettingsCard ContentAlignment="Left">
+                            <ContentControl
+                                Content="{x:Bind ViewModel.Azure, Mode=OneTime}"
+                                ContentTemplate="{StaticResource ConnectionTestTemplate}"
+                                IsTabStop="False" />
+                        </tk:SettingsCard>
+                    </tk:SettingsExpander.Items>
+                </tk:SettingsExpander>
+                <ContentControl
+                    HorizontalContentAlignment="Stretch"
+                    Content="{x:Bind ViewModel.Azure, Mode=OneTime}"
+                    ContentTemplate="{StaticResource ConnectionResultTemplate}"
+                    IsTabStop="False" />
+
+                <tk:SettingsCard Description="Files uploaded more recently than this aren't uploaded again." Header="Skip re-uploads (days)">
+                    <tk:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE895;" />
+                    </tk:SettingsCard.HeaderIcon>
+                    <NumberBox
+                        MinWidth="140"
+                        AutomationProperties.AutomationId="AzureFreshnessDays"
+                        AutomationProperties.Name="Skip re-uploads newer than, in days"
+                        Minimum="0"
+                        SmallChange="1"
+                        SpinButtonPlacementMode="Compact"
+                        Value="{x:Bind ViewModel.AzureFreshnessDays, Mode=TwoWay}" />
+                </tk:SettingsCard>
+
+                <!--  ============ Folders and audio ============  -->
+                <TextBlock
+                    AutomationProperties.HeadingLevel="Level2"
+                    Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"
+                    Text="Folders and audio" />
+
+                <tk:SettingsCard Description="{x:Bind ViewModel.DownloadFolder, Mode=OneWay}" Header="Downloaded audio">
+                    <tk:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE8B7;" />
+                    </tk:SettingsCard.HeaderIcon>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button
+                            AutomationProperties.AutomationId="ResetDownloadFolder"
+                            Command="{x:Bind ViewModel.ResetDownloadFolderCommand}"
+                            Content="Use default"
+                            Visibility="{x:Bind ViewModel.IsDownloadFolderCustom, Mode=OneWay}" />
+                        <Button
+                            AutomationProperties.AutomationId="BrowseDownloadFolder"
+                            Click="BrowseDownloadFolder_Click"
+                            Content="Change folder" />
+                    </StackPanel>
+                </tk:SettingsCard>
+                <tk:SettingsCard Description="{x:Bind ViewModel.TtsOutputFolder, Mode=OneWay}" Header="Tabletop Simulator files">
+                    <tk:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE7B8;" />
+                    </tk:SettingsCard.HeaderIcon>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button
+                            AutomationProperties.AutomationId="ResetTtsFolder"
+                            Command="{x:Bind ViewModel.ResetTtsOutputFolderCommand}"
+                            Content="Use default"
+                            Visibility="{x:Bind ViewModel.IsTtsOutputFolderCustom, Mode=OneWay}" />
+                        <Button
+                            AutomationProperties.AutomationId="BrowseTtsFolder"
+                            Click="BrowseTtsFolder_Click"
+                            Content="Change folder" />
+                    </StackPanel>
+                </tk:SettingsCard>
+                <tk:SettingsCard Description="Higher sounds better and makes bigger files to upload." Header="Audio quality">
+                    <tk:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE995;" />
+                    </tk:SettingsCard.HeaderIcon>
+                    <ComboBox
+                        MinWidth="140"
+                        AutomationProperties.AutomationId="AudioQuality"
+                        AutomationProperties.Name="Audio quality"
+                        SelectedIndex="{x:Bind ViewModel.AudioQualityIndex, Mode=TwoWay}">
+                        <ComboBoxItem Content="128 kbps" />
+                        <ComboBoxItem Content="192 kbps" />
+                        <ComboBoxItem Content="256 kbps" />
+                        <ComboBoxItem Content="320 kbps" />
+                    </ComboBox>
+                </tk:SettingsCard>
+                <tk:SettingsCard Description="{x:Bind ViewModel.ToolsStatus, Mode=OneWay}" Header="Audio tools">
+                    <tk:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE90F;" />
+                    </tk:SettingsCard.HeaderIcon>
+                    <FontIcon
+                        AutomationProperties.Name="Ready"
+                        Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                        Glyph="&#xE73E;"
+                        Visibility="{x:Bind ViewModel.AreToolsReady, Mode=OneWay}" />
+                </tk:SettingsCard>
+
+                <!--  ============ Appearance ============  -->
+                <TextBlock
+                    AutomationProperties.HeadingLevel="Level2"
+                    Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"
+                    Text="Appearance" />
+                <tk:SettingsCard Description="Light, dark, or follow Windows." Header="Theme">
+                    <tk:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE790;" />
+                    </tk:SettingsCard.HeaderIcon>
+                    <ComboBox
+                        MinWidth="200"
+                        AutomationProperties.AutomationId="ThemeSelector"
+                        AutomationProperties.Name="Theme"
+                        SelectedIndex="{x:Bind ViewModel.ThemeIndex, Mode=TwoWay}">
+                        <ComboBoxItem Content="Use system setting" />
+                        <ComboBoxItem Content="Light" />
+                        <ComboBoxItem Content="Dark" />
+                    </ComboBox>
+                </tk:SettingsCard>
+
+                <!--  ============ About ============  -->
+                <TextBlock
+                    AutomationProperties.HeadingLevel="Level2"
+                    Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"
+                    Text="About" />
+                <tk:SettingsCard Description="{x:Bind ViewModel.SettingsFile, Mode=OneTime}" Header="{x:Bind ViewModel.AboutTitle, Mode=OneTime}">
+                    <tk:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE946;" />
+                    </tk:SettingsCard.HeaderIcon>
+                    <Button
+                        AutomationProperties.AutomationId="OpenSettingsFolder"
+                        Command="{x:Bind ViewModel.OpenSettingsFolderCommand}"
+                        Content="Open settings folder" />
+                </tk:SettingsCard>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

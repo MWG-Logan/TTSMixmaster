@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="TTSMixmaster.App.Views.CollectionsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:h="using:TTSMixmaster.App.Helpers"
+    xmlns:vm="using:TTSMixmaster.App.ViewModels"
+    NavigationCacheMode="Required">
+
+    <Grid Padding="{StaticResource PagePadding}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock
+            Margin="{StaticResource PageHeaderMargin}"
+            AutomationProperties.HeadingLevel="Level1"
+            Style="{StaticResource TitleTextBlockStyle}"
+            Text="Collections" />
+
+        <!--  Find: one box for search and pasted links, plus the service filter.  -->
+        <Grid
+            Grid.Row="1"
+            ColumnSpacing="12"
+            Visibility="{x:Bind ViewModel.HasServices, Mode=OneWay}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="560" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <AutoSuggestBox
+                x:Name="SearchBox"
+                AutomationProperties.AutomationId="SearchBox"
+                Header="Search or paste a link"
+                PlaceholderText="Playlist name, or a Spotify, YouTube or Last.fm link"
+                QueryIcon="Find"
+                QuerySubmitted="SearchBox_QuerySubmitted"
+                Text="{x:Bind ViewModel.Query, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <ComboBox
+                Grid.Column="1"
+                MinWidth="200"
+                VerticalAlignment="Bottom"
+                AutomationProperties.AutomationId="ServiceFilter"
+                Header="Service"
+                ItemsSource="{x:Bind ViewModel.ServiceOptions, Mode=OneTime}"
+                SelectedItem="{x:Bind ViewModel.SelectedService, Mode=TwoWay}" />
+            <Button
+                Grid.Column="2"
+                VerticalAlignment="Bottom"
+                AutomationProperties.AutomationId="RefreshCollections"
+                AutomationProperties.Name="Refresh"
+                Command="{x:Bind ViewModel.RefreshCommand}"
+                ToolTipService.ToolTip="Refresh">
+                <FontIcon FontSize="16" Glyph="&#xE72C;" />
+            </Button>
+        </Grid>
+
+        <Grid
+            Grid.Row="2"
+            Margin="0,16,0,0"
+            Visibility="{x:Bind ViewModel.HasServices, Mode=OneWay}">
+            <!--  Albums slots in here as one more SelectorBarItem (Tag="Album").  -->
+            <SelectorBar
+                x:Name="KindBar"
+                Margin="-12,0,0,0"
+                AutomationProperties.AutomationId="KindFilter"
+                SelectionChanged="KindBar_SelectionChanged">
+                <SelectorBarItem
+                    AutomationProperties.AutomationId="KindAll"
+                    IsSelected="True"
+                    Tag=""
+                    Text="All" />
+                <SelectorBarItem
+                    AutomationProperties.AutomationId="KindPlaylists"
+                    Tag="Playlist"
+                    Text="Playlists" />
+                <SelectorBarItem
+                    AutomationProperties.AutomationId="KindCharts"
+                    Tag="Chart"
+                    Text="Charts" />
+            </SelectorBar>
+            <TextBlock
+                HorizontalAlignment="Right"
+                VerticalAlignment="Center"
+                Style="{StaticResource SecondaryCaptionStyle}"
+                Text="{x:Bind ViewModel.ListHeading, Mode=OneWay}" />
+        </Grid>
+
+        <InfoBar
+            Grid.Row="3"
+            Margin="0,8,0,0"
+            AutomationProperties.AutomationId="CollectionsError"
+            IsClosable="True"
+            IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
+            Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+            Severity="Warning"
+            Title="Some collections couldn't be loaded" />
+
+        <!--  Content: list, loading, empty, or first run. Exactly one is visible.  -->
+        <ListView
+            x:Name="CollectionsList"
+            Grid.Row="4"
+            Margin="-16,8,-16,0"
+            Padding="0,0,0,24"
+            AutomationProperties.AutomationId="CollectionsList"
+            AutomationProperties.Name="Collections"
+            IsItemClickEnabled="True"
+            ItemClick="CollectionsList_ItemClick"
+            ItemsSource="{x:Bind ViewModel.Items, Mode=OneTime}"
+            SelectionMode="None"
+            Visibility="{x:Bind ViewModel.HasItems, Mode=OneWay}">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="vm:CollectionItem">
+                    <Grid Padding="0,10" ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border
+                            Width="40"
+                            Height="40"
+                            Background="{ThemeResource LayerFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource ControlCornerRadius}">
+                            <ImageIcon
+                                Width="22"
+                                Height="22"
+                                Source="{x:Bind h:Bind.ServiceIcon(Service), Mode=OneTime}" />
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock
+                                Style="{StaticResource BodyStrongTextBlockStyle}"
+                                Text="{x:Bind Name, Mode=OneTime}"
+                                TextTrimming="CharacterEllipsis" />
+                            <TextBlock
+                                Style="{StaticResource SecondaryCaptionStyle}"
+                                Text="{x:Bind Meta, Mode=OneTime}"
+                                TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <FontIcon
+                            Grid.Column="2"
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Glyph="&#xE76C;" />
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <ProgressRing
+            Grid.Row="4"
+            Margin="0,48,0,0"
+            VerticalAlignment="Top"
+            AutomationProperties.AutomationId="CollectionsLoading"
+            AutomationProperties.Name="Loading collections"
+            IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}" />
+
+        <StackPanel
+            Grid.Row="4"
+            MaxWidth="420"
+            Margin="0,64,0,0"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            Spacing="8"
+            Visibility="{x:Bind ViewModel.IsEmpty, Mode=OneWay}">
+            <FontIcon
+                FontSize="40"
+                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                Glyph="&#xE721;" />
+            <TextBlock
+                HorizontalAlignment="Center"
+                AutomationProperties.AutomationId="CollectionsEmptyText"
+                Style="{StaticResource SecondaryTextStyle}"
+                Text="{x:Bind ViewModel.EmptyMessage, Mode=OneWay}"
+                TextAlignment="Center"
+                TextWrapping="Wrap" />
+        </StackPanel>
+
+        <!--  First run: nothing connected yet.  -->
+        <StackPanel
+            Grid.Row="1"
+            Grid.RowSpan="4"
+            MaxWidth="460"
+            Margin="0,48,0,0"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            Spacing="12"
+            Visibility="{x:Bind ViewModel.IsFirstRun, Mode=OneWay}">
+            <FontIcon
+                FontSize="48"
+                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                Glyph="&#xE8D6;" />
+            <TextBlock
+                HorizontalAlignment="Center"
+                AutomationProperties.HeadingLevel="Level2"
+                Style="{StaticResource SubtitleTextBlockStyle}"
+                Text="Connect a music service"
+                TextAlignment="Center" />
+            <TextBlock
+                Style="{StaticResource SecondaryTextStyle}"
+                Text="Add your Last.fm, YouTube or Spotify details and your playlists and charts show up here, ready to turn into a Tabletop Simulator music player."
+                TextAlignment="Center"
+                TextWrapping="Wrap" />
+            <Button
+                Margin="0,8,0,0"
+                HorizontalAlignment="Center"
+                AutomationProperties.AutomationId="OpenSettingsFromEmpty"
+                Click="OpenSettings_Click"
+                Content="Open Settings"
+                Style="{StaticResource AccentButtonStyle}" />
+        </StackPanel>
+    </Grid>
+</Page>

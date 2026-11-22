@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="TTSMixmaster.App.Views.LoadInTtsSteps"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--  The one place that says how to get a build into Tabletop Simulator.  -->
+    <StackPanel Spacing="4">
+        <TextBlock
+            AutomationProperties.HeadingLevel="Level3"
+            Style="{StaticResource BodyStrongTextBlockStyle}"
+            Text="Load it in Tabletop Simulator" />
+        <TextBlock Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap">
+            <Run Text="1. Copy the Lua script." />
+            <LineBreak />
+            <Run Text="2. In Tabletop Simulator, right-click the object that should play music and choose Scripting." />
+            <LineBreak />
+            <Run Text="3. Paste the script into that object's tab, then choose Save &amp; Play." />
+        </TextBlock>
+    </StackPanel>
+</UserControl>

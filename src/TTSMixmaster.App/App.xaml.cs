@@ -1,57 +1,40 @@
-﻿using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
-
-// To learn more about WinUI, the WinUI project structure,
-// and more about our project templates, see: http://aka.ms/winui-project-info.
+using Microsoft.UI.Xaml;
 
 namespace TTSMixmaster.App;
 
-/// <summary>
-/// Provides application-specific behavior to supplement the default Application class.
-/// </summary>
 public partial class App : Application
 {
-    /// <summary>
-    /// The main application window. Use <c>App.Window</c> from any class that needs
-    /// the window reference (for dialogs, pickers, interop, etc.).
-    /// </summary>
-    public static Window Window { get; private set; } = null!;
+    /// <summary>The main window. Pages use it for pickers and other HWND/WindowId interop.</summary>
+    public static MainWindow Window { get; private set; } = null!;
 
-    /// <summary>
-    /// The UI thread dispatcher. Use <c>App.DispatcherQueue</c> to marshal calls
-    /// to the UI thread. Fully qualified to avoid CS0104 ambiguity with
-    /// <see cref="Windows.System.DispatcherQueue"/>.
-    /// </summary>
-    public static Microsoft.UI.Dispatching.DispatcherQueue DispatcherQueue { get; private set; } = null!;
+    /// <summary>The composition root (see <see cref="AppServices"/>).</summary>
+    public static AppServices Services { get; private set; } = null!;
 
-    /// <summary>
-    /// The native window handle (HWND). Use for file pickers,
-    /// <c>DataTransferManager</c>, and any WinRT interop that requires
-    /// <c>InitializeWithWindow</c>.
-    /// </summary>
-    public static nint WindowHandle =>
-        WinRT.Interop.WindowNative.GetWindowHandle(Window);
-
-    /// <summary>
-    /// Initializes the singleton application object.
-    /// </summary>
     public App()
     {
         InitializeComponent();
+        UnhandledException += (_, e) => WriteCrashLog(e.Exception);
     }
 
-    /// <summary>
-    /// Invoked when the application is launched.
-    /// </summary>
-    /// <param name="args">Details about the launch request and process.</param>
-    protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
+    /// <summary>Last-chance record of a crash in %LOCALAPPDATA%\TTSMixmaster\logs, so it can be reported.</summary>
+    private static void WriteCrashLog(Exception ex)
     {
-        Window = new MainWindow();
-        DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        try
+        {
+            var dir = Services?.Paths.LogDirectory ?? Path.Combine(Path.GetTempPath(), "TTSMixmaster");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "crash.log"), $"[{DateTime.Now:O}] {ex}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch (IOException)
+        {
+            // Nothing more we can do while crashing.
+        }
+    }
+
+    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    {
+        Services = AppServices.Create();
+        Window = new MainWindow(Services);
         Window.Activate();
     }
 }

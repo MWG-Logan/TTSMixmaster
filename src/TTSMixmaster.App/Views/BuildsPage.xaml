@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="TTSMixmaster.App.Views.BuildsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:TTSMixmaster.App.Views"
+    xmlns:vm="using:TTSMixmaster.App.ViewModels">
+
+    <Grid Padding="{StaticResource PagePadding}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid Margin="{StaticResource PageHeaderMargin}">
+            <TextBlock
+                AutomationProperties.HeadingLevel="Level1"
+                Style="{StaticResource TitleTextBlockStyle}"
+                Text="Builds" />
+            <StackPanel
+                HorizontalAlignment="Right"
+                Orientation="Horizontal"
+                Spacing="8">
+                <Button AutomationProperties.AutomationId="OpenBuildsFolder" Command="{x:Bind ViewModel.OpenOutputRootCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE838;" />
+                        <TextBlock Text="Open builds folder" />
+                    </StackPanel>
+                </Button>
+                <Button
+                    AutomationProperties.AutomationId="RefreshBuilds"
+                    AutomationProperties.Name="Refresh"
+                    Command="{x:Bind ViewModel.RefreshCommand}"
+                    ToolTipService.ToolTip="Refresh">
+                    <FontIcon FontSize="16" Glyph="&#xE72C;" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <Border
+            Grid.Row="1"
+            Style="{StaticResource CardBorderStyle}"
+            Visibility="{x:Bind ViewModel.HasItems, Mode=OneWay}">
+            <local:LoadInTtsSteps />
+        </Border>
+
+        <InfoBar
+            Grid.Row="2"
+            Margin="0,8,0,0"
+            AutomationProperties.AutomationId="BuildsError"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.HasLoadError, Mode=OneWay}"
+            Message="{x:Bind ViewModel.LoadError, Mode=OneWay}"
+            Severity="Error"
+            Title="Couldn't list your builds" />
+
+        <ListView
+            Grid.Row="3"
+            Margin="-16,8,-16,0"
+            Padding="0,0,0,24"
+            AutomationProperties.AutomationId="BuildsList"
+            AutomationProperties.Name="Builds"
+            ItemsSource="{x:Bind ViewModel.Items, Mode=OneTime}"
+            SelectionMode="None"
+            Visibility="{x:Bind ViewModel.HasItems, Mode=OneWay}">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="vm:BuildItemViewModel">
+                    <Grid
+                        Padding="0,12"
+                        AutomationProperties.Name="{x:Bind Name, Mode=OneTime}"
+                        ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <FontIcon
+                            FontSize="20"
+                            Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                            Glyph="&#xE7B8;" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock
+                                Style="{StaticResource BodyStrongTextBlockStyle}"
+                                Text="{x:Bind Name, Mode=OneTime}"
+                                TextTrimming="CharacterEllipsis" />
+                            <TextBlock
+                                Style="{StaticResource SecondaryCaptionStyle}"
+                                Text="{x:Bind Details, Mode=OneTime}"
+                                TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <StackPanel
+                            Grid.Column="2"
+                            VerticalAlignment="Center"
+                            Orientation="Horizontal"
+                            Spacing="8">
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                AutomationProperties.LiveSetting="Polite"
+                                Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                Text="{x:Bind CopyStatus, Mode=OneWay}" />
+                            <Button
+                                AutomationProperties.AutomationId="CopyBuildLua"
+                                Command="{x:Bind CopyLuaCommand}"
+                                Content="Copy Lua script"
+                                IsEnabled="{x:Bind HasLua, Mode=OneTime}" />
+                            <Button
+                                AutomationProperties.AutomationId="OpenBuildFolder"
+                                AutomationProperties.Name="Open folder"
+                                Command="{x:Bind OpenFolderCommand}"
+                                ToolTipService.ToolTip="Open folder">
+                                <FontIcon FontSize="16" Glyph="&#xE838;" />
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <StackPanel
+            Grid.Row="3"
+            MaxWidth="420"
+            Margin="0,64,0,0"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            Spacing="12"
+            Visibility="{x:Bind ViewModel.IsEmpty, Mode=OneWay}">
+            <FontIcon
+                FontSize="48"
+                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                Glyph="&#xE7B8;" />
+            <TextBlock
+                HorizontalAlignment="Center"
+                AutomationProperties.HeadingLevel="Level2"
+                Style="{StaticResource SubtitleTextBlockStyle}"
+                Text="No builds yet" />
+            <TextBlock
+                AutomationProperties.AutomationId="BuildsEmptyText"
+                Style="{StaticResource SecondaryTextStyle}"
+                Text="Finished music players show up here so you can load them again later. Open a collection and choose Build for Tabletop Simulator."
+                TextAlignment="Center"
+                TextWrapping="Wrap" />
+            <Button
+                Margin="0,4,0,0"
+                HorizontalAlignment="Center"
+                AutomationProperties.AutomationId="GoToCollections"
+                Click="GoToCollections_Click"
+                Content="Browse collections" />
+        </StackPanel>
+    </Grid>
+</Page>

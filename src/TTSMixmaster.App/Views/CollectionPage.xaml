@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="TTSMixmaster.App.Views.CollectionPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:h="using:TTSMixmaster.App.Helpers"
+    xmlns:local="using:TTSMixmaster.App.Views"
+    xmlns:vm="using:TTSMixmaster.App.ViewModels">
+
+    <Page.Resources>
+        <!--  Column widths shared by the header row and every track row.  -->
+        <GridLength x:Key="NumberColumn">40</GridLength>
+        <GridLength x:Key="LengthColumn">64</GridLength>
+        <GridLength x:Key="StatusColumn">260</GridLength>
+    </Page.Resources>
+
+    <Grid Padding="{StaticResource PagePadding}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!--  Header: what this is, and the one thing to do with it.  -->
+        <Grid Margin="{StaticResource PageHeaderMargin}" ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Border
+                Width="56"
+                Height="56"
+                VerticalAlignment="Top"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource OverlayCornerRadius}">
+                <ImageIcon
+                    Width="30"
+                    Height="30"
+                    Source="{x:Bind h:Bind.ServiceIcon(ViewModel.Service), Mode=OneTime}" />
+            </Border>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock
+                    AutomationProperties.AutomationId="CollectionTitle"
+                    AutomationProperties.HeadingLevel="Level1"
+                    Style="{StaticResource TitleTextBlockStyle}"
+                    Text="{x:Bind ViewModel.Title, Mode=OneWay}"
+                    TextTrimming="CharacterEllipsis" />
+                <TextBlock
+                    Style="{StaticResource SecondaryTextStyle}"
+                    Text="{x:Bind ViewModel.Subtitle, Mode=OneWay}"
+                    TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+            <StackPanel
+                Grid.Column="2"
+                VerticalAlignment="Center"
+                Orientation="Horizontal"
+                Spacing="8">
+                <Button
+                    AutomationProperties.AutomationId="BuildButton"
+                    Command="{x:Bind ViewModel.BuildCommand}"
+                    Style="{StaticResource AccentButtonStyle}"
+                    ToolTipService.ToolTip="Download the audio, upload it to Azure, and generate the Tabletop Simulator files"
+                    Visibility="{x:Bind ViewModel.IsIdle, Mode=OneWay}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE768;" />
+                        <TextBlock Text="Build for Tabletop Simulator" />
+                    </StackPanel>
+                </Button>
+                <Button
+                    AutomationProperties.AutomationId="CancelBuildButton"
+                    Command="{x:Bind ViewModel.BuildCancelCommand}"
+                    Content="Cancel build"
+                    Visibility="{x:Bind ViewModel.IsBuilding, Mode=OneWay}" />
+            </StackPanel>
+        </Grid>
+
+        <!--  Live status stays pinned above the scrolling list.  -->
+        <StackPanel Grid.Row="1" Spacing="8">
+            <Border
+                AutomationProperties.AutomationId="BuildProgress"
+                AutomationProperties.LiveSetting="Polite"
+                AutomationProperties.Name="{x:Bind ViewModel.StepText, Mode=OneWay}"
+                Style="{StaticResource CardBorderStyle}"
+                Visibility="{x:Bind ViewModel.IsBuilding, Mode=OneWay}">
+                <StackPanel Spacing="8">
+                    <Grid>
+                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind ViewModel.StepText, Mode=OneWay}" />
+                        <TextBlock
+                            HorizontalAlignment="Right"
+                            Style="{StaticResource SecondaryTextStyle}"
+                            Text="{x:Bind ViewModel.StepDetail, Mode=OneWay}" />
+                    </Grid>
+                    <ProgressBar
+                        AutomationProperties.Name="Build progress"
+                        IsIndeterminate="{x:Bind ViewModel.IsProgressIndeterminate, Mode=OneWay}"
+                        Maximum="{x:Bind ViewModel.ProgressMaximum, Mode=OneWay}"
+                        Value="{x:Bind ViewModel.ProgressValue, Mode=OneWay}" />
+                </StackPanel>
+            </Border>
+
+            <InfoBar
+                AutomationProperties.AutomationId="BuildResult"
+                IsOpen="{x:Bind ViewModel.IsResultOpen, Mode=TwoWay}"
+                Message="{x:Bind ViewModel.ResultMessage, Mode=OneWay}"
+                Severity="{x:Bind ViewModel.ResultSeverity, Mode=OneWay}"
+                Title="{x:Bind ViewModel.ResultTitle, Mode=OneWay}" />
+        </StackPanel>
+
+        <ListView
+            x:Name="TrackList"
+            Grid.Row="2"
+            Margin="-16,8,-16,0"
+            Padding="0,0,0,24"
+            AutomationProperties.AutomationId="TrackList"
+            AutomationProperties.Name="Tracks"
+            ItemsSource="{x:Bind ViewModel.Tracks, Mode=OneTime}"
+            SelectionMode="None">
+            <ListView.Header>
+                <StackPanel Margin="16,0,16,0" Spacing="8">
+                    <InfoBar
+                        AutomationProperties.AutomationId="LoadError"
+                        IsClosable="False"
+                        IsOpen="{x:Bind ViewModel.HasLoadError, Mode=OneWay}"
+                        Message="{x:Bind ViewModel.LoadError, Mode=OneWay}"
+                        Severity="Error"
+                        Title="Couldn't open this collection">
+                        <InfoBar.ActionButton>
+                            <Button
+                                AutomationProperties.AutomationId="RetryLoad"
+                                Command="{x:Bind ViewModel.RetryLoadCommand}"
+                                Content="Try again" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
+                    <InfoBar
+                        AutomationProperties.AutomationId="ToolsProblem"
+                        IsClosable="False"
+                        IsOpen="{x:Bind ViewModel.HasToolsProblem, Mode=OneWay}"
+                        Message="{x:Bind ViewModel.ToolsProblem, Mode=OneWay}"
+                        Severity="Error"
+                        Title="Audio tools are missing" />
+                    <InfoBar
+                        AutomationProperties.AutomationId="AzureMissing"
+                        IsClosable="True"
+                        IsOpen="{x:Bind ViewModel.IsAzureMissing, Mode=OneWay}"
+                        Message="Tabletop Simulator streams music from the web, so builds upload the audio to your Azure Storage account."
+                        Severity="Warning"
+                        Title="Set up Azure Storage before building">
+                        <InfoBar.ActionButton>
+                            <Button
+                                AutomationProperties.AutomationId="OpenSettingsFromAzure"
+                                Click="OpenSettings_Click"
+                                Content="Open Settings" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
+
+                    <!--  After a build: get it into the game.  -->
+                    <Border
+                        AutomationProperties.AutomationId="OutputCard"
+                        Style="{StaticResource CardBorderStyle}"
+                        Visibility="{x:Bind ViewModel.HasOutput, Mode=OneWay}">
+                        <StackPanel Spacing="12">
+                            <local:LoadInTtsSteps />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button
+                                    AutomationProperties.AutomationId="CopyLuaButton"
+                                    Command="{x:Bind ViewModel.CopyLuaCommand}"
+                                    Style="{StaticResource AccentButtonStyle}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon FontSize="16" Glyph="&#xE8C8;" />
+                                        <TextBlock Text="Copy Lua script" />
+                                    </StackPanel>
+                                </Button>
+                                <Button AutomationProperties.AutomationId="OpenOutputFolderButton" Command="{x:Bind ViewModel.OpenOutputFolderCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon FontSize="16" Glyph="&#xE838;" />
+                                        <TextBlock Text="Open output folder" />
+                                    </StackPanel>
+                                </Button>
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    AutomationProperties.LiveSetting="Polite"
+                                    Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                    Text="{x:Bind ViewModel.CopyStatus, Mode=OneWay}" />
+                            </StackPanel>
+                            <TextBlock
+                                IsTextSelectionEnabled="True"
+                                Style="{StaticResource SecondaryCaptionStyle}"
+                                Text="{x:Bind ViewModel.OutputFolder, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <Expander
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch"
+                        AutomationProperties.AutomationId="ObjectOptions"
+                        IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}">
+                        <Expander.Header>
+                            <StackPanel Padding="0,12">
+                                <TextBlock Text="Tabletop object" />
+                                <TextBlock Style="{StaticResource SecondaryCaptionStyle}" Text="Name, description and images for the music player. All optional." />
+                            </StackPanel>
+                        </Expander.Header>
+                        <Grid ColumnSpacing="16" RowSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBox
+                                AutomationProperties.AutomationId="ObjectNickname"
+                                Header="Name"
+                                PlaceholderText="{x:Bind ViewModel.Title, Mode=OneWay}"
+                                Text="{x:Bind ViewModel.ObjectNickname, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox
+                                Grid.Column="1"
+                                AutomationProperties.AutomationId="ObjectDescription"
+                                Header="Description"
+                                PlaceholderText="Generated from the track list"
+                                Text="{x:Bind ViewModel.ObjectDescription, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox
+                                Grid.Row="1"
+                                AutomationProperties.AutomationId="PrimaryImageUrl"
+                                Header="Front image URL"
+                                InputScope="Url"
+                                PlaceholderText="Default music player image"
+                                Text="{x:Bind ViewModel.PrimaryImageUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox
+                                Grid.Row="1"
+                                Grid.Column="1"
+                                AutomationProperties.AutomationId="SecondaryImageUrl"
+                                Header="Back image URL"
+                                InputScope="Url"
+                                PlaceholderText="Default music player image"
+                                Text="{x:Bind ViewModel.SecondaryImageUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        </Grid>
+                    </Expander>
+
+                    <!--  Column headings  -->
+                    <Grid
+                        Margin="0,16,0,4"
+                        Padding="0,0,12,0"
+                        ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="{StaticResource NumberColumn}" />
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="{StaticResource LengthColumn}" />
+                            <ColumnDefinition Width="{StaticResource StatusColumn}" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Style="{StaticResource SecondaryCaptionStyle}" Text="#" />
+                        <TextBlock
+                            Grid.Column="1"
+                            Style="{StaticResource SecondaryCaptionStyle}"
+                            Text="Title" />
+                        <TextBlock
+                            Grid.Column="2"
+                            Style="{StaticResource SecondaryCaptionStyle}"
+                            Text="Album" />
+                        <TextBlock
+                            Grid.Column="3"
+                            Style="{StaticResource SecondaryCaptionStyle}"
+                            Text="Length" />
+                        <TextBlock
+                            Grid.Column="4"
+                            Style="{StaticResource SecondaryCaptionStyle}"
+                            Text="Status" />
+                    </Grid>
+                    <ProgressRing
+                        Margin="0,32,0,0"
+                        AutomationProperties.AutomationId="TracksLoading"
+                        AutomationProperties.Name="Loading tracks"
+                        IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}" />
+                </StackPanel>
+            </ListView.Header>
+
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="vm:TrackRowViewModel">
+                    <Grid
+                        Padding="0,8"
+                        AutomationProperties.Name="{x:Bind Title, Mode=OneTime}"
+                        ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="{StaticResource NumberColumn}" />
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="{StaticResource LengthColumn}" />
+                            <ColumnDefinition Width="{StaticResource StatusColumn}" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            Style="{StaticResource SecondaryTextStyle}"
+                            Text="{x:Bind Number, Mode=OneTime}" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Text="{x:Bind Title, Mode=OneTime}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock
+                                Style="{StaticResource SecondaryCaptionStyle}"
+                                Text="{x:Bind Artist, Mode=OneTime}"
+                                TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <TextBlock
+                            Grid.Column="2"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource SecondaryTextStyle}"
+                            Text="{x:Bind Album, Mode=OneTime}"
+                            TextTrimming="CharacterEllipsis" />
+                        <TextBlock
+                            Grid.Column="3"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource SecondaryTextStyle}"
+                            Text="{x:Bind Duration, Mode=OneTime}" />
+                        <Grid
+                            Grid.Column="4"
+                            VerticalAlignment="Center"
+                            AutomationProperties.Name="{x:Bind AccessibleStatus, Mode=OneWay}"
+                            ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <ProgressRing
+                                Width="16"
+                                Height="16"
+                                IsActive="True"
+                                Visibility="{x:Bind h:Bind.IsWorking(Status), Mode=OneWay}" />
+                            <FontIcon
+                                FontSize="16"
+                                Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                Glyph="&#xE73E;"
+                                Visibility="{x:Bind h:Bind.IsDone(Status), Mode=OneWay}" />
+                            <FontIcon
+                                FontSize="16"
+                                Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                Glyph="&#xEA39;"
+                                Visibility="{x:Bind h:Bind.IsFailed(Status), Mode=OneWay}" />
+                            <TextBlock
+                                Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource SecondaryCaptionStyle}"
+                                Text="{x:Bind Message, Mode=OneWay}"
+                                TextTrimming="CharacterEllipsis"
+                                ToolTipService.ToolTip="{x:Bind Message, Mode=OneWay}" />
+                        </Grid>
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+    </Grid>
+</Page>
