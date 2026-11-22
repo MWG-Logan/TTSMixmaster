@@ -29,7 +29,19 @@ public sealed partial class TtsExportViewModel(TtsExporter exporter, FileLog log
     public string SuccessMessage =>
         $"In Tabletop Simulator, open Objects → Saved Objects → TTSMixmaster and click {Path.GetFileNameWithoutExtension(Result?.Path ?? "")} to place it at your cursor.";
 
-    public string Error => Result?.Message ?? "";
+    /// <summary>
+    /// What went wrong, for the UI: Core's exception goes through <see cref="UserText"/> (its raw text, with paths,
+    /// is only logged). A conflict keeps Core's message, which names just the file.
+    /// </summary>
+    public string Error => Result switch
+    {
+        { Outcome: TtsExportOutcome.Failed } failed =>
+            $"Couldn't export to Tabletop Simulator's Saved Objects. {(failed.Cause is { } ex ? UserText.Describe(ex) : UserText.Unexpected)}",
+        { Cause: { } warning } =>
+            $"Exported, but its bookkeeping couldn't be saved: {UserText.Describe(warning)} TTSMixmaster will still recognize it next time.",
+        { Outcome: TtsExportOutcome.Conflict, Message: { } conflict } => conflict,
+        _ => "",
+    };
 
     /// <summary>
     /// Asks what to do when the saved object was edited outside the app. Set by the view that owns the
@@ -60,8 +72,12 @@ public sealed partial class TtsExportViewModel(TtsExporter exporter, FileLog log
                 result = await exporter.ExportToTtsAsync(collection, uploads, options, choice, thumbnail: thumbnail);
             }
             Result = result;
-            log.Info($"Export to TTS of {collection.Summary.Service} collection: {result.Outcome}" +
-                (result.Message is null ? "" : $" ({result.Message})"));
+            var logLine = $"Export to TTS of {collection.Summary.Service} collection: {result.Outcome}" +
+                (result.Message is null ? "" : $" ({result.Message})");
+            if (result.Cause is { } cause)
+                log.Error(logLine, cause);
+            else
+                log.Info(logLine);
             if (IsExported)
                 Exported?.Invoke(result);
         }

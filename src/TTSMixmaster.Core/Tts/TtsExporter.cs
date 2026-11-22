@@ -44,10 +44,12 @@ public enum TtsExportOutcome
 
 /// <param name="Path">The saved-object .json written (or, for a conflict, the one that was changed).</param>
 /// <param name="Message">
-/// User-readable detail for Conflict, TtsNotFound and Failed. On Created/Updated it is a warning: the object
-/// was exported, but its bookkeeping couldn't be saved (the next export still recognizes it).
+/// Detail for Conflict, TtsNotFound and Failed. On Created/Updated it is a warning: the object was exported, but
+/// its bookkeeping couldn't be saved (the next export still recognizes it). With a <paramref name="Cause"/> it
+/// includes the exception's raw text (paths), so it is for the log; a UI words the cause itself.
 /// </param>
-public sealed record TtsExportResult(TtsExportOutcome Outcome, string? Path, string? Message = null);
+/// <param name="Cause">The exception behind a Failed outcome or a warning, for the caller's error text and log.</param>
+public sealed record TtsExportResult(TtsExportOutcome Outcome, string? Path, string? Message = null, Exception? Cause = null);
 
 /// <summary>
 /// Writes a collection's music player straight into Tabletop Simulator's Saved Objects, in a
@@ -102,7 +104,7 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            return new(TtsExportOutcome.Failed, null, $"Could not export to Tabletop Simulator's Saved Objects: {ex.Message}");
+            return new(TtsExportOutcome.Failed, null, $"Could not export to Tabletop Simulator's Saved Objects: {ex.Message}", ex);
         }
         finally
         {
@@ -177,7 +179,7 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return new(outcome, target, $"Exported, but TTSMixmaster couldn't save its bookkeeping ({ex.Message}). " +
-                "It will still recognize this saved object next time.");
+                "It will still recognize this saved object next time.", ex);
         }
         return new(outcome, target);
     }
