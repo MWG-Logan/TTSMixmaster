@@ -117,6 +117,8 @@ Blob names, reuse and metadata follow [ADR 0001](../../../docs/adr/0001-library-
   `track_key`, `artist`, `title`, `album` as percent-encoded UTF-8 (`Uri.EscapeDataString`; decode with
   `Uri.UnescapeDataString`). Azure metadata and headers must be ASCII without CR/LF.
 - `Content-Disposition: inline; filename="<ASCII name>"; filename*=UTF-8''<encoded name>` (RFC 6266/5987).
+- `UploadImageAsync(png)` uploads a chip image to `images/chip-<sha256>.png` with the same reuse rule
+  (`content_sha256` metadata and length must match) and `Content-Type: image/png`; it returns the URL or a safe error.
 - Pass `library: layout` to the constructor to record each upload (blob name, URL, hash, time) in the
   collection's `collection.json`. Files outside the library upload the same way but are not recorded.
 

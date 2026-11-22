@@ -76,3 +76,17 @@ Known and accepted:
 - **Recommendation:** keep it in the toolchain for `shape` and `critique` (Assessment A only), and for
   copy work (`clarify`, `harden`, `onboard`), invoked directly. `winui-design` stays the authority on
   controls, layout and theming.
+
+## Integration with Core (follow-up)
+
+Done when the real Core services replaced the design-time fakes:
+
+- **P3, fixed:** the Azure target, the TTS saved-objects folder and the chip options (`chip_show_title`,
+  per-collection `chip_custom_images`) persist in `config.json`.
+- **P3, fixed:** the app icon is derived from the chip art (`scripts/derive-app-icon.cs`).
+- The chip preview is Core's real render (the fixed "cartridge" brushes are gone).
+- Track rows show a short failure reason; the full downloader output is in the tooltip and the log.
+- Still open: batch builds, `HyperlinkButton`s for the "get a key" hints, and moving user-facing strings to
+  `Strings/en-US/Resources.resw` (about 300 strings across 7 XAML files and the view models; mechanical, but not
+  cheap enough to fold into the integration).
+

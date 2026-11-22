@@ -42,23 +42,28 @@ are sharper when zoomed in TTS, but the frame only exists at 478 and is resample
 separate texture download, so 1x keeps the frame pixel-exact and loads fastest; use 2x if alt-zoom
 legibility of long titles matters more.
 
-## Integration (not wired yet)
+## Integration
 
-The chip should be uploaded beside the audio and its URL handed to the formatter:
+The App's Build (Collection page) does this; see `CollectionViewModel.BuildAsync`:
 
-1. Build the front once per collection (`BuildFrontAsync`) after loading its tracks.
-2. Upload `front.Png` to the same container as the audio as a content-addressed blob, e.g.
-   `images/{front.FileName}` (`images/chip-<sha256>.png`), with `ContentType = ChipImage.ContentType`
-   (`image/png`) and `ContentDisposition = inline`. Because the name is the content hash, an existing
-   blob with that name is already correct: skip the upload (no freshness check needed), and identical
-   chips across collections share one blob.
-3. Use the blob's public URL without any SAS query (`blob.Uri.GetLeftPart(UriPartial.Path)`, as the
-   audio upload does) as `TtsOutputOptions.PrimaryImageUrl`.
-4. `SecondaryImageUrl` can stay empty: `TtsFormatter` then uses the Steam-hosted original back, which
-   is identical to `ChipImageBuilder.BackImage`. To self-host it, upload `BackImage.Png` the same way.
+1. `FetchArtAsync` downloads the art once per collection (the preview re-renders from it), or the user's
+   custom image is read instead; `RenderFront` draws the chip with the current title options.
+2. `AzureBlobUploader.UploadImageAsync(front.Png)` uploads it to `images/chip-<sha256>.png` (the same name as
+   `images/` + `FileName`) with `ContentType = image/png` and `ContentDisposition = inline`. An existing blob that
+   records the same SHA-256 is reused, so identical chips across collections share one blob.
+3. Its public URL (no SAS query) becomes `TtsOutputOptions.PrimaryImageUrl`, unless the user typed a front URL.
+4. `SecondaryImageUrl` stays empty, so `TtsFormatter` uses the Steam-hosted original back (identical to `BackImage`).
+5. `Thumbnail(front)` (256×256) is passed to `TtsExporter.ExportToTtsAsync(thumbnail: …)` as the Saved Objects thumbnail.
 
-If the upload fails, leave `PrimaryImageUrl` empty and `TtsFormatter` falls back to the original
-Steam-hosted MWG front.
+If the chip upload fails, `PrimaryImageUrl` stays empty, `TtsFormatter` falls back to the original Steam-hosted
+MWG front, and the build result says so.
+
+## Untrusted art
+
+Art comes from the internet (or a user-chosen file), so only PNG, JPEG and WebP reach Skia: `ChipArt.Decode`
+checks the signature before creating a codec and the codec's detected format before decoding pixels. Every other
+format Skia could decode (GIF, BMP, ICO, WBMP, HEIF, AVIF, …) is treated as no art. Art URLs are fetched over https
+only; a plain-http URL is upgraded to https, any other scheme is ignored.
 
 ## Window geometry
 

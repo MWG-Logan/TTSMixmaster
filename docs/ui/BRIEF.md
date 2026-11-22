@@ -112,19 +112,16 @@ NavigationView (Left, Mica, custom TitleBar with back + pane toggle)
 
 ## Constraints
 
-- Build against the `TTSMixmaster.Core` contracts only. The fakes live in `App/DesignTime/` (including
-  the App-side `IAzureStorageSetup` and `ITtsExporter` seams), and `Services.cs` is the one composition
-  root where the real implementations get swapped in.
+- Build against `TTSMixmaster.Core` only. `Services.cs` is the one composition root that constructs the Core
+  services (the design-time fakes were removed at integration; `-p:TtsmDevSource=true` compiles a local test
+  collection for credential-free verification).
 - Use `x:Bind` everywhere and an AutomationId on every interactive control. Support Light, Dark and
   System themes and leave High Contrast to the system brushes. The one exception is the chip preview,
   which depicts a physical cartridge in fixed colours.
 - Default window size is 1200×800 DIP (clamped to the screen's work area and centred), minimum
   720×560. Below 1000 px the nav pane collapses to compact.
 
-## Integration notes (for whoever swaps in Core)
+## Integration notes
 
-- The chosen Azure account/container, the custom saved-objects folder and the chip options live in
-  memory today. Persist them through Core's settings keys (`azure_storage_account`,
-  `azure_container_name`, …) when wiring the real services.
-- `AssignBlobDataContributorToMeAsync(account, container)` and `CheckAccessAsync` match Core's
-  `Azure/README.md`. Core's `WaitForAccessAsync` can replace the view model's own 5-second re-check loop.
+Done: the Azure account/container, the saved-objects folder and the chip options persist through Core's settings
+keys, and the access fix uses Core's `WaitForAccessAsync`. See `docs/ui/REVIEW.md` and `docs/testing/LIVE-CHECKLIST.md`.
