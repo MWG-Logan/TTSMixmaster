@@ -51,7 +51,11 @@ Search by kind:
 - Spotify: `Playlist` (`type=playlist`) and `Album` (`type=album`).
 - YouTube: `Playlist` leaves out album playlists; `Album` is the same playlist search keeping
   only `OLAK5uy_` results. The Data API has no album search, so this finds only albums that
-  playlist search returns. It reads at most two pages (100 quota units each).
+  playlist search returns. Both read at most two search pages and return what they found by
+  then, even when filtering left fewer than the limit: `search.list` is the most expensive call
+  in the Data API quota (the default daily quota allows about 100 searches; see
+  [quota costs](https://developers.google.com/youtube/v3/determine_quota_cost)), and "All" runs
+  both searches.
 - Last.fm: `Album` (`album.search`); there are no playlists.
 - `Chart` search returns an empty list everywhere.
 
@@ -96,7 +100,8 @@ the user. No account credentials or real service calls are used by the test suit
   partial playlists as successes. `TestConnectionAsync` returns a safe message on
   failure; caller cancellation remains cancellation.
 - Listing, searching, and loading follow every API continuation page (search stops
-  at its requested limit; Last.fm stops at its chosen chart limit). Repeated page
+  at its requested limit, YouTube search also after two pages; Last.fm stops at its chosen
+  chart limit). Repeated page
   tokens fail rather than looping. Spotify pagination URLs must stay on its API host.
 - Last.fm uses HTTPS. The current-playing scrobble remains excluded. The legacy
   track search/detail API is outside `IMusicService` and is not ported.
