@@ -153,7 +153,7 @@ public sealed class AzureBlobUploaderTests : IDisposable
     [DataRow(".unknown", "audio/mpeg")]
     public async Task Content_type_matches_legacy_windows_mimetypes(string extension, string expected)
     {
-        // Captured with the coordinator's Python venv on this Windows host; Python reads
+        // Captured from Python's mimetypes on the legacy Windows host; Python reads
         // Windows MIME registrations in addition to its built-in extension map.
         await Uploader().UploadAsync([Download("audio" + extension)]);
         Assert.AreEqual(expected, _container.Blob.Options!.HttpHeaders.ContentType);

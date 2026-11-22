@@ -5,7 +5,7 @@ app-shape anchors and control map. Where the two disagree, Fluent wins.
 
 > **Assumptions.** `shape` normally interviews the owner first. This brief was written by a
 > dispatched worker with no way to ask, so it rests on the task spec, the legacy GUI
-> (`src/gui/*.py`), its screenshot and the owner's later scope notes (Azure sign-in, Export to TTS,
+> (the deleted Python GUI, in git history at `5467f7d`), its screenshot and the owner's later scope notes (Azure sign-in, Export to TTS,
 > chip preview). Correct anything below that's wrong.
 
 ## Job and audience

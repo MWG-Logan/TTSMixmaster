@@ -41,10 +41,10 @@ FFmpeg GPL license. It does not wire installation or CI.
 
 Legacy behavior intentionally omitted:
 
-- Mono conversion: no callers in `src/gui` or `src/tts_formatter`; preserve channels.
+- Mono conversion: the legacy GUI and formatter never called it; preserve channels.
 - `playlist_manifest.txt`: neither GUI nor formatter reads it; `collection.json` replaces it.
 - Legacy name-only folders are ignored (never read or changed); see `LibraryLayout.LegacyAudioFolder`.
-- Python package/bundling workarounds and unconverted audio when ffmpeg is absent:
+- Legacy Python bundling workarounds and unconverted audio when ffmpeg is absent:
   this implementation requires executable tools and publishes only MP3s.
 - Album-based filename suffixes and collapsing exact duplicates out of the result
   list: names carry a track-key hash instead, and every input track retains a result.
