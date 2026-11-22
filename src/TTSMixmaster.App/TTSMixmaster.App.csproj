@@ -21,6 +21,8 @@
       so users never need a separate Windows App SDK runtime install.
     -->
     <WindowsPackageType>None</WindowsPackageType>
+    <!-- Needed even unpackaged: without it, publish omits TTSMixmaster.pri and the app crashes at startup (0xc000027b). -->
+    <EnableMsixTooling>true</EnableMsixTooling>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
   </PropertyGroup>
 
