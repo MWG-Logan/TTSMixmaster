@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -95,9 +96,20 @@ public sealed class AppSettings
     // UI: "system", "light" or "dark"
     public string Theme { get; set; } = "system";
 
-    /// <summary>Makes loaded settings explicit: migrates a config written before <see cref="AzureAuthMode"/> existed.</summary>
+    /// <summary>
+    /// Makes loaded settings safe and explicit: a JSON <c>null</c> for any text setting (e.g. <c>"theme": null</c>)
+    /// or for <see cref="ChipCustomImages"/> becomes its default, and a config written before
+    /// <see cref="AzureAuthMode"/> existed is migrated.
+    /// </summary>
     internal void Normalize()
     {
+        var defaults = new AppSettings();
+        foreach (var property in typeof(AppSettings).GetProperties())
+            if (property.PropertyType == typeof(string) && property.CanWrite && property.GetValue(this) is null)
+                property.SetValue(this, property.GetValue(defaults));
+        ChipCustomImages = ChipCustomImages is null
+            ? new(StringComparer.Ordinal)
+            : new(ChipCustomImages.Where(pair => !string.IsNullOrEmpty(pair.Value)), StringComparer.Ordinal);
         AzureAuthMode = ResolveAzureAuthMode();
     }
 
@@ -128,6 +140,28 @@ public sealed class SettingsStore(string filePath)
         var settings = LoadOrDefault();
         settings.Normalize();
         return settings;
+    }
+
+    /// <summary>
+    /// Reads the file without any side effect (nothing is written, copied or renamed anywhere): for importing
+    /// another install's config, which must stay untouched. False when the file is missing, isn't JSON, or isn't
+    /// valid settings (a value of the wrong type, such as <c>"audio_quality": {}</c>). I/O errors are thrown.
+    /// </summary>
+    public bool TryRead([NotNullWhen(true)] out AppSettings? settings)
+    {
+        settings = null;
+        if (!File.Exists(FilePath))
+            return false;
+        try
+        {
+            settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllBytes(FilePath), AppSettings.JsonOptions);
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            return false;
+        }
+        settings?.Normalize();
+        return settings is not null;
     }
 
     private AppSettings LoadOrDefault()
