@@ -70,6 +70,45 @@ public sealed class LibraryLayoutTests
     }
 
     [TestMethod]
+    public void An_album_and_a_playlist_with_the_same_name_and_track_keep_separate_folders_and_state()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "tts-layout-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var layout = new LibraryLayout(new AppPaths(root), () => new AppSettings { DownloadPath = root });
+            var track = Song with { Service = ServiceKind.Spotify, ServiceId = "track1" };
+            MusicCollection Collection(string id, CollectionKind kind) => new()
+            {
+                Summary = new() { Id = id, Name = "Same", Service = ServiceKind.Spotify, Kind = kind }, Tracks = [track],
+            };
+            // Spotify album ids carry their kind; a raw id is a playlist. Same tail, different identity.
+            var album = Collection("spotify:album:abc123", CollectionKind.Album);
+            var playlist = Collection("abc123", CollectionKind.Playlist);
+
+            var albumFolder = layout.PrepareAudioFolder(album);
+            var playlistFolder = layout.PrepareAudioFolder(playlist);
+            Assert.AreNotEqual(albumFolder, playlistFolder);
+            Assert.AreEqual("spotify:album:abc123", layout.ReadOwner(albumFolder)!.Id);
+            Assert.AreEqual("abc123", layout.ReadOwner(playlistFolder)!.Id);
+
+            // The track key is the service's track id in both, so each folder finds its copy by the same key...
+            var lookup = layout.ResolveTrack(playlistFolder, track);
+            File.WriteAllBytes(lookup.Path, [1, 2, 3]);
+            layout.RecordDownload(playlistFolder, track, lookup.Path);
+            Assert.AreEqual(CachedTrack.Verified, layout.ResolveTrack(playlistFolder, track).Status);
+            // ...but state is per collection: the album neither sees nor touches the playlist's file.
+            var inAlbum = layout.ResolveTrack(albumFolder, track);
+            Assert.AreEqual(CachedTrack.Missing, inAlbum.Status);
+            Assert.StartsWith(albumFolder, inAlbum.Path);
+            Assert.IsFalse(layout.ReadState(albumFolder).Tracks.ContainsKey(LibraryLayout.TrackKey(track)));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [TestMethod]
     public void Blob_name_is_the_content_hash_only_and_ascii_name_folds_display_text()
     {
         var hash = new string('A', 64);
