@@ -11,4 +11,14 @@
   <PropertyGroup>
     <Version>2.0.0</Version>
   </PropertyGroup>
+
+  <!--
+    NuGet audit over direct and transitive packages. High (NU1903) and critical (NU1904) advisories
+    fail the build; low/moderate ones stay warnings to triage.
+  -->
+  <PropertyGroup>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1903;NU1904</WarningsAsErrors>
+  </PropertyGroup>
 </Project>
