@@ -6,14 +6,21 @@ namespace TTSMixmaster.Core.Imaging;
 /// <summary>Decodes, trims and cover-fits the art behind the chip frame, or paints a generated background.</summary>
 internal static class ChipArt
 {
-    /// <summary>Larger sources are decoded downscaled (where the codec supports it): the window is only ~415px.</summary>
-    private const int MaxDecodeSize = 2048;
+    /// <summary>Art is kept at most this large on its longest side: the window is only ~415px.</summary>
+    internal const int MaxDecodeSize = 2048;
 
     /// <summary>
-    /// Decodes art, returning null for anything that isn't a usable PNG, JPEG or WebP image.
-    /// Art is untrusted internet input, so every other format Skia could decode (GIF, BMP, ICO, WBMP,
-    /// HEIF, AVIF, …) is rejected by its signature before any codec sees it, and again by the codec's
-    /// detected format before any pixels are decoded.
+    /// The most pixels a source may have (4096 × 4096, 64 MiB as RGBA). Compressed size says nothing about
+    /// decoded size (a uniform 16384² PNG is a few kilobytes), so the header's dimensions are checked against
+    /// this before anything is allocated, and nothing larger is ever decoded.
+    /// </summary>
+    internal const long MaxSourcePixels = 4096L * 4096;
+
+    /// <summary>
+    /// Decodes art, returning null for anything that isn't a usable PNG, JPEG or WebP image within
+    /// <see cref="MaxSourcePixels"/>. Art is untrusted internet input, so every other format Skia could decode
+    /// (GIF, BMP, ICO, WBMP, HEIF, AVIF, …) is rejected by its signature before any codec sees it, and again by
+    /// the codec's detected format before any pixels are decoded.
     /// </summary>
     internal static SKBitmap? Decode(byte[]? bytes)
     {
@@ -21,17 +28,36 @@ internal static class ChipArt
         using var codec = SKCodec.Create(new SKMemoryStream(bytes));
         if (codec is null || codec.Info.Width <= 0 || codec.Info.Height <= 0) return null;
         if (codec.EncodedFormat is not (SKEncodedImageFormat.Png or SKEncodedImageFormat.Jpeg or SKEncodedImageFormat.Webp)) return null;
+        if ((long)codec.Info.Width * codec.Info.Height > MaxSourcePixels) return null;
 
+        // JPEG and WebP codecs can decode straight to a smaller size; PNG's returns the full size, which the
+        // budget check above has already bounded, and is resized after decoding.
         var size = codec.Info.Size;
         var longest = Math.Max(size.Width, size.Height);
         if (longest > MaxDecodeSize) size = codec.GetScaledDimensions((float)MaxDecodeSize / longest);
+        if (size.Width <= 0 || size.Height <= 0 || (long)size.Width * size.Height > MaxSourcePixels) return null;
 
         var info = new SKImageInfo(size.Width, size.Height, SKColorType.Rgba8888, SKAlphaType.Premul);
         var bitmap = new SKBitmap(info);
         var result = codec.GetPixels(info, bitmap.GetPixels());
-        if (result is SKCodecResult.Success or SKCodecResult.IncompleteInput) return bitmap;
-        bitmap.Dispose();
-        return null;
+        if (result is not (SKCodecResult.Success or SKCodecResult.IncompleteInput))
+        {
+            bitmap.Dispose();
+            return null;
+        }
+        return Fit(bitmap);
+    }
+
+    /// <summary>Downscales a decoded bitmap whose longest side is over <see cref="MaxDecodeSize"/> (and disposes the original).</summary>
+    private static SKBitmap? Fit(SKBitmap bitmap)
+    {
+        var longest = Math.Max(bitmap.Width, bitmap.Height);
+        if (longest <= MaxDecodeSize) return bitmap;
+        var scale = (double)MaxDecodeSize / longest;
+        var info = new SKImageInfo(Math.Max(1, (int)(bitmap.Width * scale)), Math.Max(1, (int)(bitmap.Height * scale)),
+            SKColorType.Rgba8888, SKAlphaType.Premul);
+        using (bitmap)
+            return bitmap.Resize(info, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
     }
 
     /// <summary>PNG (89 50 4E 47 0D 0A 1A 0A), JPEG (FF D8 FF) or WebP (RIFF ???? WEBP) magic bytes.</summary>
