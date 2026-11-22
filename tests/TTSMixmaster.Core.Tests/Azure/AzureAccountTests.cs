@@ -17,7 +17,7 @@ public sealed class AzureAccountTests : IDisposable
     [Fact]
     public async Task Missing_client_id_is_a_safe_result_without_constructing_credentials()
     {
-        var service = new AzureAccountService(() => new(), new(_root), credentialFactory: _ => throw new Exception("must not run"));
+        var service = new AzureAccountService(() => new(), new(_root), credentialFactory: _ => throw new Exception("must not run"), builtInClientId: "");
         var result = await service.SignInAsync();
         Assert.False(result.Succeeded);
         Assert.Contains("isn't configured", result.Error);

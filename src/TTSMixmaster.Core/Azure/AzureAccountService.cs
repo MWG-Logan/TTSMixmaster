@@ -35,13 +35,16 @@ public sealed class AzureAccountService
     private string RecordPath => Path.Combine(_paths.DataRoot, "azure-authentication-record.json");
     private string BrowserMarkerPath => RecordPath + ".browser";
     private string CacheName => "TTSMixmaster.Azure." + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(_paths.DataRoot).ToUpperInvariant())))[..24];
-    private string ClientId => string.IsNullOrWhiteSpace(_settings().AzureClientId) ? AzureSignInDefaults.ClientId : _settings().AzureClientId.Trim();
+    private readonly string _builtInClientId;
+    private string ClientId => string.IsNullOrWhiteSpace(_settings().AzureClientId) ? _builtInClientId : _settings().AzureClientId.Trim();
 
     public AzureAccountService(Func<AppSettings> settings, AppPaths paths, Func<nint>? parentWindowHandle = null,
         TokenCredential? credential = null,
         Func<AzureStorageAccount, string, CancellationToken, Task<AzureAccessSnapshot>>? readAccess = null,
-        Func<InteractiveBrowserCredentialOptions, InteractiveBrowserCredential>? credentialFactory = null)
+        Func<InteractiveBrowserCredentialOptions, InteractiveBrowserCredential>? credentialFactory = null,
+        string builtInClientId = AzureSignInDefaults.ClientId)
     {
+        _builtInClientId = builtInClientId;
         _settings = settings;
         _paths = paths;
         _parentWindow = parentWindowHandle ?? (() => 0);
