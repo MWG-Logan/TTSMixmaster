@@ -35,6 +35,10 @@ public sealed partial class BuildItemViewModel : ObservableObject
     public ServiceKind? Service { get; }
     public TtsExportViewModel ExportState { get; }
 
+    // Per-row automation ids (rows share a template, so a fixed id would be ambiguous).
+    public string ExportButtonId => $"ExportBuild-{Name}";
+    public string MoreButtonId => $"MoreBuild-{Name}";
+
     public string Details =>
         string.Join(" · ", new[] { Service is { } s ? Display.ServiceName(s) : null, $"{_record?.Uploads.Count ?? 0} tracks", $"Built {BuiltAt:g}" }
             .Where(p => p is not null));

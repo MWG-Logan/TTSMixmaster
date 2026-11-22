@@ -125,7 +125,7 @@
                                     Foreground="{ThemeResource SystemFillColorSuccessBrush}"
                                     Text="{x:Bind CopyStatus, Mode=OneWay}" />
                                 <Button
-                                    AutomationProperties.AutomationId="ExportBuildToTts"
+                                    AutomationProperties.AutomationId="{x:Bind ExportButtonId, Mode=OneTime}"
                                     Command="{x:Bind ExportToTtsCommand}"
                                     Style="{StaticResource AccentButtonStyle}">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -134,7 +134,7 @@
                                     </StackPanel>
                                 </Button>
                                 <Button
-                                    AutomationProperties.AutomationId="MoreBuildActions"
+                                    AutomationProperties.AutomationId="{x:Bind MoreButtonId, Mode=OneTime}"
                                     AutomationProperties.Name="More"
                                     ToolTipService.ToolTip="More">
                                     <FontIcon FontSize="16" Glyph="&#xE712;" />
