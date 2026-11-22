@@ -223,7 +223,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         try
         {
             var result = await _app.YtDlpUpdater.UpdateAsync(ct);
-            _app.Log.Info(result.Succeeded ? $"yt-dlp updated to {result.Version}" : $"yt-dlp update failed: {result.Error}");
+            _app.Log.Info(result.Succeeded ? $"yt-dlp updated to {result.Version}" : $"yt-dlp update failed: {result.Error} ({result.Detail})");
             YtDlpResultSeverity = result.Succeeded ? InfoBarSeverity.Success : InfoBarSeverity.Error;
             YtDlpResultMessage = result.Succeeded ? $"yt-dlp {result.Version} is installed and will be used for the next build." : result.Error!;
             IsYtDlpResultOpen = true;
@@ -231,6 +231,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
+        }
+        catch (Exception ex)
+        {
+            // Core reports failures as results; this is the last boundary so nothing escapes to the dispatcher.
+            _app.Log.Error("yt-dlp update stopped unexpectedly", ex);
+            YtDlpResultSeverity = InfoBarSeverity.Error;
+            YtDlpResultMessage = "yt-dlp couldn't be updated, so nothing was changed. Details are in the log.";
+            IsYtDlpResultOpen = true;
         }
         finally
         {
