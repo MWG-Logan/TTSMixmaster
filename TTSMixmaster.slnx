@@ -11,6 +11,10 @@
     <Project Path="src/TTSMixmaster.Core/TTSMixmaster.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/TTSMixmaster.App.Tests/TTSMixmaster.App.Tests.csproj">
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
+    </Project>
     <Project Path="tests/TTSMixmaster.Core.IntegrationTests/TTSMixmaster.Core.IntegrationTests.csproj" />
     <Project Path="tests/TTSMixmaster.Core.Tests/TTSMixmaster.Core.Tests.csproj" />
   </Folder>
