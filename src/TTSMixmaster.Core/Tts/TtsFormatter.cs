@@ -17,9 +17,10 @@ public sealed class TtsFormatter(LibraryLayout layout) : ITtsFormatter
         TtsOutputOptions options, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        // The folder is keyed by collection identity, so same-named collections never share exports.
-        var folder = layout.TtsFolder(collection);
-        var basename = Path.Combine(folder, LibraryLayout.SanitizeFileName(collection.Name).Replace(' ', '_'));
+        // The folder is keyed by collection identity and claimed (owner marker) before anything is written,
+        // so same-named or colliding collections never share or overwrite exports.
+        var folder = layout.PrepareExportFolder(collection);
+        var basename = Path.Combine(folder, LibraryLayout.ExportBaseName(collection));
         var simple = GenerateSimplePlaylistLua(collection, uploads);
         var written = await layout.WriteTextFilesAsync(
         [

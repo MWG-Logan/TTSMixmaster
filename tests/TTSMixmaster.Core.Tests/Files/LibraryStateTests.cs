@@ -41,26 +41,36 @@ public sealed class LibraryStateTests : IDisposable
         new(new ToolLocator(_paths, _root, ""), _runner, layout ?? _layout, () => _settings);
 
     private string Folder => _layout.AudioFolder(Playlist);
-    private string StatePath => Path.Combine(Folder, LibraryLayout.StateFileName);
+    private string StatePath => LibraryLayout.StatePath(Folder);
+    private string Reserved => Path.Combine(Folder, LibraryLayout.ReservedFolderName);
+
+    private static string[] TempFiles(string folder) =>
+        Directory.Exists(LibraryLayout.TempFolder(folder)) ? Directory.GetFiles(LibraryLayout.TempFolder(folder)) : [];
 
     [Fact]
-    public async Task Download_records_collection_and_tracks_in_the_state_file()
+    public async Task Download_records_owner_and_tracks_in_the_reserved_folder()
     {
         var results = await Downloader().DownloadAsync(Playlist);
 
         Assert.All(results, r => Assert.Equal(TrackStatus.Done, r.Status));
         Assert.Equal("My Playlist " + LibraryLayout.CollectionFolderSuffix(Playlist.Summary), Path.GetFileName(Folder));
+        var owner = _layout.ReadOwner(Folder)!;
+        Assert.Equal("spotify", owner.Service);
+        Assert.Equal("3fa9c1", owner.Id);
+        Assert.Equal("My Playlist", owner.Name);
+        Assert.True(File.Exists(Path.Combine(Reserved, LibraryLayout.OwnerFileName)));
+        Assert.True(new DirectoryInfo(Reserved).Attributes.HasFlag(FileAttributes.Hidden));
+        // Only final track files live beside the reserved folder.
+        Assert.Equal(new[] { LibraryLayout.TrackFileName(Song), LibraryLayout.TrackFileName(Other) }.Order(),
+            Directory.GetFiles(Folder).Select(Path.GetFileName).Order());
         var state = _layout.ReadState(Folder);
-        Assert.Equal("spotify", state.Collection!.Service);
-        Assert.Equal("3fa9c1", state.Collection.Id);
-        Assert.Equal("My Playlist", state.Collection.Name);
         var entry = state.Tracks[LibraryLayout.TrackKey(Song)];
         Assert.Equal(Path.GetFileName(results[0].FilePath), entry.File);
         Assert.Equal(new FileInfo(results[0].FilePath!).Length, entry.Length);
         Assert.Equal("spotify:track-1", LibraryLayout.ReadTrackKey(results[0].FilePath!));
         using var json = JsonDocument.Parse(File.ReadAllText(StatePath));
         Assert.Equal(1, json.RootElement.GetProperty("schema").GetInt32());
-        Assert.Empty(Directory.GetFiles(Folder, LibraryLayout.TempPrefix + "*"));
+        Assert.Empty(TempFiles(Folder));
     }
 
     [Theory]
@@ -78,11 +88,28 @@ public sealed class LibraryStateTests : IDisposable
 
         Assert.All(rerun, r => Assert.Equal(TrackStatus.Skipped, r.Status));
         Assert.Equal(0, _runner.Calls);
-        var quarantined = Assert.Single(Directory.GetFiles(Folder, LibraryLayout.StateFileName + ".corrupt-*"));
+        var quarantined = Assert.Single(Directory.GetFiles(Reserved, LibraryLayout.StateFileName + ".corrupt-*"));
         Assert.Equal(corrupt, File.ReadAllText(quarantined));
-        var state = _layout.ReadState(Folder);
-        Assert.Equal(2, state.Tracks.Count);
-        Assert.Equal("3fa9c1", state.Collection!.Id);
+        Assert.Equal(2, _layout.ReadState(Folder).Tracks.Count);
+    }
+
+    [Theory]
+    [InlineData("{ not json")]
+    [InlineData("""{"service": null, "id": "3fa9c1"}""")]
+    [InlineData("""{"id": "3fa9c1"}""")]
+    public async Task Damaged_owner_marker_fails_closed_and_touches_nothing(string damaged)
+    {
+        var first = await Downloader().DownloadAsync(Playlist);
+        File.WriteAllText(Path.Combine(Reserved, LibraryLayout.OwnerFileName), damaged);
+        var stateBefore = File.ReadAllBytes(StatePath);
+        _runner.Calls = 0;
+
+        var rerun = await Downloader().DownloadAsync(Playlist);
+
+        Assert.All(rerun, r => { Assert.Equal(TrackStatus.Failed, r.Status); Assert.Contains("can't tell which collection", r.Error); });
+        Assert.Equal(0, _runner.Calls);
+        Assert.Equal(stateBefore, File.ReadAllBytes(StatePath));
+        Assert.All(first, r => Assert.True(File.Exists(r.FilePath)));
     }
 
     [Fact]
@@ -154,14 +181,14 @@ public sealed class LibraryStateTests : IDisposable
         Assert.Equal(Folder, _layout.AudioFolder(renamed));
         Assert.All(rerun, r => Assert.Equal(TrackStatus.Skipped, r.Status));
         Assert.Equal(0, _runner.Calls);
-        Assert.Equal("Renamed Playlist", _layout.ReadState(Folder).Collection!.Name);
+        Assert.Equal("Renamed Playlist", _layout.ReadOwner(Folder)!.Name);
     }
 
     [Fact]
     public async Task Folder_owned_by_a_different_collection_is_never_shared()
     {
-        Directory.CreateDirectory(Folder);
-        File.WriteAllText(StatePath, """{"schema": 1, "collection": {"service": "spotify", "id": "someone-else"}, "tracks": {}}""");
+        Directory.CreateDirectory(Reserved);
+        File.WriteAllText(Path.Combine(Reserved, LibraryLayout.OwnerFileName), """{"service": "spotify", "id": "someone-else"}""");
 
         var results = await Downloader().DownloadAsync(Playlist);
 
@@ -184,8 +211,8 @@ public sealed class LibraryStateTests : IDisposable
         Assert.Equal(TrackStatus.Failed, results[0].Status);
         Assert.Contains("not enough space", results[0].Error);
         Assert.Equal(TrackStatus.Done, results[1].Status);
-        Assert.Equal(new[] { LibraryLayout.StateFileName, LibraryLayout.TrackFileName(Other) }.Order(StringComparer.Ordinal),
-            Directory.GetFiles(Folder).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        Assert.Equal([LibraryLayout.TrackFileName(Other)], Directory.GetFiles(Folder).Select(Path.GetFileName));
+        Assert.Empty(TempFiles(Folder));
         Assert.False(_layout.ReadState(Folder).Tracks.ContainsKey(LibraryLayout.TrackKey(Song)));
 
         var retry = await Downloader().DownloadAsync(Playlist);
@@ -195,6 +222,7 @@ public sealed class LibraryStateTests : IDisposable
     [Fact]
     public async Task Locked_state_file_fails_the_track_but_its_final_file_is_adopted_next_run()
     {
+        _layout.UpdateState(_layout.PrepareAudioFolder(Playlist), _ => { });
         FileStream? locked = null;
         var progress = new InlineProgress(p =>
         {
@@ -207,8 +235,8 @@ public sealed class LibraryStateTests : IDisposable
 
         var failed = Assert.Single(results);
         Assert.Equal(TrackStatus.Failed, failed.Status);
-        Assert.True(File.Exists(LibraryLayout.TrackPath(Folder, Song)));
-        Assert.Empty(Directory.GetFiles(Folder, LibraryLayout.TempPrefix + "*"));
+        Assert.True(File.Exists(Path.Combine(Folder, LibraryLayout.TrackFileName(Song))));
+        Assert.Empty(TempFiles(Folder));
         _runner.Calls = 0;
 
         var retry = Assert.Single(await Downloader().DownloadAsync(Playlist with { Tracks = [Song] }));
@@ -229,25 +257,61 @@ public sealed class LibraryStateTests : IDisposable
         await Assert.ThrowsAsync<IOException>(() => new TtsFormatter(full).GenerateAsync(changed, [], new()));
 
         Assert.Equal(before, first.WrittenFiles.Select(File.ReadAllText).ToArray());
-        Assert.Empty(Directory.GetFiles(_layout.TtsFolder(Playlist), LibraryLayout.TempPrefix + "*"));
+        Assert.Empty(TempFiles(_layout.TtsFolder(Playlist)));
     }
 
     [Fact]
-    public async Task Stale_temp_files_are_swept_but_fresh_temps_and_other_files_are_kept()
+    public async Task Stale_temp_files_are_swept_only_from_the_reserved_temp_folder_and_only_generated_names()
     {
-        Directory.CreateDirectory(Folder);
-        var stale = Path.Combine(Folder, LibraryLayout.NewTempName() + ".mp3");
-        var fresh = Path.Combine(Folder, LibraryLayout.NewTempName() + ".mp3");
+        await Downloader().DownloadAsync(Playlist with { Tracks = [] });
+        var stale = LibraryLayout.NewTempPath(Folder) + ".webm.part";
+        var fresh = LibraryLayout.NewTempPath(Folder) + ".mp3";
+        var oddInTemp = Path.Combine(LibraryLayout.TempFolder(Folder), "keep-me.mp3");
+        var guidNamedFinal = Path.Combine(Folder, Guid.NewGuid().ToString("N") + ".mp3");
         var user = Path.Combine(Folder, "notes.txt");
-        foreach (var file in new[] { stale, fresh, user }) File.WriteAllText(file, "x");
-        File.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddDays(-2));
-        File.SetLastWriteTimeUtc(user, DateTime.UtcNow.AddDays(-2));
+        foreach (var file in new[] { stale, fresh, oddInTemp, guidNamedFinal, user }) File.WriteAllText(file, "x");
+        foreach (var file in new[] { stale, oddInTemp, guidNamedFinal, user }) File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddDays(-2));
 
         await Downloader().DownloadAsync(Playlist with { Tracks = [] });
 
         Assert.False(File.Exists(stale));
-        Assert.True(File.Exists(fresh));
-        Assert.True(File.Exists(user));
+        Assert.All(new[] { fresh, oddInTemp, guidNamedFinal, user }, f => Assert.True(File.Exists(f)));
+    }
+
+    [Fact]
+    public void Real_track_name_hash_collision_is_unverified_and_never_overwritten()
+    {
+        // Find two real track keys whose 8-hex file-name hashes collide (birthday bound ~2^16 tries).
+        var seen = new Dictionary<string, Track>();
+        Track a = Song, b = Song;
+        for (var i = 0; ; i++)
+        {
+            var candidate = Song with { ServiceId = "track-probe-" + i };
+            if (seen.TryGetValue(LibraryLayout.TrackFileName(candidate), out var earlier)) { a = earlier; b = candidate; break; }
+            seen[LibraryLayout.TrackFileName(candidate)] = candidate;
+        }
+        var folder = _layout.PrepareAudioFolder(Playlist);
+        var path = Path.Combine(folder, LibraryLayout.TrackFileName(a));
+        TestAudio.WriteMp3(path);
+        using (var audio = TagLib.File.Create(path)) { LibraryLayout.WriteTrackKey(audio, a); audio.Save(); }
+        _layout.RecordDownload(folder, a, path);
+        var before = File.ReadAllBytes(path);
+
+        var lookup = _layout.ResolveTrack(folder, b);
+
+        Assert.NotEqual(LibraryLayout.TrackKey(a), LibraryLayout.TrackKey(b));
+        Assert.Equal(new TrackLookup(CachedTrack.Unverified, path), lookup);
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.Equal(new TrackLookup(CachedTrack.Verified, path), _layout.ResolveTrack(folder, a));
+    }
+
+    [Fact]
+    public async Task Concurrent_updates_through_separate_layouts_keep_every_entry()
+    {
+        var folder = _layout.PrepareAudioFolder(Playlist);
+        await Task.WhenAll(Enumerable.Range(0, 50).Select(i => Task.Run(() =>
+            new LibraryLayout(_paths, () => _settings).UpdateState(folder, s => s.Tracks[$"k{i}"] = new TrackRecord { File = $"{i}.mp3", Length = 1 }))));
+        Assert.Equal(50, _layout.ReadState(folder).Tracks.Count);
     }
 
     [Fact]
@@ -263,7 +327,7 @@ public sealed class LibraryStateTests : IDisposable
         Assert.All(uploads, u => Assert.Equal(TrackStatus.Done, u.Status));
         var entry = _layout.ReadState(Folder).Tracks[LibraryLayout.TrackKey(Song)];
         Assert.Equal(uploads[0].PublicUrl, entry.BlobUrl);
-        Assert.StartsWith("audio/" + entry.Sha256![..32] + "/", entry.BlobName);
+        Assert.Equal($"audio/{entry.Sha256}.mp3", entry.BlobName);
         Assert.NotNull(entry.UploadedUtc);
     }
 

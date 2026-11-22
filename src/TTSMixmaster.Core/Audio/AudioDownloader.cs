@@ -58,8 +58,9 @@ public sealed class AudioDownloader(
             {
                 if (folder is null)
                     throw new IOException(folderError);
-                var finalPath = LibraryLayout.TrackPath(folder, track);
-                switch (layout.CheckCachedTrack(folder, track))
+                // Resolved by track key through the state file, so changed display text never moves a track.
+                var (cached, finalPath) = layout.ResolveTrack(folder, track);
+                switch (cached)
                 {
                     case CachedTrack.Verified:
                         result = new(track, finalPath, TrackStatus.Skipped);
@@ -102,9 +103,9 @@ public sealed class AudioDownloader(
         foreach (var source in sources)
         {
             ct.ThrowIfCancellationRequested();
-            var folder = Path.GetDirectoryName(finalPath)!;
-            var partialName = LibraryLayout.NewTempName();
-            var partialBase = Path.Combine(folder, partialName);
+            // Partials live in the collection's reserved temp folder, never beside final files.
+            var partialBase = LibraryLayout.NewTempPath(Path.GetDirectoryName(finalPath)!);
+            var partialName = Path.GetFileName(partialBase);
             var mp3 = partialBase + ".mp3";
             try
             {
@@ -159,7 +160,7 @@ public sealed class AudioDownloader(
             finally
             {
                 // The prefix is unique to this attempt, so unrelated downloads are untouched.
-                foreach (var partial in Directory.EnumerateFiles(folder, partialName + ".*"))
+                foreach (var partial in Directory.EnumerateFiles(Path.GetDirectoryName(partialBase)!, partialName + ".*"))
                     LibraryLayout.DeleteQuietly(partial);
             }
         }

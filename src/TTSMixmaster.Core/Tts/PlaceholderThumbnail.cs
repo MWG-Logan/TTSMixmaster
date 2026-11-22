@@ -34,7 +34,8 @@ internal static class PlaceholderThumbnail
                 {
                     < 5 => (0x25, 0x25, 0x32),                                   // spindle hole
                     < 38 => (0xE0, 0x5A, 0x2B),                                  // label
-                    < 112 => ((int)r % 9 == 0 ? (byte)0x2A : (byte)0x14, 0x14, 0x18), // grooves
+                    < 112 when (int)r % 9 == 0 => (0x2C, 0x2C, 0x34),               // groove highlight
+                    < 112 => (0x14, 0x14, 0x18),                                 // vinyl
                     _ => (0x25, 0x25, 0x32),                                     // tile
                 };
                 var i = row + 1 + x * 3;

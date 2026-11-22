@@ -69,11 +69,11 @@ public sealed class LibraryLayoutTests
     }
 
     [Fact]
-    public void Blob_name_is_content_hash_plus_ascii_display_name()
+    public void Blob_name_is_the_content_hash_only_and_ascii_name_folds_display_text()
     {
-        var hash = new string('a', 64);
-        Assert.Equal($"audio/{hash[..32]}/Bjork - _.mp3",
-            LibraryLayout.BlobName(hash, new Track { Artist = "Björk", Title = "東京" }));
+        var hash = new string('A', 64);
+        Assert.Equal($"audio/{hash.ToLowerInvariant()}.mp3", LibraryLayout.BlobName(hash, ".MP3"));
+        Assert.Equal("Bjork - _", LibraryLayout.AsciiName("Björk - 東京"));
         Assert.Equal("Cafe del Mar - _Live_ (2)", LibraryLayout.AsciiName("Café del Mar - \"Live\" (2)"));
         Assert.Equal("track", LibraryLayout.AsciiName("東京"));
     }

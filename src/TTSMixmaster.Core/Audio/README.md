@@ -15,20 +15,23 @@ and timeouts kill the process tree. User yt-dlp configuration is ignored so it
 cannot override the destination or post-processing arguments.
 
 File names, reuse and the state file belong to `LibraryLayout` (docs/adr/0001-library-layout.md).
-Each batch first prepares the collection's identity-keyed folder (`<Name> [<service>-<id hash>]`).
-Each track's file is `Artist - Title [<track key hash>].mp3`, a pure function of its track key,
-so playlist order never changes which file a track gets. A cached file is reused (`Skipped`) only
-when `collection.json` records it for that key with the same length, or, failing that, when the
-track key embedded in its ID3 tag (`TXXX:TTSMIXMASTER_TRACK_KEY`) matches. A non-empty file that
-can't be verified fails the track and is left alone. Exact duplicates share a key and a file and get
-a separate result/progress entry (normally `Skipped` after the first download).
+Each batch first claims the collection's identity-keyed folder (`<Name> [<service>-<id hash>]`). The
+claim checks the owner marker in the hidden `.ttsmixmaster\` subfolder and fails the batch closed if the
+folder belongs to another collection. Each track is resolved by its track key through
+`.ttsmixmaster\collection.json` first. A key never stored here gets `Artist - Title [<key hash>].mp3`,
+and keeps that file even if the service later changes the title. A cached file is reused (`Skipped`) when
+its entry matches (same length), or, with no entry, when the track key embedded in its ID3 tag
+(`TXXX:TTSMIXMASTER_TRACK_KEY`) matches. A non-empty file that can't be verified fails the track and is
+left alone. Exact duplicates share a key and a file and get a separate result/progress entry (normally
+`Skipped` after the first download).
 
-Each attempt writes a unique `.tts-tmp-<guid>.*` prefix beside the destination. The MP3 is tagged
-(including the track key) through TagLibSharp before its final rename, which never replaces a
-non-empty file. The state file is updated only after that rename. If the update fails (for example
-disk full or a locked file), the track reports `Failed` and its file is adopted by embedded key on the
-next run. All owned partials are removed on failure or cancellation. Crash leftovers are swept after a day.
-Use the returned `DownloadedTrack.FilePath` downstream rather than rebuilding names.
+Each attempt writes `<guid>.*` partials in the folder's `.ttsmixmaster\tmp\`, never beside final files.
+The MP3 is tagged (including the track key) through TagLibSharp before its final rename, which never
+replaces a non-empty file. The state file is updated only after that rename, under a per-folder named mutex
+shared with other app instances. If the update fails (for example disk full or a locked file), the
+track reports `Failed` and its file is adopted by embedded key on the next run. All owned partials are
+removed on failure or cancellation. Crash leftovers in `tmp\` are swept after a day. Use the returned
+`DownloadedTrack.FilePath` downstream rather than rebuilding names.
 yt-dlp extracts MP3 at the configured kbps. Because it preserves existing MP3
 sources without changing bitrate, the downloader uses ffmpeg to re-encode when
 the resulting bitrate differs. TagLibSharp handles all metadata; ffmpeg is not

@@ -84,7 +84,9 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
             var thumbnail = await ThumbnailAsync(collection.Summary.ThumbnailUrl, ct);
             // Both files are staged before either is renamed. The .json is renamed last (it is the commit point),
             // and the state is recorded only after it is final; a failure before that leaves the old .json and record.
-            await layout.WriteFilesAsync([(Path.ChangeExtension(target, ".png"), thumbnail), (target, json)], ct);
+            try { await layout.WriteFilesAsync([(Path.ChangeExtension(target, ".png"), thumbnail), (target, json)], ct); }
+            // TTS lists folders in Saved Objects: don't leave our reserved temp folder behind.
+            finally { LibraryLayout.RemoveEmptyReservedFolder(folder); }
             var exported = target;
             layout.UpdateState(stateFolder, state => state.TtsExport = new TtsExportRecord
             {
@@ -118,8 +120,8 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
             return (recorded.Path, true, !string.Equals(current, recorded.Sha256, StringComparison.OrdinalIgnoreCase));
         }
 
-        var friendly = LibraryLayout.SanitizeFileName(collection.Name, 100);
-        var byIdentity = $"{friendly} {LibraryLayout.CollectionFolderSuffix(collection.Summary)}";
+        var (friendly, byIdentity) = LibraryLayout.SavedObjectBaseNames(collection.Summary);
+
         foreach (var name in new[] { friendly, byIdentity })
             if (IsFree(folderFull, name))
                 return (Path.Combine(folderFull, name + ".json"), false, false);

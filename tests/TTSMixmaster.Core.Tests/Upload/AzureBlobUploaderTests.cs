@@ -35,7 +35,7 @@ public sealed class AzureBlobUploaderTests : IDisposable
         var first = Download("one name.mp3");
         var second = Download("other folder name.mp3");
         var results = await Uploader().UploadAsync([first, second]);
-        var expected = $"audio/{Hash123[..32]}/Actual Artist - Actual Title.mp3";
+        var expected = $"audio/{Hash123}.mp3";
         Assert.Equal([expected, expected], _container.RequestedNames);
         Assert.Equal(new[] { TrackStatus.Done, TrackStatus.Skipped }, results.Select(r => r.Status));
         Assert.Equal(1, _container.Blob.UploadCount);
@@ -60,6 +60,7 @@ public sealed class AzureBlobUploaderTests : IDisposable
 
     [Theory]
     [InlineData(4, null)]
+    [InlineData(3, null)] // same length, no hash recorded: never assumed to match
     [InlineData(3, "0000000000000000000000000000000000000000000000000000000000000000")]
     public async Task A_different_existing_blob_is_never_replaced(long length, string? hash)
     {
@@ -72,11 +73,13 @@ public sealed class AzureBlobUploaderTests : IDisposable
     }
 
     [Theory]
-    [InlineData(3, TrackStatus.Skipped)]
-    [InlineData(9, TrackStatus.Failed)]
-    public async Task Blob_created_concurrently_after_the_check_is_verified_not_overwritten(long racedLength, TrackStatus expected)
+    [InlineData(3, true, TrackStatus.Skipped)]
+    [InlineData(3, false, TrackStatus.Failed)]
+    [InlineData(9, true, TrackStatus.Failed)]
+    public async Task Blob_created_concurrently_after_the_check_is_verified_not_overwritten(long racedLength, bool racedHasHash, TrackStatus expected)
     {
         _container.Blob.RaceLength = racedLength;
+        _container.Blob.RaceHash = racedHasHash ? Hash123 : null;
         var result = Assert.Single(await Uploader().UploadAsync([Download()]));
         Assert.Equal(expected, result.Status);
         Assert.Equal(ETag.All, _container.Blob.Options!.Conditions.IfNoneMatch);
@@ -99,9 +102,9 @@ public sealed class AzureBlobUploaderTests : IDisposable
     {
         var file = Download("Artist - Title #1%.mp3");
         var result = Assert.Single(await Uploader().UploadAsync([file]));
-        var name = $"audio/{Hash123[..32]}/Actual Artist - Actual Title.mp3";
+        var name = $"audio/{Hash123}.mp3";
         Assert.Equal(name, _container.RequestedNames.Single());
-        Assert.Equal($"https://example.blob.core.windows.net/tts-audio/audio/{Hash123[..32]}/Actual%20Artist%20-%20Actual%20Title.mp3", result.PublicUrl);
+        Assert.Equal($"https://example.blob.core.windows.net/tts-audio/audio/{Hash123}.mp3", result.PublicUrl);
         Assert.Equal(PublicAccessType.None, _container.Access);
         Assert.Equal("audio/mpeg", _container.Blob.Options!.HttpHeaders.ContentType);
         Assert.Equal("inline; filename=\"Actual Artist - Actual Title.mp3\"; filename*=UTF-8''Actual%20Artist%20-%20Actual%20Title.mp3",
@@ -131,7 +134,7 @@ public sealed class AzureBlobUploaderTests : IDisposable
         Assert.Same(first.Track, results[0].Track);
         Assert.Same(second.Track, results[1].Track);
         Assert.Null(results[0].PublicUrl);
-        Assert.EndsWith("/Other%20-%20Second.mp3", results[1].PublicUrl);
+        Assert.EndsWith($"/audio/{Hash123}.mp3", results[1].PublicUrl);
         Assert.Equal(new[] { TrackStatus.Working, TrackStatus.Failed, TrackStatus.Working, TrackStatus.Done }, events.Select(e => e.Status));
         Assert.Equal(new[] { 0, 0, 1, 1 }, events.Select(e => e.Index));
         Assert.All(events, e => Assert.Equal(2, e.Total));
@@ -254,6 +257,7 @@ public sealed class AzureBlobUploaderTests : IDisposable
         public DateTimeOffset LastModified { get; private set; }
         /// <summary>When set, another writer creates the blob with this length just before our upload.</summary>
         public long? RaceLength { get; set; }
+        public string? RaceHash { get; set; }
         public Exception? PropertyError { get; set; }
         public Action? BeforeProperties { get; set; }
         public Action? BeforeUpload { get; set; }
@@ -289,7 +293,7 @@ public sealed class AzureBlobUploaderTests : IDisposable
             Options = options;
             if (RaceLength is { } raced)
             {
-                Seed(raced, null, Now);
+                Seed(raced, RaceHash, Now);
                 PropertyError = null;
             }
             if (IsPresent && options.Conditions?.IfNoneMatch == ETag.All)

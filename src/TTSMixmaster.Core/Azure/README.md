@@ -106,13 +106,13 @@ never falls back to a key. Containers must now be created by the explicit picker
 
 Blob names, reuse and metadata follow [ADR 0001](../../../docs/adr/0001-library-layout.md):
 
-- Blobs are content-addressed: `audio/<first 32 hex of the file's SHA-256>/<ASCII Artist - Title>.mp3`.
+- Blobs are content-addressed: `audio/<64-hex SHA-256 of the file>.mp3`, with no display text in the name.
   The same bytes always map to the same blob. Different bytes never share one, even when local file
   names match across collections. Legacy `audio/<file name>` blobs are never written, so old exports keep working.
-- An existing blob is reused (`Skipped`) only if its length, and its `content_sha256` metadata when
-  present, match. A different blob at that name fails the track and is left unchanged. Uploads send
-  `If-None-Match: *`; a blob created concurrently is re-checked, never overwritten. `azure_blob_freshness_days`
-  is ignored.
+- An existing blob is reused (`Skipped`) only if its length and its `content_sha256` metadata match the
+  file's full hash. A blob without that metadata, or with another value, fails the track and is left
+  unchanged; it is neither downloaded nor overwritten. Uploads send `If-None-Match: *`, and a blob
+  created concurrently is re-checked the same way. `azure_blob_freshness_days` is ignored.
 - Metadata: `source`, `upload_time`, `file_size`, `content_sha256`, `duration`, plus `original_filename`,
   `track_key`, `artist`, `title`, `album` as percent-encoded UTF-8 (`Uri.EscapeDataString`; decode with
   `Uri.UnescapeDataString`). Azure metadata and headers must be ASCII without CR/LF.

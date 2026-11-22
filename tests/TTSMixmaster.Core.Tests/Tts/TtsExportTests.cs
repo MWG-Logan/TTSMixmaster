@@ -117,7 +117,8 @@ public sealed class TtsExportTests : IDisposable
         Assert.Equal(0.0, obj.GetProperty("Transform").GetProperty("posX").GetDouble());
         Assert.Equal(0.0, obj.GetProperty("Transform").GetProperty("posZ").GetDouble());
         AssertPng256(Path.ChangeExtension(result.Path!, ".png"));
-        Assert.Empty(Directory.GetFiles(ExportFolder, LibraryLayout.TempPrefix + "*"));
+        // TTS lists folders in Saved Objects; the reserved temp folder must not be left behind.
+        Assert.Equal(["My Playlist.json", "My Playlist.png"], Directory.GetFileSystemEntries(ExportFolder).Select(Path.GetFileName).Order());
     }
 
     [Fact]
@@ -255,7 +256,7 @@ public sealed class TtsExportTests : IDisposable
         Assert.Equal(TtsExportOutcome.Failed, failed.Outcome);
         Assert.Contains("not enough space", failed.Message);
         Assert.Equal(before, File.ReadAllBytes(first.Path!));
-        Assert.Empty(Directory.GetFiles(ExportFolder, LibraryLayout.TempPrefix + "*"));
+        Assert.False(Directory.Exists(Path.Combine(ExportFolder, LibraryLayout.ReservedFolderName)));
         // Our own failed attempt must not look like an outside edit next time.
         var retry = await Exporter().ExportToTtsAsync(collection, Uploads("https://example.com/v2.mp3"), new());
         Assert.Equal(TtsExportOutcome.Updated, retry.Outcome);

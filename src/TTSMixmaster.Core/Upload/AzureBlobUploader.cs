@@ -121,7 +121,7 @@ public sealed class AzureBlobUploader(
         await using var stream = File.OpenRead(path);
         var sha256 = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, ct));
         stream.Position = 0;
-        var blobName = LibraryLayout.BlobName(sha256, file.Track, Path.GetExtension(path).ToLowerInvariant());
+        var blobName = LibraryLayout.BlobName(sha256, Path.GetExtension(path));
         var blob = container.GetBlobClient(blobName);
 
         var reused = await MatchesExistingAsync(blob, stream.Length, sha256, ct);
@@ -159,7 +159,10 @@ public sealed class AzureBlobUploader(
         return new(file.Track, path, url, reused == true ? TrackStatus.Skipped : TrackStatus.Done);
     }
 
-    /// <summary>True: the blob holds these bytes. False: a different blob is there. Null: none (or unreadable).</summary>
+    /// <summary>
+    /// True: the blob records exactly these bytes (full SHA-256 metadata and length). False: something else is
+    /// there, including a blob without our hash metadata, which is never assumed to match. Null: none (or unreadable).
+    /// </summary>
     private static async Task<bool?> MatchesExistingAsync(BlobClient blob, long length, string sha256, CancellationToken ct)
     {
         BlobProperties properties;
@@ -167,11 +170,10 @@ public sealed class AzureBlobUploader(
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         // Missing or unreadable properties: attempt the conditional upload, which cannot replace anything.
         catch (Exception) { return null; }
-        return properties.ContentLength == length &&
-            (properties.Metadata is null || !properties.Metadata.TryGetValue(HashMetadataKey, out var recorded) ||
-                string.Equals(recorded, sha256, StringComparison.OrdinalIgnoreCase));
+        return properties.ContentLength == length && properties.Metadata is not null &&
+            properties.Metadata.TryGetValue(HashMetadataKey, out var recorded) &&
+            string.Equals(recorded, sha256, StringComparison.OrdinalIgnoreCase);
     }
-
     private const string HashMetadataKey = "content_sha256";
 
     // Azure metadata and blob headers must be ASCII without CR/LF. Text values are percent-encoded
@@ -203,7 +205,7 @@ public sealed class AzureBlobUploader(
     }
 
     private sealed class BlobConflictException(string blobName) : Exception(
-        $"A different file already exists at {blobName}. It was left unchanged.");
+        $"A blob already exists at {blobName} but does not record a matching content hash. It was left unchanged.");
     // Matches Python mimetypes on the legacy Windows host for supported audio extensions.
     private static string ContentType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {

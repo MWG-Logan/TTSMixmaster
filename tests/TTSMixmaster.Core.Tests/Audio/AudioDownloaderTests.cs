@@ -72,7 +72,7 @@ public sealed class AudioDownloaderTests : IDisposable
         _runner.Handler = (args, _) =>
         {
             partial = OutputPath(args);
-            Assert.Equal(Path.GetDirectoryName(final), Path.GetDirectoryName(partial));
+            Assert.Equal(LibraryLayout.TempFolder(Path.GetDirectoryName(final)!), Path.GetDirectoryName(partial));
             Assert.NotEqual(final, partial);
             WriteMp3(partial);
             Assert.False(File.Exists(final));
@@ -322,9 +322,14 @@ public sealed class AudioDownloaderTests : IDisposable
         Assert.Equal(2, _runner.Calls.Count);
     }
 
-    private string[] AudioFiles(MusicCollection collection) => Directory.Exists(_layout.AudioFolder(collection))
-        ? Directory.GetFiles(_layout.AudioFolder(collection)).Where(f => Path.GetFileName(f) != LibraryLayout.StateFileName).ToArray()
-        : [];
+    // Final files beside the reserved folder plus anything left in its temp folder (partials must be cleaned).
+    private string[] AudioFiles(MusicCollection collection)
+    {
+        var folder = _layout.AudioFolder(collection);
+        if (!Directory.Exists(folder)) return [];
+        var temp = LibraryLayout.TempFolder(folder);
+        return Directory.GetFiles(folder).Concat(Directory.Exists(temp) ? Directory.GetFiles(temp) : []).ToArray();
+    }
 
     private string FinalPath(MusicCollection collection, Track track) =>
         Path.Combine(_layout.AudioFolder(collection), LibraryLayout.TrackFileName(track));
