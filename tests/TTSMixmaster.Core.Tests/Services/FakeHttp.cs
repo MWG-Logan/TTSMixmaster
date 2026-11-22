@@ -18,7 +18,7 @@ internal sealed class FakeHttp : HttpMessageHandler
     {
         ct.ThrowIfCancellationRequested();
         Requests++;
-        Assert.NotEmpty(_responses);
+        Assert.IsNotEmpty(_responses);
         return _responses.Dequeue()(request);
     }
     internal static Dictionary<string, string> Query(Uri uri) => Form(uri.Query.TrimStart('?'));

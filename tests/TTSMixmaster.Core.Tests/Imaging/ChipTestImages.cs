@@ -32,6 +32,6 @@ internal static class ChipTestImages
     {
         var ok = Math.Abs(expected.Red - actual.Red) <= tolerance && Math.Abs(expected.Green - actual.Green) <= tolerance &&
                  Math.Abs(expected.Blue - actual.Blue) <= tolerance && Math.Abs(expected.Alpha - actual.Alpha) <= tolerance;
-        Assert.True(ok, $"{where}: expected ~{expected}, got {actual}");
+        Assert.IsTrue(ok, $"{where}: expected ~{expected}, got {actual}");
     }
 }

@@ -10,6 +10,7 @@ namespace TTSMixmaster.Core.Tests.Tts;
 /// Regression tests for Astra's review of 8e1a869 (core-file-management-review-8e1a869.md), findings 1-6.
 /// Each one failed on 8e1a869 and passes with the staged, checked-then-published export.
 /// </summary>
+[TestClass]
 public sealed class ReviewRound3Tests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("tts-round3-").FullName;
@@ -40,7 +41,7 @@ public sealed class ReviewRound3Tests : IDisposable
 
     // ---- Finding 1: check-then-replace race ------------------------------------------------------
 
-    [Fact]
+    [TestMethod]
     public async Task Finding1_file_created_during_thumbnail_download_is_never_replaced()
     {
         var gate = new GateHandler();
@@ -54,11 +55,11 @@ public sealed class ReviewRound3Tests : IDisposable
 
         var result = await task;
 
-        Assert.Equal("USER FILE CREATED AFTER CHECK", File.ReadAllText(target));
-        Assert.NotEqual(target, result.Path);
+        Assert.AreEqual("USER FILE CREATED AFTER CHECK", File.ReadAllText(target));
+        Assert.AreNotEqual(target, result.Path);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Finding1_two_same_named_collections_exporting_concurrently_get_separate_files()
     {
         var ga = new GateHandler();
@@ -74,12 +75,12 @@ public sealed class ReviewRound3Tests : IDisposable
         gb.Release.SetResult();
         var rb = await tb;
 
-        Assert.NotEqual(ra.Path, rb.Path);
+        Assert.AreNotEqual(ra.Path, rb.Path);
         Assert.Contains("Object A", File.ReadAllText(ra.Path!));
         Assert.Contains("Object B", File.ReadAllText(rb.Path!));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Finding1_recorded_object_edited_during_thumbnail_download_is_a_conflict()
     {
         var first = await Exporter().ExportToTtsAsync(C(), [], Nick("v1"));
@@ -92,11 +93,11 @@ public sealed class ReviewRound3Tests : IDisposable
 
         var result = await task;
 
-        Assert.Equal(TtsExportOutcome.Conflict, result.Outcome);
-        Assert.Equal("EDITED IN TTS", File.ReadAllText(first.Path!));
+        Assert.AreEqual(TtsExportOutcome.Conflict, result.Outcome);
+        Assert.AreEqual("EDITED IN TTS", File.ReadAllText(first.Path!));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Finding1_a_new_name_taken_at_the_moment_of_publishing_is_not_overwritten()
     {
         var sneaky = new LibraryLayout(_paths, () => _settings, (source, destination, overwrite) =>
@@ -108,14 +109,14 @@ public sealed class ReviewRound3Tests : IDisposable
 
         var result = await Exporter(sneaky).ExportToTtsAsync(C(), [], new());
 
-        Assert.Equal("APPEARED", File.ReadAllText(Path.Combine(Output, "Playlist.json")));
-        Assert.Equal(TtsExportOutcome.Conflict, result.Outcome);
-        Assert.False(File.Exists(Path.Combine(Output, "Playlist.png")));
+        Assert.AreEqual("APPEARED", File.ReadAllText(Path.Combine(Output, "Playlist.json")));
+        Assert.AreEqual(TtsExportOutcome.Conflict, result.Outcome);
+        Assert.IsFalse(File.Exists(Path.Combine(Output, "Playlist.png")));
     }
 
     // ---- Finding 2: the PNG is part of the object --------------------------------------------------
 
-    [Fact]
+    [TestMethod]
     public async Task Finding2_changed_thumbnail_is_a_conflict_and_is_kept()
     {
         var first = await Exporter().ExportToTtsAsync(C(), [], new());
@@ -124,11 +125,11 @@ public sealed class ReviewRound3Tests : IDisposable
 
         var second = await Exporter().ExportToTtsAsync(C(), [], new());
 
-        Assert.Equal(TtsExportOutcome.Conflict, second.Outcome);
-        Assert.Equal("USER THUMBNAIL", File.ReadAllText(png));
+        Assert.AreEqual(TtsExportOutcome.Conflict, second.Outcome);
+        Assert.AreEqual("USER THUMBNAIL", File.ReadAllText(png));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Finding2_unrelated_png_beside_a_deleted_recorded_json_is_never_replaced()
     {
         var first = await Exporter().ExportToTtsAsync(C(), [], new());
@@ -138,13 +139,13 @@ public sealed class ReviewRound3Tests : IDisposable
 
         var second = await Exporter().ExportToTtsAsync(C(), [], new());
 
-        Assert.Equal("SOMEONE ELSE'S PREVIEW", File.ReadAllText(png));
-        Assert.True(second.Outcome == TtsExportOutcome.Conflict || second.Path != first.Path);
+        Assert.AreEqual("SOMEONE ELSE'S PREVIEW", File.ReadAllText(png));
+        Assert.IsTrue(second.Outcome == TtsExportOutcome.Conflict || second.Path != first.Path);
     }
 
     // ---- Finding 3: no adoption of non-empty unmarked folders --------------------------------------
 
-    [Fact]
+    [TestMethod]
     public async Task Finding3_existing_unmarked_export_folder_is_not_adopted()
     {
         var c = C();
@@ -157,11 +158,11 @@ public sealed class ReviewRound3Tests : IDisposable
         try { await new TtsFormatter(layout).GenerateAsync(c, [], new()); }
         catch (IOException) { /* Failing closed is the fix. */ }
 
-        Assert.Equal("USER SAVE", File.ReadAllText(path));
-        Assert.Null(layout.ReadOwner(folder));
+        Assert.AreEqual("USER SAVE", File.ReadAllText(path));
+        Assert.IsNull(layout.ReadOwner(folder));
     }
 
-    [Fact]
+    [TestMethod]
     public void Finding3_existing_unmarked_audio_folder_with_reserved_temp_is_not_adopted_or_swept()
     {
         var c = C();
@@ -175,17 +176,17 @@ public sealed class ReviewRound3Tests : IDisposable
         try { layout.PrepareAudioFolder(c); }
         catch (IOException) { /* Failing closed is the fix. */ }
 
-        Assert.True(File.Exists(user));
-        Assert.Null(layout.ReadOwner(folder));
+        Assert.IsTrue(File.Exists(user));
+        Assert.IsNull(layout.ReadOwner(folder));
     }
 
     // ---- Finding 4: invalid recorded paths ---------------------------------------------------------
 
-    [Theory]
-    [InlineData("bad\0.json", false)]
-    [InlineData("relative.json", false)]
-    [InlineData(@"C:\saves\..\elsewhere\x.json", false)]
-    [InlineData(@"C:\saves\x.json", true)]
+    [TestMethod]
+    [DataRow("bad\0.json", false)]
+    [DataRow("relative.json", false)]
+    [DataRow(@"C:\saves\..\elsewhere\x.json", false)]
+    [DataRow(@"C:\saves\x.json", true)]
     public async Task Finding4_invalid_recorded_export_is_quarantined_and_export_returns_a_result(string recordedPath, bool badHashOnly)
     {
         var c = C();
@@ -199,14 +200,14 @@ public sealed class ReviewRound3Tests : IDisposable
 
         var result = await Exporter(layout).ExportToTtsAsync(c, [], new());
 
-        Assert.Equal(TtsExportOutcome.Created, result.Outcome);
-        Assert.NotEqual(recordedPath, layout.ReadState(folder).TtsExport?.Path);
-        Assert.Single(Directory.GetFiles(Path.GetDirectoryName(LibraryLayout.StatePath(folder))!, LibraryLayout.StateFileName + ".corrupt-*"));
+        Assert.AreEqual(TtsExportOutcome.Created, result.Outcome);
+        Assert.AreNotEqual(recordedPath, layout.ReadState(folder).TtsExport?.Path);
+        Assert.ContainsSingle(Directory.GetFiles(Path.GetDirectoryName(LibraryLayout.StatePath(folder))!, LibraryLayout.StateFileName + ".corrupt-*"));
     }
 
     // ---- Finding 5: state write failures around publishing -----------------------------------------
 
-    [Fact]
+    [TestMethod]
     public async Task Finding5_unwritable_state_never_leaves_an_untracked_publish_that_later_looks_like_an_edit()
     {
         var c = C();
@@ -221,12 +222,12 @@ public sealed class ReviewRound3Tests : IDisposable
         var failed = await Exporter(broken).ExportToTtsAsync(c, [], Nick("v2"));
         var retry = await Exporter().ExportToTtsAsync(c, [], Nick("v3"));
 
-        Assert.Equal(TtsExportOutcome.Failed, failed.Outcome);
-        Assert.Equal(TtsExportOutcome.Updated, retry.Outcome);
+        Assert.AreEqual(TtsExportOutcome.Failed, failed.Outcome);
+        Assert.AreEqual(TtsExportOutcome.Updated, retry.Outcome);
         Assert.Contains("v3", File.ReadAllText(first.Path!));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Finding5_bookkeeping_failure_after_publishing_reports_success_with_a_warning_and_is_recognized_next_time()
     {
         var c = C();
@@ -243,22 +244,22 @@ public sealed class ReviewRound3Tests : IDisposable
         var exported = await Exporter(broken).ExportToTtsAsync(c, [], Nick("v2"));
         var retry = await Exporter().ExportToTtsAsync(c, [], Nick("v3"));
 
-        Assert.Equal(TtsExportOutcome.Updated, exported.Outcome);
-        Assert.Contains("couldn't save", exported.Message);
-        Assert.Equal(TtsExportOutcome.Updated, retry.Outcome);
+        Assert.AreEqual(TtsExportOutcome.Updated, exported.Outcome);
+        Assert.Contains("couldn't save", exported.Message!);
+        Assert.AreEqual(TtsExportOutcome.Updated, retry.Outcome);
         Assert.Contains("v3", File.ReadAllText(first.Path!));
     }
 
     // ---- Finding 6: thumbnails are decoded, not sniffed --------------------------------------------
 
-    [Fact]
+    [TestMethod]
     public async Task Finding6_signature_only_image_falls_back_to_the_placeholder()
     {
         using var http = new HttpClient(new ImmediateHandler([0xFF, 0xD8, 0xFF]));
 
         var result = await Exporter(http: http).ExportToTtsAsync(C(thumbnail: "https://fake.invalid/broken.jpg"), [], new());
 
-        Assert.Equal(PlaceholderThumbnail.Png, File.ReadAllBytes(Path.ChangeExtension(result.Path!, ".png")));
+        Assert.AreSequenceEqual(PlaceholderThumbnail.Png, File.ReadAllBytes(Path.ChangeExtension(result.Path!, ".png")));
     }
 
     public void Dispose() => Directory.Delete(_root, true);

@@ -7,6 +7,8 @@ using TTSMixmaster.Core.Configuration;
 
 namespace TTSMixmaster.Core.Tests.Azure;
 
+[TestClass]
+[DoNotParallelize]
 public sealed class AzureAccountTests : IDisposable
 {
     private const string Tenant = "11111111-1111-1111-1111-111111111111";
@@ -14,17 +16,17 @@ public sealed class AzureAccountTests : IDisposable
     private readonly string _root = Directory.CreateTempSubdirectory("ttsm-azure-").FullName;
     private static AzureStorageAccount Account => new($"/subscriptions/{Tenant}/resourceGroups/group/providers/Microsoft.Storage/storageAccounts/account", "account", Tenant, Tenant);
 
-    [Fact]
+    [TestMethod]
     public async Task Missing_client_id_is_a_safe_result_without_constructing_credentials()
     {
         var service = new AzureAccountService(() => new(), new(_root), credentialFactory: _ => throw new Exception("must not run"), builtInClientId: "");
         var result = await service.SignInAsync();
-        Assert.False(result.Succeeded);
-        Assert.Contains("isn't configured", result.Error);
-        Assert.Null(service.CurrentAccount);
+        Assert.IsFalse(result.Succeeded);
+        Assert.Contains("isn't configured", result.Error!);
+        Assert.IsNull(service.CurrentAccount);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Signin_uses_broker_then_browser_when_unavailable_persists_record_and_restores_without_authentication()
     {
         var options = new List<InteractiveBrowserCredentialOptions>();
@@ -36,54 +38,54 @@ public sealed class AzureAccountTests : IDisposable
             return o is InteractiveBrowserCredentialBrokerOptions ? new FakeInteractive { Unavailable = true } : fake;
         });
         var result = await service.SignInAsync(Tenant);
-        Assert.True(result.Succeeded, result.Error);
-        Assert.IsType<InteractiveBrowserCredentialBrokerOptions>(options[0]);
-        Assert.Equal(3, options.Count);
-        Assert.Equal(new Uri("http://localhost"), options[1].RedirectUri);
-        Assert.All(options, o =>
+        Assert.IsTrue(result.Succeeded, result.Error);
+        Assert.IsExactInstanceOfType<InteractiveBrowserCredentialBrokerOptions>(options[0]);
+        Assert.AreEqual(3, options.Count);
+        Assert.AreEqual(new Uri("http://localhost"), options[1].RedirectUri);
+        foreach (var o in options)
         {
-            Assert.Equal(Client, o.ClientId);
-            Assert.Equal("common", o.TenantId);
+            Assert.AreEqual(Client, o.ClientId);
+            Assert.AreEqual("common", o.TenantId);
             Assert.Contains("*", o.AdditionallyAllowedTenants);
-            Assert.True(o.DisableAutomaticAuthentication);
-            Assert.False(o.TokenCachePersistenceOptions.UnsafeAllowUnencryptedStorage);
-        });
-        Assert.Equal(new[] { "https://management.azure.com/.default", "https://storage.azure.com/.default" }, fake.Requests.Select(r => r.Scopes.Single()));
-        Assert.All(fake.Requests, r => Assert.Equal(Tenant, r.TenantId));
-        Assert.True(File.Exists(Path.Combine(_root, "azure-authentication-record.json")));
+            Assert.IsTrue(o.DisableAutomaticAuthentication);
+            Assert.IsFalse(o.TokenCachePersistenceOptions.UnsafeAllowUnencryptedStorage);
+        }
+        Assert.AreSequenceEqual(new[] { "https://management.azure.com/.default", "https://storage.azure.com/.default" }, fake.Requests.Select(r => r.Scopes.Single()));
+        foreach (var r in fake.Requests) Assert.AreEqual(Tenant, r.TenantId);
+        Assert.IsTrue(File.Exists(Path.Combine(_root, "azure-authentication-record.json")));
         var restored = new AzureAccountService(() => settings, new(_root), credentialFactory: o =>
         {
-            Assert.NotNull(o.AuthenticationRecord);
+            Assert.IsNotNull(o.AuthenticationRecord);
             return new FakeInteractive { Unavailable = true };
         });
-        Assert.Equal(result.Account, await restored.RestoreSessionAsync());
+        Assert.AreEqual(result.Account, await restored.RestoreSessionAsync());
         var credential = service.GetCredential(Tenant);
         var cacheDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), ".IdentityService");
         Directory.CreateDirectory(cacheDirectory);
         var cacheFiles = new[] { ".cae", ".nocae" }.Select(suffix => Path.Combine(cacheDirectory, options[0].TokenCachePersistenceOptions.Name + suffix)).ToArray();
         foreach (var file in cacheFiles) File.WriteAllText(file, "test-only non-token cache marker");
         await service.SignOutAsync();
-        Assert.All(cacheFiles, file => Assert.False(File.Exists(file)));
-        Assert.Null(service.CurrentAccount);
-        Assert.False(File.Exists(Path.Combine(_root, "azure-authentication-record.json")));
-        await Assert.ThrowsAsync<AzureAccountException>(async () => await credential.GetTokenAsync(new TokenRequestContext(["scope"]), default));
+        foreach (var file in cacheFiles) Assert.IsFalse(File.Exists(file));
+        Assert.IsNull(service.CurrentAccount);
+        Assert.IsFalse(File.Exists(Path.Combine(_root, "azure-authentication-record.json")));
+        await Assert.ThrowsExactlyAsync<AzureAccountException>(async () => await credential.GetTokenAsync(new TokenRequestContext(["scope"]), default));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Settings_client_change_invalidates_restored_session()
     {
         var settings = new AppSettings { AzureClientId = Client };
         var service = new AzureAccountService(() => settings, new(_root), credentialFactory: _ => new FakeInteractive());
-        Assert.True((await service.SignInAsync()).Succeeded);
+        Assert.IsTrue((await service.SignInAsync()).Succeeded);
         settings.AzureClientId = Tenant;
-        Assert.Throws<AzureAccountException>(() => service.GetCredential(Tenant));
-        Assert.Null(await new AzureAccountService(() => settings, new(_root)).RestoreSessionAsync());
+        Assert.ThrowsExactly<AzureAccountException>(() => service.GetCredential(Tenant));
+        Assert.IsNull(await new AzureAccountService(() => settings, new(_root)).RestoreSessionAsync());
     }
 
-    [Theory]
-    [InlineData("broker_error", true)]
-    [InlineData("authentication_canceled", false)]
-    [InlineData("invalid_client", false)]
+    [TestMethod]
+    [DataRow("broker_error", true)]
+    [DataRow("authentication_canceled", false)]
+    [DataRow("invalid_client", false)]
     public async Task Wrapped_broker_failure_falls_back_but_cancel_and_registration_errors_do_not(string code, bool shouldFallback)
     {
         var usedBrowser = false;
@@ -96,12 +98,12 @@ public sealed class AzureAccountTests : IDisposable
                 return new FakeInteractive();
             });
         var result = await service.SignInAsync();
-        Assert.Equal(shouldFallback, result.Succeeded);
-        Assert.Equal(shouldFallback, usedBrowser);
+        Assert.AreEqual(shouldFallback, result.Succeeded);
+        Assert.AreEqual(shouldFallback, usedBrowser);
         if (!shouldFallback) Assert.DoesNotContain("SECRET", result.Error!);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Per_tenant_credential_preserves_claims_and_scopes_for_guest_access()
     {
         var capture = new CapturingCredential();
@@ -109,77 +111,77 @@ public sealed class AzureAccountTests : IDisposable
         var first = service.GetCredential(Tenant);
         var second = service.GetCredential(Client);
         await first.GetTokenAsync(new TokenRequestContext(["scope"], claims: "claims", isCaeEnabled: true), default);
-        Assert.Equal(Tenant, capture.Last.TenantId);
-        Assert.Equal("claims", capture.Last.Claims);
-        Assert.True(capture.Last.IsCaeEnabled);
+        Assert.AreEqual(Tenant, capture.Last.TenantId);
+        Assert.AreEqual("claims", capture.Last.Claims);
+        Assert.IsTrue(capture.Last.IsCaeEnabled);
         second.GetToken(new TokenRequestContext(["scope"]), default);
-        Assert.Equal(Client, capture.Last.TenantId);
+        Assert.AreEqual(Client, capture.Last.TenantId);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Check_access_uses_snapshot_and_redacts_provider_errors()
     {
         var service = new AzureAccountService(() => new(), new(_root), readAccess: (_, _, _) => Task.FromResult(
             new AzureAccessSnapshot([new([], [], ["Microsoft.Storage/*"], [])], true, AzureContainerPublicAccess.Blob)));
         var result = await service.CheckAccessAsync(Account, "audio");
-        Assert.True(result.IsReady);
-        Assert.False(result.CanGrantDataPlaneWrite);
+        Assert.IsTrue(result.IsReady);
+        Assert.IsFalse(result.CanGrantDataPlaneWrite);
         var failed = new AzureAccountService(() => new(), new(_root), readAccess: (_, _, _) => throw new global::Azure.RequestFailedException(403, "SECRET token"));
-        var error = await Assert.ThrowsAsync<AzureAccountException>(() => failed.CheckAccessAsync(Account, "audio"));
+        var error = await Assert.ThrowsExactlyAsync<AzureAccountException>(() => failed.CheckAccessAsync(Account, "audio"));
         Assert.DoesNotContain("SECRET", error.Message);
-        Assert.Null(error.InnerException);
+        Assert.IsNull(error.InnerException);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task Zero_wait_returns_denied_snapshot_and_cancellation_is_preserved()
     {
         var service = new AzureAccountService(() => new(), new(_root), readAccess: (_, _, _) => Task.FromResult(
             new AzureAccessSnapshot([], false, AzureContainerPublicAccess.None)));
-        Assert.False((await service.WaitForAccessAsync(Account, "audio", TimeSpan.Zero)).HasDataPlaneWrite);
+        Assert.IsFalse((await service.WaitForAccessAsync(Account, "audio", TimeSpan.Zero)).HasDataPlaneWrite);
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.CheckAccessAsync(Account, "audio", cancelled.Token));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.SignInAsync(ct: cancelled.Token));
+        await Assert.ThrowsAsync<OperationCanceledException>(() => service.CheckAccessAsync(Account, "audio", cancelled.Token));
+        await Assert.ThrowsAsync<OperationCanceledException>(() => service.SignInAsync(ct: cancelled.Token));
     }
 
-    [Theory]
-    [InlineData(true, AzureContainerPublicAccess.Blob, true)]
-    [InlineData(true, AzureContainerPublicAccess.Container, true)]
-    [InlineData(true, AzureContainerPublicAccess.None, false)]
-    [InlineData(false, AzureContainerPublicAccess.Blob, false)]
-    [InlineData(null, AzureContainerPublicAccess.Blob, false)]
+    [TestMethod]
+    [DataRow(true, AzureContainerPublicAccess.Blob, true)]
+    [DataRow(true, AzureContainerPublicAccess.Container, true)]
+    [DataRow(true, AzureContainerPublicAccess.None, false)]
+    [DataRow(false, AzureContainerPublicAccess.Blob, false)]
+    [DataRow(null, AzureContainerPublicAccess.Blob, false)]
     public void Public_access_requires_account_and_container(bool? account, AzureContainerPublicAccess container, bool expected)
     {
-        Assert.Equal(expected, AzureAccessResult.Evaluate(new([], account, container)).IsAnonymouslyReadable);
+        Assert.AreEqual(expected, AzureAccessResult.Evaluate(new([], account, container)).IsAnonymouslyReadable);
     }
 
-    [Fact]
+    [TestMethod]
     public void Management_owner_can_grant_but_does_not_automatically_have_blob_data_write()
     {
         var result = AzureAccessResult.Evaluate(new([new(["*"], [], [], [])], true, AzureContainerPublicAccess.Blob));
-        Assert.True(result.CanGrantDataPlaneWrite);
-        Assert.False(result.HasDataPlaneWrite);
+        Assert.IsTrue(result.CanGrantDataPlaneWrite);
+        Assert.IsFalse(result.HasDataPlaneWrite);
     }
 
-    [Fact]
+    [TestMethod]
     public void Wildcards_exclusions_and_additive_grants_are_evaluated_per_permission_entry()
     {
         const string write = "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/write";
         var restricted = new AzurePermission(["*"], ["Microsoft.Authorization/*/write"], ["*"], [write]);
         var denied = AzureAccessResult.Evaluate(new([restricted], true, AzureContainerPublicAccess.Blob));
-        Assert.False(denied.CanGrantDataPlaneWrite);
-        Assert.False(denied.HasDataPlaneWrite);
+        Assert.IsFalse(denied.CanGrantDataPlaneWrite);
+        Assert.IsFalse(denied.HasDataPlaneWrite);
         var allowed = AzureAccessResult.Evaluate(new([restricted, new([], [], [write.ToUpperInvariant()], [])], true, AzureContainerPublicAccess.Blob));
-        Assert.True(allowed.HasDataPlaneWrite);
+        Assert.IsTrue(allowed.HasDataPlaneWrite);
     }
 
-    [Theory]
-    [InlineData("a")]
-    [InlineData("UPPER")]
-    [InlineData("audio--files")]
-    [InlineData("audio/elsewhere")]
-    [InlineData("-audio")]
-    public void Invalid_container_names_are_rejected(string name) => Assert.Throws<AzureAccountException>(() => AzureStorageAddress.ContainerName(name));
+    [TestMethod]
+    [DataRow("a")]
+    [DataRow("UPPER")]
+    [DataRow("audio--files")]
+    [DataRow("audio/elsewhere")]
+    [DataRow("-audio")]
+    public void Invalid_container_names_are_rejected(string name) => Assert.ThrowsExactly<AzureAccountException>(() => AzureStorageAddress.ContainerName(name));
 
     public void Dispose() => Directory.Delete(_root, true);
 

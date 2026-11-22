@@ -4,7 +4,7 @@ TTSMixmaster turns music-service playlists (Last.fm, YouTube, Spotify) into Tabl
 music-player objects. It finds each track's audio (yt-dlp + ffmpeg), uploads the MP3s to Azure Blob
 Storage, and generates TTS Lua/JSON/save files that point at the public blob URLs.
 
-## Current state: Python → .NET port in progress
+## Current state: Python â†’ .NET port in progress
 
 - **Legacy (reference only):** the Python app in `src/api`, `src/downloader`, `src/uploader`,
   `src/tts_formatter`, `src/gui`, `src/utils`, `main.py`. It is the behavioral spec for the port.
@@ -16,7 +16,10 @@ TTSMixmaster.slnx
 src/TTSMixmaster.Core/        net10.0 class library: models, services, downloader, uploader, TTS formatter, config, file layout.
                               No UI or WinUI references, so it is unit-testable and agent-friendly.
 src/TTSMixmaster.App/         WinUI 3 app (unpackaged, Windows App SDK self-contained), MVVM via CommunityToolkit.Mvvm.
-tests/                        MSTest (MSTest.Sdk on Microsoft.Testing.Platform); see docs/TESTING.md.
+tests/TTSMixmaster.Core.Tests/            MSTest unit tests for Core.
+tests/TTSMixmaster.Core.IntegrationTests/ MSTest integration tests (real tools, Azurite, real files).
+tests/TTSMixmaster.App.Tests/             MSTest WinUI UI-thread tests ([UITestMethod]).
+tests/e2e/                                winapp ui smoke script (Sandbox/local). See docs/TESTING.md.
 installer/msix/               MSIX manifest, assets and PRI config. Releases ship an x64+ARM64 .msixbundle with
                               App Installer auto-update, plus portable zips (scripts/package-release.ps1, docs/RELEASING.md).
 ```
@@ -25,7 +28,7 @@ installer/msix/               MSIX manifest, assets and PRI config. Releases shi
 
 ```powershell
 dotnet build TTSMixmaster.slnx -p:Platform=x64
-dotnet test tests/TTSMixmaster.Core.Tests
+dotnet test --project tests/TTSMixmaster.Core.Tests          # MTP runner (global.json); see docs/TESTING.md for every layer
 dotnet publish src/TTSMixmaster.App -c Release -p:Platform=x64   # self-contained folder (win-x64.pubxml)
 ```
 
@@ -41,7 +44,7 @@ winapp ui screenshot --on sandbox -a TTSMixmaster -o <scratch>\shot.png
 
 Keep `--on sandbox` on every `winapp ui` command (see `winapp-sandbox`, `winui-ui-testing`). There is one
 shared Sandbox: don't stop or close it, and don't assume other workers' apps aren't in it too.
-The owner's machine has a Defender ASR rule (01443614-…) that blocks executing or reading freshly built
+The owner's machine has a Defender ASR rule (01443614-â€¦) that blocks executing or reading freshly built
 unsigned exes. The main checkout is excluded, but **Orca child worktrees may not be**. If you hit
 "Access denied" on `TTSMixmaster.exe`, report it; don't try to evade the rule. `dotnet TTSMixmaster.dll`
 is not a workaround (WinUI self-contained needs the app's own exe manifest).
@@ -71,6 +74,13 @@ is not a workaround (WinUI self-contained needs the app's own exe manifest).
 - **KISS + reliability over cleverness.** One obvious place for each concern (especially file paths and layout).
 - `config.json` stays readable by the .NET app (same snake_case keys) so existing users keep their settings.
 - Secrets never get logged or committed.
+- Tests: **MSTest only** (`MSTest.Sdk` on Microsoft.Testing.Platform, version pinned in `global.json`); never xUnit or NUnit.
+  Four layers, each in its own place: unit (`tests/TTSMixmaster.Core.Tests`, fakes only), integration
+  (`tests/TTSMixmaster.Core.IntegrationTests`, `[TestCategory("Integration")]`, real tools/Azurite, Inconclusive when
+  missing), App UI-thread (`tests/TTSMixmaster.App.Tests`, `[UITestMethod]` for anything touching WinUI objects) and
+  e2e (`tests/e2e/ui-smoke.ps1`, AutomationId selectors, Sandbox). Seal test classes, prefer `Assert.ThrowsExactly`,
+  `AreSequenceEqual`, `ContainsSingle`, and keep tests that share processes/ports/mutexes `[DoNotParallelize]`.
+  Commands per layer: `docs/TESTING.md`.
 
 ## Git
 
