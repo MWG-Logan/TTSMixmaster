@@ -11,10 +11,12 @@ The app has three places, in the navigation pane: **Collections**, **Builds** an
 
 Open **Settings → Music services** and fill in the services you use. All of them are optional.
 
-- **Last.fm:** API key, shared secret and username, for your top, loved and recent tracks (charts).
+- **Last.fm:** API key, shared secret and username, for your top, loved and recent tracks (charts) and
+  your top albums.
 - **YouTube:** an API key, and a channel ID for your own playlists.
 - **Spotify:** a client ID (and redirect URI), then **Sign in with Spotify**. Your browser handles the
-  sign-in; the app never sees your Spotify password.
+  sign-in; the app never sees your Spotify password. If Spotify asks you to sign in again after an
+  update, that is to approve reading your saved albums.
 
 Each service has **Test connection**. Getting the keys is covered in the
 [Installation Guide](INSTALLATION.md#set-up-the-music-services).
@@ -33,9 +35,23 @@ bundled yt-dlp can be updated from there with **Update yt-dlp**.
 
 ## 3. Pick a collection (Collections)
 
-**Collections** lists your playlists and charts from every connected service. Filter by service or by
-kind (**Playlists**, **Charts**), or type in **Search or paste a link**: a playlist name, or a Spotify,
-YouTube or Last.fm link.
+**Collections** lists your playlists, albums and charts from every connected service. Filter by service or
+by kind (**Playlists**, **Albums**, **Charts**), or type in **Search or paste a link**: a playlist or album
+name, or a Spotify, YouTube or Last.fm link.
+
+Search follows the selected kind; under **All** it finds both playlists and albums, and each result says
+which it is. Your own albums are your saved albums on Spotify, YouTube Music album playlists on your
+channel, and your top albums on Last.fm.
+
+Album links that work:
+
+- **Spotify:** `https://open.spotify.com/album/…` (from **Share → Copy album link**).
+- **YouTube Music:** the link from **Share** on an album, `https://music.youtube.com/playlist?list=OLAK5uy_…`.
+  The address-bar link `music.youtube.com/browse/MPREb_…` can't be opened; use Share instead.
+  YouTube has no album search of its own, so album search on YouTube finds only the albums its playlist
+  search happens to return.
+- **Last.fm:** an album page, `https://www.last.fm/music/Artist/Album`. Last.fm has no audio, so each track
+  is found by searching, as for Last.fm charts.
 
 ## 4. Build it (collection page)
 

@@ -19,17 +19,43 @@ additional package is `System.Security.Cryptography.ProtectedData`, pinned to `1
   `overall` and 50 tracks with the configured username. Standard Last.fm user URLs
   ending in `/library/tracks`, `/loved`, and `/library` are accepted; named
   `date_preset` periods map to API periods. Arbitrary custom date ranges are not supported.
+- Last.fm albums: `lastfm:album?artist=ARTIST&album=NAME` (URI escaped; build it with
+  `LastFmService.CreateAlbumId`), or `https://www.last.fm/music/Artist/Album` (`+` is a space,
+  `%2B` a plus). Loaded with `album.getInfo`. The id keeps the requested spelling, not Last.fm's
+  correction, so a listed album and its loaded copy share one library folder. An album without a
+  track list is a `ServiceException`. Tracks have no audio URL; the downloader searches.
+  `GetTopAlbumsAsync(period, limit, user)` lists `user.getTopAlbums` for the same periods as
+  top tracks; "your collections" adds the all-time top 50, each an `Album`.
 - YouTube: raw playlist IDs, or `https://[www.|music.]youtube.com/playlist?list=ID`.
   The legacy `LL` and `WL` entries remain playlists, with availability explained in
-  their descriptions and in errors when selected.
+  their descriptions and in errors when selected. Playlists whose ID starts with
+  `OLAK5uy_` are YouTube Music albums: kind `Album`, a leading `Album - ` (any case)
+  dropped from the name, and the owner taken from the channel when it is an artist
+  (`<Artist> - Topic`, suffix stripped), else from the tracks' Topic channel on load,
+  never "YouTube". Album tracks keep their title unsplit and carry the album name.
+  `https://music.youtube.com/browse/MPREb_…` album pages fail with a message to copy the
+  Share link instead: the Data API can't map a browse ID to its playlist without scraping.
 - Spotify: raw playlist IDs, `spotify:playlist:ID`, or
   `https://open.spotify.com/playlist/ID` (including localized `/intl-xx/` URLs).
+  Albums are `spotify:album:ID` or `https://open.spotify.com/album/ID` (also `/intl-xx/`),
+  loaded from `/albums/{id}` plus every `/albums/{id}/tracks` page, in disc then track order.
+  `TrackNumber` runs across discs, and the largest album image is the thumbnail.
   Personal collections use `spotify:liked`, `spotify:recent`, and
-  `spotify:top:short_term|medium_term|long_term`.
+  `spotify:top:short_term|medium_term|long_term`; signed in, the listing also includes saved
+  albums (`/me/albums`).
 
-Last.fm top/loved/recent and Spotify top/recent are `Chart`; other collections are
-`Playlist`. Album search currently returns an empty list. These IDs and behavior are
-also documented in the implementations' XML comments.
+Last.fm top/loved/recent and Spotify top/recent are `Chart`; albums are `Album`; other
+collections are `Playlist`. An album's artist (all artists, comma separated) is its `Owner`.
+
+Search by kind:
+- Spotify: `Playlist` (`type=playlist`) and `Album` (`type=album`).
+- YouTube: `Playlist` leaves out album playlists; `Album` is the same playlist search keeping
+  only `OLAK5uy_` results. The Data API has no album search, so this finds only albums that
+  playlist search returns. It reads at most two pages (100 quota units each).
+- Last.fm: `Album` (`album.search`); there are no playlists.
+- `Chart` search returns an empty list everywhere.
+
+These IDs and behavior are also documented in the implementations' XML comments.
 
 ## Spotify sign-in
 
@@ -41,6 +67,11 @@ The configured redirect must use an explicit loopback IP, such as
 listener validates the callback path and random state, handles cancellation, and
 times out after three minutes. PKCE mode requires only the client ID; the configured
 client secret is used only when `SpotifyUseOauth` is false (public-data mode).
+
+The requested scopes include `user-library-read` (liked songs and saved albums). When a
+refresh response lists its scopes and one we request is missing (a sign-in from before a
+scope was added), the saved sign-in is cleared and the user is told to connect again, which
+prompts a new consent. A 403 on saved albums does the same.
 
 Only the refresh token and its client ID are persisted, as a binary DPAPI CurrentUser
 encrypted payload in `AppPaths.DataRoot/spotify_token.json`. Despite the compatibility

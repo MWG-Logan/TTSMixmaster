@@ -13,6 +13,14 @@ _Avoid_: downloads folder, cache
 A list of tracks from one music service that the user opens as a unit: a playlist, album or chart. A collection is identified by its service and collection id, never by its name.
 _Avoid_: playlist (when the kind doesn't matter)
 
+**Album**:
+A collection that is one released album, with its tracks in disc and track order and its artist as the owner. Each service gives it its own id: `spotify:album:ID`, a YouTube Music album playlist id, or `lastfm:album?artist=…&album=…`.
+_Avoid_: record, release
+
+**YouTube Music album playlist**:
+The playlist YouTube generates for an album, whose id starts with `OLAK5uy_`. It is how an album reaches TTSMixmaster from YouTube: YouTube titles it "Album - Name" and owns it as "YouTube", so the app drops the prefix and names the artist from the tracks' "<Artist> - Topic" channel. A `music.youtube.com/browse/MPREb_…` album page is not one, and can't be opened.
+_Avoid_: OLAK playlist, auto-generated playlist
+
 **Collection folder**:
 The folder in the library that belongs to exactly one collection, as its owner marker records. Its name pairs the collection's display name with its identity, so it stays the same when the collection is renamed.
 _Avoid_: playlist folder
