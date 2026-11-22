@@ -76,7 +76,7 @@ public sealed partial class BuildItemViewModel : ObservableObject
     [RelayCommand]
     private async Task CopyLuaAsync()
     {
-        if (_record.LuaFile is not { Length: > 0 } lua || !File.Exists(lua))
+        if (_record.LuaFileIn(Folder) is not { } lua || !File.Exists(lua))
             return;
         var package = new DataPackage();
         package.SetText(await File.ReadAllTextAsync(lua));
@@ -115,30 +115,64 @@ public sealed partial class BuildsViewModel(AppServices app) : ObservableObject
     public bool HasItems => Count > 0;
     public bool IsEmpty => Count == 0;
 
+    /// <summary>Builds whose record is damaged: named here, left out of the list, never a crash.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDamagedBuilds))]
+    public partial string DamagedBuilds { get; set; } = "";
+
+    public bool HasDamagedBuilds => DamagedBuilds.Length > 0;
+
     [RelayCommand]
     public void Refresh()
     {
         Items.Clear();
         LoadError = "";
+        DamagedBuilds = "";
         OutputRoot = app.Paths.TtsOutputRoot(app.Settings);
+        var items = new List<BuildItemViewModel>();
+        var damaged = new List<string>();
         try
         {
             if (Directory.Exists(OutputRoot))
             {
                 // Only folders the app built (they carry its record); anything else in the root is left alone.
-                foreach (var item in Directory.EnumerateDirectories(OutputRoot)
-                             .Select(d => (Folder: d, Record: BuildRecord.Read(d)))
-                             .Where(b => b.Record is not null)
-                             .Select(b => new BuildItemViewModel(app, b.Folder, b.Record!))
-                             .OrderByDescending(b => b.BuiltAt))
-                    Items.Add(item);
+                foreach (var folder in Directory.EnumerateDirectories(OutputRoot))
+                {
+                    var read = BuildRecord.Read(folder);
+                    if (read.Record is { } record && Row(folder, record) is { } item)
+                        items.Add(item);
+                    else if (read.Record is not null || read.IsDamaged)
+                    {
+                        app.Log.Warn($"Build record in \"{Path.GetFileName(folder)}\" is damaged; it isn't listed");
+                        damaged.Add(Path.GetFileName(folder));
+                    }
+                }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            LoadError = $"Couldn't read {OutputRoot}. {ex.Message}";
+            app.Log.Error("Couldn't list builds", ex);
+            LoadError = $"Couldn't open the builds folder ({Path.GetFileName(OutputRoot)}). Check that it still exists and you can open it.";
         }
+        foreach (var item in items.OrderByDescending(b => b.BuiltAt))
+            Items.Add(item);
+        damaged.Sort(StringComparer.CurrentCultureIgnoreCase);
+        DamagedBuilds = damaged.Count == 0 ? "" : string.Join(", ", damaged);
         Count = Items.Count;
+    }
+
+    /// <summary>A validated record's row; null if it still can't be shown (one bad row never stops the page).</summary>
+    private BuildItemViewModel? Row(string folder, BuildRecord record)
+    {
+        try
+        {
+            return new BuildItemViewModel(app, folder, record);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            app.Log.Error($"Build in \"{Path.GetFileName(folder)}\" couldn't be listed", ex);
+            return null;
+        }
     }
 
     [RelayCommand]
