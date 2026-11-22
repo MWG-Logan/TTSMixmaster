@@ -37,11 +37,21 @@ internal sealed class FakeMusicService(ServiceKind kind) : IMusicService
         return Task.FromResult(ConnectionProblem);
     }
 
-    public Task<IReadOnlyList<CollectionSummary>> GetMyCollectionsAsync(CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<CollectionSummary>>([]);
+    /// <summary>What "your collections" lists.</summary>
+    public List<CollectionSummary> Mine { get; } = [];
 
-    public Task<IReadOnlyList<CollectionSummary>> SearchAsync(string query, CollectionKind kind, int limit = 20, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<CollectionSummary>>([]);
+    /// <summary>Search results by query and kind; every call is recorded in <see cref="Searches"/>.</summary>
+    public Func<string, CollectionKind, IReadOnlyList<CollectionSummary>> Search { get; set; } = (_, _) => [];
+    public List<(string Query, CollectionKind Kind)> Searches { get; } = [];
+
+    public Task<IReadOnlyList<CollectionSummary>> GetMyCollectionsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CollectionSummary>>([.. Mine]);
+
+    public Task<IReadOnlyList<CollectionSummary>> SearchAsync(string query, CollectionKind kind, int limit = 20, CancellationToken ct = default)
+    {
+        Searches.Add((query, kind));
+        return Task.FromResult(Search(query, kind));
+    }
 
     public Task<MusicCollection> GetCollectionAsync(string idOrUrl, CancellationToken ct = default) => Load(idOrUrl, ct);
 }

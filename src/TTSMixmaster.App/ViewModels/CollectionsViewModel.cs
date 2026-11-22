@@ -26,10 +26,10 @@ public sealed record CollectionItem(CollectionSummary Summary)
 public sealed partial class CollectionsViewModel(AppServices app) : ObservableObject
 {
     /// <summary>
-    /// Kinds a search covers when the filter is "All". Add <see cref="CollectionKind.Album"/> here
-    /// (and an "Albums" SelectorBarItem on the page) when the services support album search.
+    /// Kinds a search covers when the filter is "All". Each result's line names its kind ("Spotify · Album · …"),
+    /// so mixed results stay readable. Charts aren't searchable on any service.
     /// </summary>
-    private static readonly CollectionKind[] SearchableKinds = [CollectionKind.Playlist];
+    internal static readonly CollectionKind[] SearchableKinds = [CollectionKind.Playlist, CollectionKind.Album];
 
     private List<CollectionSummary> _results = [];
     private CancellationTokenSource? _loadCts;
@@ -157,6 +157,10 @@ public sealed partial class CollectionsViewModel(AppServices app) : ObservableOb
             _ = LoadAsync();
     }
 
+    /// <summary>The kind tab's tag: a <see cref="CollectionKind"/> name ("Album"), or empty for All.</summary>
+    public void SelectKind(string? tag) =>
+        KindFilter = Enum.TryParse<CollectionKind>(tag, ignoreCase: false, out var kind) && Enum.IsDefined(kind) ? kind : null;
+
     [RelayCommand]
     private Task SubmitAsync() => LoadAsync();
 
@@ -203,7 +207,10 @@ public sealed partial class CollectionsViewModel(AppServices app) : ObservableOb
                 var kinds = KindFilter is { } k ? [k] : SearchableKinds;
                 var found = new List<CollectionSummary>();
                 foreach (var kind in kinds)
-                    found.AddRange(await s.SearchAsync(text, kind, 20, cts.Token));
+                {
+                    // A service may return a mix (e.g. YouTube album playlists); keep only what was asked for.
+                    found.AddRange((await s.SearchAsync(text, kind, 20, cts.Token)).Where(c => c.Kind == kind));
+                }
                 return found;
             }
             catch (OperationCanceledException)
@@ -247,7 +254,7 @@ public sealed partial class CollectionsViewModel(AppServices app) : ObservableOb
             ? $"No collections match “{Query.Trim()}”. Try fewer words, or paste a share link instead."
             : KindFilter is { } k
                 ? $"No {Display.KindName(k).ToLowerInvariant()}s from {SelectedService?.Name ?? "your services"} yet."
-                : "Nothing here yet. Search above, or paste a link to a playlist.";
+                : "Nothing here yet. Search above, or paste a link to a playlist or album.";
         OnPropertyChanged(nameof(HasItems));
         OnPropertyChanged(nameof(IsEmpty));
     }
