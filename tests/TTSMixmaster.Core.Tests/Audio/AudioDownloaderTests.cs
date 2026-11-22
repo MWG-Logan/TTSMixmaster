@@ -231,6 +231,23 @@ public sealed class AudioDownloaderTests : IDisposable
     }
 
     [TestMethod]
+    public async Task Album_tracks_search_by_artist_and_title_without_the_album_name()
+    {
+        // Measured 2026-11-22 on 40 album tracks (yt-dlp ytsearch1, duration within 8%): "Artist - Title" matched
+        // 37/40 and "Artist - Title Album" 38/40, but the album term also picked a tribute band named after the
+        // album and a re-upload over the artist's own audio. Not worth it; see src/TTSMixmaster.Core/Audio/README.md.
+        var collection = Collection(Song with { Album = "Discovery" }) with
+        {
+            Summary = new() { Id = "spotify:album:abc", Name = "Discovery", Service = ServiceKind.Spotify, Kind = CollectionKind.Album },
+        };
+        _runner.Handler = (args, _) => { WriteMp3(OutputPath(args)); return Task.FromResult(new ProcessResult(0, "", "")); };
+
+        await _downloader.DownloadAsync(collection);
+
+        Assert.AreEqual("ytsearch1:Artist - Song", Assert.ContainsSingle(_runner.Calls).Arguments[^1]);
+    }
+
+    [TestMethod]
     public async Task Existing_mp3_source_is_reencoded_when_yt_dlp_preserves_the_wrong_bitrate()
     {
         _runner.Handler = (args, _) =>
