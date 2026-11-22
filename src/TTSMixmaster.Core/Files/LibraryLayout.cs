@@ -519,7 +519,7 @@ public sealed partial class LibraryLayout
         return cleaned;
     }
 
-    // The Python app's folder names (src/utils/config.py sanitize_filename): used only to find legacy folders.
+    // The legacy Python app's folder names (its sanitize_filename helper): used only to find legacy folders.
     private static string LegacySanitize(string name)
     {
         var cleaned = Whitespace().Replace(LegacyInvalid().Replace(name, ""), " ").Trim();

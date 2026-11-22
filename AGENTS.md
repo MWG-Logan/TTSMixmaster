@@ -4,12 +4,12 @@ TTSMixmaster turns music-service playlists (Last.fm, YouTube, Spotify) into Tabl
 music-player objects. It finds each track's audio (yt-dlp + ffmpeg), uploads the MP3s to Azure Blob
 Storage, and generates TTS Lua/JSON/save files that point at the public blob URLs.
 
-## Current state: Python â†’ .NET port in progress
+## Project layout
 
-- **Legacy (reference only):** the Python app in `src/api`, `src/downloader`, `src/uploader`,
-  `src/tts_formatter`, `src/gui`, `src/utils`, `main.py`. It is the behavioral spec for the port.
-  Don't add features to it. It is deleted once the .NET app reaches parity.
-- **Target:** .NET 10 + WinUI 3 (Windows App SDK 2.x), Windows-only.
+.NET 10 + WinUI 3 (Windows App SDK 2.x), Windows-only. It replaced an earlier Python app, which is
+gone from the tree (git history has it, e.g. commit `5467f7d`). What remains of it: `config.json` keys
+stay compatible (an old `config.json` is imported once on first run), legacy download folders are left
+alone, and `tests/TTSMixmaster.Core.Tests/Tts/golden/` keeps its TTS output as a frozen byte-level reference.
 
 ```
 TTSMixmaster.slnx
@@ -34,6 +34,11 @@ dotnet publish src/TTSMixmaster.App -c Release -p:Platform=x64   # self-containe
 
 Always pass `-p:Platform=x64` (or ARM64) when building the solution or the App; the solution has no AnyCPU config.
 
+The build must stay at **zero warnings**: .NET analyzers (`latest-recommended`) and the code-style rules in
+`.editorconfig` run in every build (`Directory.Build.props`). Fix what they flag; downgrade a rule in
+`.editorconfig` only with a one-line reason. Package versions live in `Directory.Packages.props`
+(Central Package Management), not in project files. Line endings are LF (`.gitattributes`).
+
 **Run and verify the UI in Windows Sandbox, not on the owner's desktop:**
 
 ```powershell
@@ -44,7 +49,7 @@ winapp ui screenshot --on sandbox -a TTSMixmaster -o <scratch>\shot.png
 
 Keep `--on sandbox` on every `winapp ui` command (see `winapp-sandbox`, `winui-ui-testing`). There is one
 shared Sandbox: don't stop or close it, and don't assume other workers' apps aren't in it too.
-The owner's machine has a Defender ASR rule (01443614-â€¦) that blocks executing or reading freshly built
+The owner's machine has a Defender ASR rule (01443614-…) that blocks executing or reading freshly built
 unsigned exes. The main checkout is excluded, but **Orca child worktrees may not be**. If you hit
 "Access denied" on `TTSMixmaster.exe`, report it; don't try to evade the rule. `dotnet TTSMixmaster.dll`
 is not a workaround (WinUI self-contained needs the app's own exe manifest).

@@ -17,8 +17,8 @@ namespace TTSMixmaster.Core.IntegrationTests;
 [TestCategory("Integration")]
 public sealed class AzuriteUploadIntegrationTests : IDisposable
 {
-    private static AzuriteHost? s_azurite;
-    private static string? s_unavailable;
+    private static AzuriteHost? _azurite;
+    private static string? _unavailable;
 
     private readonly TestContext _context;
     private readonly TempRoot _root = new();
@@ -40,18 +40,18 @@ public sealed class AzuriteUploadIntegrationTests : IDisposable
 
     [ClassInitialize]
     public static async Task StartAzuriteAsync(TestContext context) =>
-        (s_azurite, s_unavailable) = await AzuriteHost.TryStartAsync(context.CancellationToken);
+        (_azurite, _unavailable) = await AzuriteHost.TryStartAsync(context.CancellationToken);
 
     [ClassCleanup]
-    public static void StopAzurite() => s_azurite?.Dispose();
+    public static void StopAzurite() => _azurite?.Dispose();
 
     /// <summary>Azurite, with this test's container created at the given public access level.</summary>
     private async Task<BlobContainerClient> ContainerAsync(PublicAccessType access)
     {
-        if (s_azurite is null)
-            Assert.Inconclusive(s_unavailable!);
-        _settings.AzureStorageConnectionString = s_azurite.ConnectionString;
-        var container = new BlobContainerClient(s_azurite.ConnectionString, _settings.AzureContainerName);
+        if (_azurite is null)
+            Assert.Inconclusive(_unavailable!);
+        _settings.AzureStorageConnectionString = _azurite.ConnectionString;
+        var container = new BlobContainerClient(_azurite.ConnectionString, _settings.AzureContainerName);
         await container.CreateAsync(access, cancellationToken: _context.CancellationToken);
         return container;
     }
@@ -83,7 +83,7 @@ public sealed class AzuriteUploadIntegrationTests : IDisposable
         var result = Assert.ContainsSingle(await uploader.UploadAsync([file], ct: _context.CancellationToken));
 
         Assert.AreEqual(TrackStatus.Done, result.Status, result.Error);
-        var expectedUrl = $"{s_azurite!.BlobEndpoint.AbsoluteUri.TrimEnd('/')}/{_settings.AzureContainerName}/audio/{sha}.mp3";
+        var expectedUrl = $"{_azurite!.BlobEndpoint.AbsoluteUri.TrimEnd('/')}/{_settings.AzureContainerName}/audio/{sha}.mp3";
         Assert.AreEqual(expectedUrl, result.PublicUrl);
 
         // What TTS does: an anonymous GET of the public URL returns exactly the uploaded bytes.

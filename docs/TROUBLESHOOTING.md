@@ -62,14 +62,14 @@
 ## Runtime Issues
 
 ### Download Failures
-- Verify internet connection and try different search engines
+- Verify your internet connection
 - Some videos may be region-restricted or unavailable
 - Update TTSMixmaster to the latest release, which bundles a current yt-dlp
 - Check for age-restricted or private content
 - Verify the search terms are finding valid results
 
 ### Upload Issues
-- **For Azure**: Verify connection string and container permissions
+- **For Azure**: check the **Storage** section in Settings; it reports missing access or public read
 - Check network connectivity and firewall settings
 - Ensure sufficient storage account space
 - Verify file permissions and sizes
@@ -149,23 +149,11 @@
 ## Getting Help
 
 ### Diagnostic Steps
-1. Check the `ttsmixmaster.log` file for detailed error messages
-2. Verify configuration using the test buttons in the app's settings
-
-### Configuration Validation
-Use the built-in test buttons in the Configuration tab to validate:
-- ✅ Last.fm API credentials and username
-- ✅ YouTube Data API v3 key and permissions
-- ✅ Spotify Client ID and Secret
-- ✅ Azure Storage connection and container access
-
-These tests provide immediate feedback on configuration issues.
-
-### Log Files
-Check the following log files for detailed error information:
-- `ttsmixmaster.log` - Main application log
-- Console output - Real-time error messages
-- Service-specific error messages in the GUI
+1. Check the latest log in `%LOCALAPPDATA%\TTSMixmaster\logs\` (`app-<date>.log`, one per day, the
+   last seven kept).
+2. Use **Test connection** for each service on the **Settings** page. It checks the Last.fm, YouTube and
+   Spotify credentials. The **Storage** section shows whether Azure access and public read are ready.
+3. On a collection, each track's status shows why it failed.
 
 ### Common Error Messages
 

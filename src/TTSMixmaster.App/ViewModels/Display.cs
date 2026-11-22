@@ -1,3 +1,4 @@
+using System.Globalization;
 using TTSMixmaster.Core.Models;
 
 namespace TTSMixmaster.App.ViewModels;
@@ -22,7 +23,7 @@ public static class Display
     };
 
     public static string Duration(TimeSpan d) =>
-        d <= TimeSpan.Zero ? "" : d.TotalHours >= 1 ? d.ToString(@"h\:mm\:ss") : d.ToString(@"m\:ss");
+        d <= TimeSpan.Zero ? "" : d.ToString(d.TotalHours >= 1 ? @"h\:mm\:ss" : @"m\:ss", CultureInfo.InvariantCulture);
 
     public static string TrackCount(int? count) => count switch
     {

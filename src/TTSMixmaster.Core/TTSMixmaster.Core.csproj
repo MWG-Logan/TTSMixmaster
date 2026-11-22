@@ -7,18 +7,18 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Azure.Identity" Version="1.21.0" />
-    <PackageReference Include="Azure.Identity.Broker" Version="1.7.0" />
-    <PackageReference Include="Azure.ResourceManager" Version="1.14.0" />
-    <PackageReference Include="Azure.ResourceManager.Storage" Version="1.9.0" />
-    <PackageReference Include="Azure.ResourceManager.Authorization" Version="1.1.7" />
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.30.2" />
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="11.0.0" />
-    <PackageReference Include="TagLibSharp" Version="2.3.0" />
+    <PackageReference Include="Azure.Identity" />
+    <PackageReference Include="Azure.Identity.Broker" />
+    <PackageReference Include="Azure.ResourceManager" />
+    <PackageReference Include="Azure.ResourceManager.Storage" />
+    <PackageReference Include="Azure.ResourceManager.Authorization" />
+    <PackageReference Include="Azure.Storage.Blobs" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    <PackageReference Include="TagLibSharp" />
     <!-- Chip image rendering (MIT). Native libs come from SkiaSharp.NativeAssets.Win32 /
          HarfBuzzSharp.NativeAssets.Win32, which ship win-x64, win-arm64 and win-x86. -->
-    <PackageReference Include="SkiaSharp" Version="4.157.0" />
-    <PackageReference Include="SkiaSharp.HarfBuzz" Version="4.157.0" />
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="SkiaSharp.HarfBuzz" />
   </ItemGroup>
 
   <ItemGroup>

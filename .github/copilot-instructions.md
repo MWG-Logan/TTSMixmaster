@@ -2,7 +2,7 @@
 
 # TTSMixmaster Project Instructions
 
-TTSMixmaster is a .NET 10 / WinUI 3 desktop app that turns music-service collections into Tabletop Simulator music players. All project guidance (layout, build and test commands, conventions, skills) lives in [AGENTS.md](../AGENTS.md) at the repo root. Read it first. The Python code under `src/api`, `src/downloader`, `src/uploader`, `src/tts_formatter`, `src/gui` and `src/utils` is the legacy implementation, kept only as a behavioral reference.
+TTSMixmaster is a .NET 10 / WinUI 3 desktop app that turns music-service collections into Tabletop Simulator music players. All project guidance (layout, build and test commands, conventions, skills) lives in [AGENTS.md](../AGENTS.md) at the repo root. Read it first.
 
 Follow these steps for each interaction:
 
