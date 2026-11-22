@@ -29,9 +29,20 @@ public static class Program
             }
         }
 
-        var builder = await TestApplication.CreateBuilderAsync(args);
-        builder.AddSelfRegisteredExtensions(args);
-        using var app = await builder.BuildAsync();
-        return await app.RunAsync();
+        // Host infrastructure can fail before any test runs (seen: MTP's named pipe to `dotnet test` or its process
+        // monitor denied in a sandbox, UnauthorizedAccessException from NamedPipeClientStream.TryConnect). Report it
+        // and exit non-zero; an unhandled exception here would be a crash, not a failed run.
+        try
+        {
+            var builder = await TestApplication.CreateBuilderAsync(args);
+            builder.AddSelfRegisteredExtensions(args);
+            using var app = await builder.BuildAsync();
+            return await app.RunAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"The test host couldn't start or finish: {ex}");
+            return 4;
+        }
     }
 }
