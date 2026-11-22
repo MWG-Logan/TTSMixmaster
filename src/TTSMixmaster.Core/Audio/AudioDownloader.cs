@@ -42,25 +42,39 @@ public sealed class AudioDownloader(
     public async Task<IReadOnlyList<DownloadedTrack>> DownloadAsync(MusicCollection collection,
         IProgress<TrackProgress>? progress = null, CancellationToken ct = default)
     {
-        var names = ResolveFileNames(collection.Tracks);
-        var folder = layout.AudioFolder(collection);
+        ct.ThrowIfCancellationRequested();
+        string? folder = null;
+        string? folderError = null;
+        try { folder = layout.PrepareAudioFolder(collection); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { folderError = ex.Message; }
+
         List<DownloadedTrack> results = [];
         for (var index = 0; index < collection.Tracks.Count; index++)
         {
             ct.ThrowIfCancellationRequested();
             var track = collection.Tracks[index];
-            var finalPath = Path.Combine(folder, names[index]);
             DownloadedTrack result;
             try
             {
-                if (IsNonEmpty(finalPath))
-                    result = new(track, finalPath, TrackStatus.Skipped);
-                else
+                if (folder is null)
+                    throw new IOException(folderError);
+                // Resolved by track key through the state file, so changed display text never moves a track.
+                var (cached, finalPath) = layout.ResolveTrack(folder, track);
+                switch (cached)
                 {
-                    progress?.Report(new(index + 1, collection.Tracks.Count, track, TrackStatus.Working));
-                    Directory.CreateDirectory(folder);
-                    await DownloadTrackAsync(track, finalPath, ct).ConfigureAwait(false);
-                    result = new(track, finalPath, TrackStatus.Done);
+                    case CachedTrack.Verified:
+                        result = new(track, finalPath, TrackStatus.Skipped);
+                        break;
+                    case CachedTrack.Unverified:
+                        throw new IOException($"\"{Path.GetFileName(finalPath)}\" already exists but is not a verified download of this track. " +
+                            "Move or delete it, then try again.");
+                    default:
+                        progress?.Report(new(index + 1, collection.Tracks.Count, track, TrackStatus.Working));
+                        await DownloadTrackAsync(track, finalPath, ct).ConfigureAwait(false);
+                        // The state file describes only final files: record after the rename.
+                        layout.RecordDownload(folder, track, finalPath);
+                        result = new(track, finalPath, TrackStatus.Done);
+                        break;
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
@@ -89,9 +103,9 @@ public sealed class AudioDownloader(
         foreach (var source in sources)
         {
             ct.ThrowIfCancellationRequested();
-            var folder = Path.GetDirectoryName(finalPath)!;
-            var partialName = $".tts-download-{Guid.NewGuid():N}";
-            var partialBase = Path.Combine(folder, partialName);
+            // Partials live in the collection's reserved temp folder, never beside final files.
+            var partialBase = LibraryLayout.NewTempPath(Path.GetDirectoryName(finalPath)!);
+            var partialName = Path.GetFileName(partialBase);
             var mp3 = partialBase + ".mp3";
             try
             {
@@ -133,14 +147,12 @@ public sealed class AudioDownloader(
                     audio.Tag.Performers = [track.Artist];
                     audio.Tag.Album = track.Album;
                     audio.Tag.Track = (uint)Math.Max(0, track.TrackNumber ?? 0);
+                    LibraryLayout.WriteTrackKey(audio, track);
                     audio.Save();
                 }
                 ct.ThrowIfCancellationRequested();
-                // An old zero-byte placeholder is not a completed download. Never overwrite
-                // a non-empty file, including one another download published while we worked.
-                if (File.Exists(finalPath) && !IsNonEmpty(finalPath))
-                    File.Delete(finalPath);
-                File.Move(mp3, finalPath);
+                // Never overwrites a non-empty file, including one another download published while we worked.
+                layout.PublishNewFile(mp3, finalPath);
                 return;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
@@ -148,8 +160,8 @@ public sealed class AudioDownloader(
             finally
             {
                 // The prefix is unique to this attempt, so unrelated downloads are untouched.
-                foreach (var partial in Directory.EnumerateFiles(folder, partialName + ".*"))
-                    File.Delete(partial);
+                foreach (var partial in Directory.EnumerateFiles(Path.GetDirectoryName(partialBase)!, partialName + ".*"))
+                    LibraryLayout.DeleteQuietly(partial);
             }
         }
         throw new IOException(string.Join(Environment.NewLine, errors));
@@ -171,28 +183,5 @@ public sealed class AudioDownloader(
                 && !uri.AbsolutePath.StartsWith("/search", StringComparison.OrdinalIgnoreCase);
         return Path.GetExtension(uri.AbsolutePath).ToLowerInvariant() is
             ".mp3" or ".m4a" or ".mp4" or ".webm" or ".ogg" or ".opus" or ".wav" or ".flac" or ".m3u8";
-    }
-
-    private static string[] ResolveFileNames(IReadOnlyList<Track> tracks)
-    {
-        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var identities = new Dictionary<(string, string, string, string), string>();
-        var names = new string[tracks.Count];
-        for (var i = 0; i < tracks.Count; i++)
-        {
-            var track = tracks[i];
-            var identity = (track.Artist.Trim().ToUpperInvariant(), track.Title.Trim().ToUpperInvariant(),
-                track.Album.Trim().ToUpperInvariant(), track.SourceUrl.Trim());
-            if (!identities.TryGetValue(identity, out var name))
-            {
-                name = LibraryLayout.TrackFileName(track);
-                var stem = Path.GetFileNameWithoutExtension(name);
-                for (var suffix = 2; !used.Add(name); suffix++)
-                    name = $"{stem} ({suffix}).mp3";
-                identities.Add(identity, name);
-            }
-            names[i] = name;
-        }
-        return names;
     }
 }

@@ -87,7 +87,7 @@ both Blob and Container levels permit them. An unset account flag is unknown and
 conservatively. `IsReady` is an ARM configuration assessment, **not** proof of a successful upload.
 Conditions, deny assignments, network/firewall restrictions, leases and RBAC propagation can
 still block requests. Nothing writes a probe blob. `WaitForAccessAsync` polls ARM every five
-seconds for up to two minutes (configurable 0–5 minutes); timeout returns the final result.
+seconds for up to two minutes (configurable 0â€“5 minutes); timeout returns the final result.
 Even after ARM sees the grant, the data plane may need more time. Keep retry/cancel available.
 
 Role assignment uses the `oid` from an ARM token obtained directly from Entra in the selected
@@ -102,8 +102,23 @@ A nonempty `azure_storage_account` selects Entra mode, even if a connection stri
 The URI is `https://{account}.blob.core.windows.net/{container}`. Invalid account names are
 rejected before a token can be sent. With no account selected, an explicitly configured
 `azure_storage_connection_string` selects the Advanced legacy mode. Missing/expired sign-in
-never falls back to a key. Freshness, names, metadata, public URLs and per-file isolation are
-unchanged. Containers must now be created by the explicit picker action.
+never falls back to a key. Containers must now be created by the explicit picker action.
+
+Blob names, reuse and metadata follow [ADR 0001](../../../docs/adr/0001-library-layout.md):
+
+- Blobs are content-addressed: `audio/<64-hex SHA-256 of the file>.mp3`, with no display text in the name.
+  The same bytes always map to the same blob. Different bytes never share one, even when local file
+  names match across collections. Legacy `audio/<file name>` blobs are never written, so old exports keep working.
+- An existing blob is reused (`Skipped`) only if its length and its `content_sha256` metadata match the
+  file's full hash. A blob without that metadata, or with another value, fails the track and is left
+  unchanged; it is neither downloaded nor overwritten. Uploads send `If-None-Match: *`, and a blob
+  created concurrently is re-checked the same way. `azure_blob_freshness_days` is ignored.
+- Metadata: `source`, `upload_time`, `file_size`, `content_sha256`, `duration`, plus `original_filename`,
+  `track_key`, `artist`, `title`, `album` as percent-encoded UTF-8 (`Uri.EscapeDataString`; decode with
+  `Uri.UnescapeDataString`). Azure metadata and headers must be ASCII without CR/LF.
+- `Content-Disposition: inline; filename="<ASCII name>"; filename*=UTF-8''<encoded name>` (RFC 6266/5987).
+- Pass `library: layout` to the constructor to record each upload (blob name, URL, hash, time) in the
+  collection's `collection.json`. Files outside the library upload the same way but are not recorded.
 
 `TestConnectionDetailsAsync` reads container properties, lists at most the first nonempty page
 to select a blob, then sends an **unsigned** HEAD for that blob using a separate client without

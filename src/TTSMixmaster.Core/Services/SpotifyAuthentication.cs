@@ -102,7 +102,9 @@ internal sealed class SpotifyAuthentication(Func<AppSettings> settings, HttpClie
         finally
         {
             await timeout.CancelAsync();
-            listener.Stop();
+            // A failed Start() (e.g. the callback port is in use) leaves the listener disposed; Stop() would
+            // then throw ObjectDisposedException and replace the readable error above.
+            if (listener.IsListening) listener.Stop();
             if (callback is not null)
             {
                 // Observe the receiver after launcher failure/cancellation; do not leave a listening task behind.

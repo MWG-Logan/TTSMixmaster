@@ -27,13 +27,14 @@ public sealed class AudioDownloaderTests : IDisposable
     }
 
     [Fact]
-    public async Task Existing_nonempty_file_is_skipped_even_without_tools()
+    public async Task Verified_cached_file_is_skipped_even_without_tools()
     {
         var collection = Collection(Song);
         var path = FinalPath(collection, Song);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, "existing audio");
+        Assert.Equal(TrackStatus.Done, Assert.Single(await _downloader.DownloadAsync(collection)).Status);
+        var bytes = File.ReadAllBytes(path);
         File.Delete(Path.Combine(_paths.ToolsDirectory, "yt-dlp.exe"));
+        _runner.Calls.Clear();
         var progress = new ProgressRecorder();
 
         var result = Assert.Single(await _downloader.DownloadAsync(collection, progress));
@@ -41,8 +42,24 @@ public sealed class AudioDownloaderTests : IDisposable
         Assert.Equal(TrackStatus.Skipped, result.Status);
         Assert.Equal(path, result.FilePath);
         Assert.Empty(_runner.Calls);
-        Assert.Equal("existing audio", File.ReadAllText(path));
+        Assert.Equal(bytes, File.ReadAllBytes(path));
         Assert.Equal(TrackStatus.Skipped, Assert.Single(progress.Items).Status);
+    }
+
+    [Fact]
+    public async Task Unverified_file_at_the_track_path_fails_the_track_and_is_left_alone()
+    {
+        var collection = Collection(Song);
+        var path = FinalPath(collection, Song);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "a file someone put here");
+
+        var result = Assert.Single(await _downloader.DownloadAsync(collection));
+
+        Assert.Equal(TrackStatus.Failed, result.Status);
+        Assert.Contains("not a verified download", result.Error);
+        Assert.Empty(_runner.Calls);
+        Assert.Equal("a file someone put here", File.ReadAllText(path));
     }
 
     [Fact]
@@ -55,7 +72,7 @@ public sealed class AudioDownloaderTests : IDisposable
         _runner.Handler = (args, _) =>
         {
             partial = OutputPath(args);
-            Assert.Equal(Path.GetDirectoryName(final), Path.GetDirectoryName(partial));
+            Assert.Equal(LibraryLayout.TempFolder(Path.GetDirectoryName(final)!), Path.GetDirectoryName(partial));
             Assert.NotEqual(final, partial);
             WriteMp3(partial);
             Assert.False(File.Exists(final));
@@ -68,7 +85,7 @@ public sealed class AudioDownloaderTests : IDisposable
         Assert.Equal(TrackStatus.Done, result.Status);
         Assert.Equal(final, result.FilePath);
         Assert.False(File.Exists(partial));
-        Assert.Equal([final], Directory.GetFiles(_layout.AudioFolder(collection)));
+        Assert.Equal([final], AudioFiles(collection));
         using var audio = TagLib.File.Create(final);
         Assert.Equal(track.Title, audio.Tag.Title);
         Assert.Equal([track.Artist], audio.Tag.Performers);
@@ -104,7 +121,7 @@ public sealed class AudioDownloaderTests : IDisposable
         Assert.Equal(TrackStatus.Failed, results[0].Status);
         Assert.Contains("provider failed", results[0].Error);
         Assert.Equal(TrackStatus.Done, results[1].Status);
-        Assert.Equal([results[1].FilePath!], Directory.GetFiles(_layout.AudioFolder(collection)));
+        Assert.Equal([results[1].FilePath!], AudioFiles(collection));
         Assert.Equal(new[] { "ytsearch1:Artist - Song", "scsearch1:Artist - Song", "ytsearch1:Artist - Next" },
             _runner.Calls.Select(c => c.Arguments[^1]));
     }
@@ -125,7 +142,7 @@ public sealed class AudioDownloaderTests : IDisposable
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _downloader.DownloadAsync(collection, ct: cts.Token));
 
         Assert.Single(_runner.Calls);
-        Assert.Empty(Directory.GetFiles(_layout.AudioFolder(collection)));
+        Assert.Empty(AudioFiles(collection));
     }
 
     [Fact]
@@ -140,7 +157,7 @@ public sealed class AudioDownloaderTests : IDisposable
             return Task.FromResult(new ProcessResult(0, "", ""));
         };
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _downloader.DownloadAsync(collection, ct: cts.Token));
-        Assert.Empty(Directory.GetFiles(_layout.AudioFolder(collection)));
+        Assert.Empty(AudioFiles(collection));
     }
 
     [Fact]
@@ -193,7 +210,7 @@ public sealed class AudioDownloaderTests : IDisposable
             return Task.FromResult(new ProcessResult(0, "", ""));
         };
         Assert.Equal(TrackStatus.Failed, Assert.Single(await _downloader.DownloadAsync(collection)).Status);
-        Assert.Empty(Directory.GetFiles(_layout.AudioFolder(collection)));
+        Assert.Empty(AudioFiles(collection));
     }
 
     [Fact]
@@ -255,7 +272,7 @@ public sealed class AudioDownloaderTests : IDisposable
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _downloader.DownloadAsync(collection, ct: cts.Token));
         else
             Assert.Equal(TrackStatus.Failed, Assert.Single(await _downloader.DownloadAsync(collection)).Status);
-        Assert.Empty(Directory.GetFiles(_layout.AudioFolder(collection)));
+        Assert.Empty(AudioFiles(collection));
     }
 
     [Fact]
@@ -271,7 +288,7 @@ public sealed class AudioDownloaderTests : IDisposable
         };
         Assert.Equal(TrackStatus.Failed, Assert.Single(await _downloader.DownloadAsync(collection)).Status);
         Assert.Equal("other completed download", File.ReadAllText(final));
-        Assert.Equal([final], Directory.GetFiles(_layout.AudioFolder(collection)));
+        Assert.Equal([final], AudioFiles(collection));
     }
 
     [Fact]
@@ -303,6 +320,15 @@ public sealed class AudioDownloaderTests : IDisposable
         _runner.Handler = (_, _) => Task.FromResult(new ProcessResult(0, "version", ""));
         Assert.Null(await _downloader.CheckToolsAsync());
         Assert.Equal(2, _runner.Calls.Count);
+    }
+
+    // Final files beside the reserved folder plus anything left in its temp folder (partials must be cleaned).
+    private string[] AudioFiles(MusicCollection collection)
+    {
+        var folder = _layout.AudioFolder(collection);
+        if (!Directory.Exists(folder)) return [];
+        var temp = LibraryLayout.TempFolder(folder);
+        return Directory.GetFiles(folder).Concat(Directory.Exists(temp) ? Directory.GetFiles(temp) : []).ToArray();
     }
 
     private string FinalPath(MusicCollection collection, Track track) =>

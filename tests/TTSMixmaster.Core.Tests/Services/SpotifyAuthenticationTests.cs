@@ -141,6 +141,20 @@ public sealed class SpotifyAuthenticationTests
     }
 
     [Fact]
+    public async Task CallbackPortInUseReturnsReadableErrorInsteadOfObjectDisposed()
+    {
+        // Review finding 5: a failed Start() disposed the listener and Stop() replaced the safe error.
+        using var root = new TemporaryData(); using var fake = new FakeHttp(); using var http = fake.Client();
+        var settings = SpotifyServiceTests.Settings(true); settings.SpotifyRedirectUri = Redirect();
+        using var occupied = new HttpListener();
+        occupied.Prefixes.Add(new Uri(settings.SpotifyRedirectUri).GetLeftPart(UriPartial.Authority) + "/");
+        occupied.Start();
+        var error = await new SpotifyService(settings, http, new(root.Root), _ => throw new Exception("Must not launch")).TestConnectionAsync();
+        Assert.Contains("loopback redirect port", error);
+        Assert.Equal(0, fake.Requests);
+    }
+
+    [Fact]
     public async Task CorruptTokenStoreReturnsRecoveryMessageWithoutNetwork()
     {
         using var root = new TemporaryData(); Directory.CreateDirectory(root.Root);

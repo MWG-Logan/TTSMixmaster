@@ -1,20 +1,27 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using Azure;
 using Azure.Core;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using TTSMixmaster.Core.Configuration;
 using TTSMixmaster.Core.Azure;
+using TTSMixmaster.Core.Files;
+using TTSMixmaster.Core.Models;
 
 namespace TTSMixmaster.Core.Upload;
 
-/// <summary>Uploads each supplied track independently, preserving its identity and stable blob name.</summary>
+/// <summary>
+/// Uploads each supplied track independently to a content-addressed blob (see <see cref="LibraryLayout.BlobName"/>).
+/// When <paramref name="library"/> is supplied, uploads are recorded in the collection's state file.
+/// </summary>
 public sealed class AzureBlobUploader(
     Func<AppSettings> settings,
     TimeProvider? timeProvider = null,
     Func<AppSettings, BlobContainerClient>? clientFactory = null,
     Func<string, TokenCredential>? credentialProvider = null,
-    Func<BlobContainerClient, CancellationToken, Task<bool?>>? anonymousReadProbe = null) : IAudioUploader
+    Func<BlobContainerClient, CancellationToken, Task<bool?>>? anonymousReadProbe = null,
+    LibraryLayout? library = null) : IAudioUploader
 {
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
     private readonly Func<AppSettings, BlobContainerClient> _clientFactory = clientFactory ??
@@ -92,31 +99,8 @@ public sealed class AzureBlobUploader(
                     throw new FileNotFoundException("No downloaded audio file is available.");
                 if (!IsConfiguredSettings(configuration))
                     throw new InvalidOperationException("Azure Storage is not configured.");
-                if (container is null)
-                {
-                    var candidate = _clientFactory(configuration);
-                    container = candidate;
-                }
-
-                var blob = container.GetBlobClient("audio/" + Path.GetFileName(file.FilePath));
-                var fresh = await IsFreshAsync(blob, configuration.AzureBlobFreshnessDays, ct);
-                if (!fresh)
-                {
-                    await using var stream = File.OpenRead(file.FilePath);
-                    await blob.UploadAsync(stream, new BlobUploadOptions
-                    {
-                        HttpHeaders = new BlobHttpHeaders
-                        {
-                            ContentType = ContentType(file.FilePath),
-                            ContentDisposition = $"inline; filename=\"{Path.GetFileName(file.FilePath)}\""
-                        },
-                        Metadata = Metadata(file, stream.Length)
-                    }, ct);
-                }
-                // The SDK escapes literal '#', '?' and '%' in filenames and respects custom endpoints.
-                // Never expose a SAS query string as the public URL.
-                var url = blob.Uri.GetLeftPart(UriPartial.Path);
-                result = new(file.Track, file.FilePath, url, fresh ? TrackStatus.Skipped : TrackStatus.Done);
+                container ??= _clientFactory(configuration);
+                result = await UploadOneAsync(container, file, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception error)
@@ -129,35 +113,99 @@ public sealed class AzureBlobUploader(
         return results;
     }
 
-    private async Task<bool> IsFreshAsync(BlobClient blob, double days, CancellationToken ct)
+    // Blobs are content-addressed (LibraryLayout.BlobName): the same bytes always map to the same blob,
+    // so an existing blob is reused after checking it really holds these bytes, and is never replaced.
+    private async Task<UploadedTrack> UploadOneAsync(BlobContainerClient container, DownloadedTrack file, CancellationToken ct)
     {
-        if (days <= 0 || !double.IsFinite(days)) return false;
-        try
+        var path = file.FilePath!;
+        await using var stream = File.OpenRead(path);
+        var sha256 = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, ct));
+        stream.Position = 0;
+        var blobName = LibraryLayout.BlobName(sha256, Path.GetExtension(path));
+        var blob = container.GetBlobClient(blobName);
+
+        var reused = await MatchesExistingAsync(blob, stream.Length, sha256, ct);
+        if (reused != true)
         {
-            var properties = await blob.GetPropertiesAsync(cancellationToken: ct);
-            return (_clock.GetUtcNow() - properties.Value.LastModified).TotalDays <= days;
+            if (reused == false)
+                throw new BlobConflictException(blobName);
+            try
+            {
+                await blob.UploadAsync(stream, new BlobUploadOptions
+                {
+                    HttpHeaders = new BlobHttpHeaders
+                    {
+                        ContentType = ContentType(path),
+                        ContentDisposition = ContentDisposition(file.Track, Path.GetExtension(path))
+                    },
+                    Metadata = Metadata(file, stream.Length, sha256),
+                    // Never replace a blob, even one created by a concurrent upload since the check above.
+                    Conditions = new BlobRequestConditions { IfNoneMatch = ETag.All }
+                }, ct);
+            }
+            catch (RequestFailedException e) when (e.Status is 409 or 412)
+            {
+                if (await MatchesExistingAsync(blob, stream.Length, sha256, ct) != true)
+                    throw new BlobConflictException(blobName);
+                reused = true;
+            }
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-        // Python falls back to overwrite when properties are missing or cannot be read.
-        catch (Exception) { return false; }
+        // The SDK escapes literal '#', '?' and '%' in names and respects custom endpoints.
+        // Never expose a SAS query string as the public URL.
+        var url = blob.Uri.GetLeftPart(UriPartial.Path);
+        try { library?.RecordUpload(path, file.Track, sha256, blobName, url, _clock.GetUtcNow()); }
+        // The blob and its URL are valid regardless; collection.json is re-derived from content next time.
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        return new(file.Track, path, url, reused == true ? TrackStatus.Skipped : TrackStatus.Done);
     }
 
-    private Dictionary<string, string> Metadata(DownloadedTrack file, long size)
+    /// <summary>
+    /// True: the blob records exactly these bytes (full SHA-256 metadata and length). False: something else is
+    /// there, including a blob without our hash metadata, which is never assumed to match. Null: none (or unreadable).
+    /// </summary>
+    private static async Task<bool?> MatchesExistingAsync(BlobClient blob, long length, string sha256, CancellationToken ct)
+    {
+        BlobProperties properties;
+        try { properties = (await blob.GetPropertiesAsync(cancellationToken: ct)).Value; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        // Missing or unreadable properties: attempt the conditional upload, which cannot replace anything.
+        catch (Exception) { return null; }
+        return properties.ContentLength == length && properties.Metadata is not null &&
+            properties.Metadata.TryGetValue(HashMetadataKey, out var recorded) &&
+            string.Equals(recorded, sha256, StringComparison.OrdinalIgnoreCase);
+    }
+    private const string HashMetadataKey = "content_sha256";
+
+    // Azure metadata and blob headers must be ASCII without CR/LF. Text values are percent-encoded
+    // UTF-8 (Uri.EscapeDataString); decode with Uri.UnescapeDataString.
+    private Dictionary<string, string> Metadata(DownloadedTrack file, long size, string sha256)
     {
         var metadata = new Dictionary<string, string>
         {
             ["source"] = "TTSMixmaster",
             ["upload_time"] = _clock.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff", CultureInfo.InvariantCulture),
-            ["original_filename"] = Path.GetFileName(file.FilePath!),
+            ["original_filename"] = Uri.EscapeDataString(Path.GetFileName(file.FilePath!)),
             ["file_size"] = size.ToString(CultureInfo.InvariantCulture),
-            ["artist"] = file.Track.Artist,
-            ["title"] = file.Track.Title,
-            ["album"] = file.Track.Album,
+            [HashMetadataKey] = sha256,
+            ["track_key"] = Uri.EscapeDataString(LibraryLayout.TrackKey(file.Track)),
+            ["artist"] = Uri.EscapeDataString(file.Track.Artist),
+            ["title"] = Uri.EscapeDataString(file.Track.Title),
+            ["album"] = Uri.EscapeDataString(file.Track.Album),
             ["duration"] = file.Track.Duration.TotalSeconds.ToString(CultureInfo.InvariantCulture)
         };
         return metadata.Where(pair => pair.Value.Length > 0).ToDictionary();
     }
 
+    // RFC 6266: an ASCII fallback plus the UTF-8 name as an RFC 5987 filename* parameter.
+    private static string ContentDisposition(Track track, string extension)
+    {
+        var display = LibraryLayout.SanitizeFileName($"{track.Artist} - {track.Title}") + extension;
+        return $"inline; filename=\"{LibraryLayout.AsciiName($"{track.Artist} - {track.Title}")}{extension}\"; " +
+            $"filename*=UTF-8''{Uri.EscapeDataString(display)}";
+    }
+
+    private sealed class BlobConflictException(string blobName) : Exception(
+        $"A blob already exists at {blobName} but does not record a matching content hash. It was left unchanged.");
     // Matches Python mimetypes on the legacy Windows host for supported audio extensions.
     private static string ContentType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
@@ -179,6 +227,7 @@ public sealed class AzureBlobUploader(
     private static string DescribeError(Exception error) => error switch
     {
         AzureAccountException safe => safe.Message,
+        BlobConflictException conflict => conflict.Message,
         global::Azure.Identity.AuthenticationFailedException => "Azure authentication failed. Sign in again for the selected tenant.",
         RequestFailedException azure => $"Azure Storage request failed (HTTP {azure.Status}). Check credentials, container permissions, and public blob access.",
         FileNotFoundException => "No downloaded audio file is available.",

@@ -36,7 +36,10 @@ public sealed class ProcessRunnerTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var script = "$child = Start-Process -FilePath '" + PowerShell.Replace("'", "''")
             + "' -ArgumentList '-NoProfile -NonInteractive -Command Start-Sleep -Seconds 60' -WindowStyle Hidden -PassThru; "
-            + "[IO.File]::WriteAllText('" + pidFile.Replace("'", "''") + "', [string]$child.Id); Start-Sleep -Seconds 60";
+            // Publish the PID by rename after the writer has closed it, so the test never reads a half-written,
+            // still-open marker (review finding 6: intermittent sharing violation).
+            + "[IO.File]::WriteAllText('" + (pidFile + ".tmp").Replace("'", "''") + "', [string]$child.Id); "
+            + "[IO.File]::Move('" + (pidFile + ".tmp").Replace("'", "''") + "', '" + pidFile.Replace("'", "''") + "'); Start-Sleep -Seconds 60";
         var running = new ProcessRunner().RunAsync(PowerShell,
             ["-NoProfile", "-NonInteractive", "-Command", script], TimeSpan.FromSeconds(60), cts.Token);
         try
@@ -60,6 +63,7 @@ public sealed class ProcessRunnerTests
             try { await running; }
             catch (OperationCanceledException) { }
             File.Delete(pidFile);
+            File.Delete(pidFile + ".tmp");
         }
     }
 }

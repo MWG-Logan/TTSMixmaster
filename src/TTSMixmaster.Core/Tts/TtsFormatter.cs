@@ -17,35 +17,18 @@ public sealed class TtsFormatter(LibraryLayout layout) : ITtsFormatter
         TtsOutputOptions options, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        var folder = layout.TtsFolder(collection);
-        Directory.CreateDirectory(folder);
-        var basename = LibraryLayout.SanitizeFileName(collection.Name).Replace(' ', '_');
+        // The folder is keyed by collection identity and claimed (owner marker) before anything is written,
+        // so same-named or colliding collections never share or overwrite exports.
+        var folder = layout.PrepareExportFolder(collection);
+        var basename = Path.Combine(folder, LibraryLayout.ExportBaseName(collection));
         var simple = GenerateSimplePlaylistLua(collection, uploads);
-        var artifacts = new (string Suffix, string Text)[]
-        {
-            (".lua", GenerateLuaScript(collection, uploads)),
-            ("_playlist.lua", simple),
-            ("_data.json", GenerateJsonData(collection, uploads)),
-            (".json", GenerateSaveFile(collection, uploads, options))
-        };
-        var written = new List<string>();
-        foreach (var (suffix, text) in artifacts)
-        {
-            ct.ThrowIfCancellationRequested();
-            var path = Path.Combine(folder, basename + suffix);
-            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
-            {
-                await File.WriteAllTextAsync(temporary, text, new UTF8Encoding(false), ct);
-                ct.ThrowIfCancellationRequested();
-                File.Move(temporary, path, overwrite: true);
-                written.Add(path);
-            }
-            finally
-            {
-                if (File.Exists(temporary)) File.Delete(temporary);
-            }
-        }
+        var written = await layout.WriteTextFilesAsync(
+        [
+            (basename + ".lua", GenerateLuaScript(collection, uploads)),
+            (basename + "_playlist.lua", simple),
+            (basename + "_data.json", GenerateJsonData(collection, uploads)),
+            (basename + ".json", GenerateSaveFile(collection, uploads, options))
+        ], ct);
         // This is the script embedded in the default save object.
         return new(written, simple);
     }
@@ -92,7 +75,28 @@ public sealed class TtsFormatter(LibraryLayout layout) : ITtsFormatter
 
     /// <summary>Builds the TTS save JSON. A fixed GUID supports reproducible exports and golden tests.</summary>
     public string GenerateSaveFile(MusicCollection collection, IReadOnlyList<UploadedTrack> uploads,
-        TtsOutputOptions options, string? objectGuid = null, bool useSimpleFormat = true)
+        TtsOutputOptions options, string? objectGuid = null, bool useSimpleFormat = true) =>
+        PythonJson(BuildSave(collection, uploads, options, objectGuid, useSimpleFormat));
+
+    /// <summary>
+    /// The saved-object file for TTS's Saved Objects folder: the same save-format document (empty
+    /// SaveName/Date, one entry in ObjectStates) with the player placed at the table centre.
+    /// </summary>
+    public string GenerateSavedObject(MusicCollection collection, IReadOnlyList<UploadedTrack> uploads,
+        TtsOutputOptions options, string? objectGuid = null)
+    {
+        var save = BuildSave(collection, uploads, options, objectGuid, useSimpleFormat: true);
+        var transform = save["ObjectStates"]![0]!["Transform"]!;
+        // The template's position (from a legacy full save) is near the table edge; spawn it centred instead.
+        transform["posX"] = JsonNode.Parse("0.0");
+        transform["posY"] = JsonNode.Parse("2.0");
+        transform["posZ"] = JsonNode.Parse("0.0");
+        transform["rotY"] = JsonNode.Parse("180.0");
+        return PythonJson(save);
+    }
+
+    private JsonNode BuildSave(MusicCollection collection, IReadOnlyList<UploadedTrack> uploads,
+        TtsOutputOptions options, string? objectGuid, bool useSimpleFormat)
     {
         var save = JsonNode.Parse(TtsTemplates.Save)!;
         var obj = save["ObjectStates"]![0]!;
@@ -106,7 +110,7 @@ public sealed class TtsFormatter(LibraryLayout layout) : ITtsFormatter
         obj["CustomImage"]!["ImageSecondaryURL"] = string.IsNullOrWhiteSpace(options.SecondaryImageUrl)
             ? DefaultSecondaryImage : options.SecondaryImageUrl.Trim();
         obj["LuaScript"] = useSimpleFormat ? GenerateSimplePlaylistLua(collection, uploads) : GenerateLuaScript(collection, uploads);
-        return PythonJson(save);
+        return save;
     }
 
     private static IEnumerable<(string Name, string Url)> Audio(MusicCollection collection, IReadOnlyList<UploadedTrack> uploads)

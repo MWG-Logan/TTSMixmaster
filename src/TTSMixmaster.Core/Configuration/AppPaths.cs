@@ -3,7 +3,7 @@ namespace TTSMixmaster.Core.Configuration;
 /// <summary>
 /// The one place that decides where the app keeps things on disk.
 /// Everything else asks this class; nothing else builds app-level paths itself.
-/// (Per-collection folder layout is revisited in the file-management pass.)
+/// Per-collection folders, file and blob names belong to <see cref="Files.LibraryLayout"/>.
 /// </summary>
 public sealed class AppPaths
 {
