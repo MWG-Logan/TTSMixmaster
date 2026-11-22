@@ -27,6 +27,10 @@
   -->
   <PropertyGroup>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
+
+    <!-- Lets Windows-targeted projects restore on Linux (GitHub's automatic NuGet dependency submission
+         runs there, and fails with NETSDK1100 without this). No effect on Windows builds. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
   </PropertyGroup>
 </Project>
