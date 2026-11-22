@@ -33,6 +33,15 @@ internal static class Dialogs
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
+    /// <summary>Closing stops running builds, so it is confirmed first. Cancel (keep the window open) is the default.</summary>
+    public static async Task<bool> ConfirmCloseWhileBuildingAsync(XamlRoot root, string warning, int running)
+    {
+        var dialog = Create(root, "CloseWhileBuildingDialog", warning,
+            $"Closing stops {(running == 1 ? "it" : "them")}. Audio that has already downloaded is kept, so building again picks up from there.");
+        dialog.PrimaryButtonText = "Close and stop builds";
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
     private static ContentDialog Create(XamlRoot root, string automationId, string title, string text)
     {
         var dialog = new ContentDialog

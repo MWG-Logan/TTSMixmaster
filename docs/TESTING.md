@@ -15,7 +15,7 @@ and a few end-to-end UI Automation checks against the running app.
 | Unit | `tests/TTSMixmaster.Core.Tests` | 327 | Core logic with fakes (HTTP, processes, clock, folders) | Windows | Every PR and push |
 | Integration | `tests/TTSMixmaster.Core.IntegrationTests` (`[TestCategory("Integration")]`) | 10 | Real filesystem, real yt-dlp/ffmpeg against a loopback media server, uploader against Azurite, formatter/exporter writing into an injected TTS root | `tests/.tools` (fetch-tools), Azurite; Inconclusive without them | Windows runner, after fetch-tools |
 | App (UI thread) | `tests/TTSMixmaster.App.Tests` | 84 | View models against the real composition root with Core faked, converters, the export result bar and its dialog, on the WinUI dispatcher (`[UITestMethod]`) | Windows App SDK (self-contained), an interactive session | Windows runner |
-| End to end | `tests/e2e/ui-smoke.ps1` | 9 checks (15 with `-DevSource`) | The running app through UI Automation (`winapp ui`), AutomationId selectors: every page, Settings, and with `-DevSource` a Build + Export to TTS | winapp CLI, Windows Sandbox (or local desktop); `-DevSource`: node + Azurite on the host | Locally / Sandbox, against a build or the published folder |
+| End to end | `tests/e2e/ui-smoke.ps1` | 9 checks (16 with `-DevSource`) | The running app through UI Automation (`winapp ui`), AutomationId selectors: every page, Settings, and with `-DevSource` a Build (navigating away mid-build and finding it under Builds › In progress) + Export to TTS | winapp CLI, Windows Sandbox (or local desktop); `-DevSource`: node + Azurite on the host | Locally / Sandbox, against a build or the published folder |
 
 Counts are test cases (data rows count once each) as of the e2e/App-test work in November 2026.
 

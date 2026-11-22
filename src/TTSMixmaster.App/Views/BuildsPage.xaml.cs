@@ -17,7 +17,20 @@ public sealed partial class BuildsPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        ViewModel.Refresh();
+        ViewModel.Attach();
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        ViewModel.Detach();
+        base.OnNavigatedFrom(e);
+    }
+
+    /// <summary>An In progress row opens its collection: the same view model, with the build still running.</summary>
+    private void InProgress_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is CollectionViewModel build)
+            App.Window.Navigate(typeof(CollectionPage), build.Request);
     }
 
     private void GoToCollections_Click(object sender, RoutedEventArgs e) => App.Window.Navigate(typeof(CollectionsPage));

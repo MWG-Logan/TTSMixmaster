@@ -85,7 +85,9 @@ $track = "http://127.0.0.1:$MediaPort/tone.mp3"
     id = 'e2e-collection'; name = 'E2E Tavern'; description = 'Local test collection for the e2e smoke run'; thumbnailUrl = ''
     tracks = @(
         [ordered]@{ title = 'Opening Tone'; artist = 'E2E'; album = 'Smoke'; durationSeconds = 3; sourceUrl = "${track}?1" },
-        [ordered]@{ title = 'Closing Tone'; artist = 'E2E'; album = 'Smoke'; durationSeconds = 3; sourceUrl = "${track}?2" }
+        # Served slowly, so the build is still running while the e2e run navigates away and back.
+        [ordered]@{ title = 'Slow Tone'; artist = 'E2E'; album = 'Smoke'; durationSeconds = 3; sourceUrl = "${track}?2&delay=15000" },
+        [ordered]@{ title = 'Closing Tone'; artist = 'E2E'; album = 'Smoke'; durationSeconds = 3; sourceUrl = "${track}?3" }
     )
 } | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $data 'dev-collection.json') -Encoding utf8
 

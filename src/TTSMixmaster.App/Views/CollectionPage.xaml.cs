@@ -20,8 +20,16 @@ public sealed partial class CollectionPage : Page
     {
         base.OnNavigatedTo(e);
         ViewModel = App.Services.OpenCollection((CollectionRequest)e.Parameter);
+        App.Services.ViewedCollection = ViewModel; // seeing how its last build ended clears it from Builds › In progress
         Bindings.Update();
         _ = ViewModel.ActivateAsync();
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        if (ReferenceEquals(App.Services.ViewedCollection, ViewModel))
+            App.Services.ViewedCollection = null;
+        base.OnNavigatedFrom(e);
     }
 
     private async void UseCustomChipImage_Click(object sender, RoutedEventArgs e)

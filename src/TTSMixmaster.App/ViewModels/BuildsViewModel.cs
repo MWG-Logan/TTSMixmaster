@@ -96,10 +96,37 @@ public sealed partial class BuildItemViewModel : ObservableObject
     }
 }
 
-/// <summary>Lists finished builds from disk, so a player can go into TTS again without rebuilding.</summary>
+/// <summary>
+/// Builds in progress (live, from <see cref="AppServices.ActiveBuilds"/>) above the finished builds read from disk,
+/// so a player can go into TTS again without rebuilding.
+/// </summary>
 public sealed partial class BuildsViewModel(AppServices app) : ObservableObject
 {
     public ObservableCollection<BuildItemViewModel> Items { get; } = [];
+
+    /// <summary>Running builds, and ones that ended without a player and haven't been seen yet.</summary>
+    public ReadOnlyObservableCollection<CollectionViewModel> InProgress => app.ActiveBuilds;
+
+    [ObservableProperty] public partial bool HasInProgress { get; set; }
+
+    /// <summary>Follows builds while the page is shown: a build that finishes moves to the finished list.</summary>
+    public void Attach()
+    {
+        app.ActiveBuildsChanged += OnActiveBuildsChanged;
+        app.BuildFinished += OnBuildFinished;
+        HasInProgress = InProgress.Count > 0;
+        Refresh();
+    }
+
+    public void Detach()
+    {
+        app.ActiveBuildsChanged -= OnActiveBuildsChanged;
+        app.BuildFinished -= OnBuildFinished;
+    }
+
+    private void OnActiveBuildsChanged() => HasInProgress = InProgress.Count > 0;
+
+    private void OnBuildFinished(CollectionViewModel _) => Refresh();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasItems), nameof(IsEmpty))]
@@ -113,7 +140,11 @@ public sealed partial class BuildsViewModel(AppServices app) : ObservableObject
 
     public bool HasLoadError => LoadError.Length > 0;
     public bool HasItems => Count > 0;
-    public bool IsEmpty => Count == 0;
+
+    /// <summary>Nothing finished and nothing in progress: the empty state.</summary>
+    public bool IsEmpty => Count == 0 && !HasInProgress;
+
+    partial void OnHasInProgressChanged(bool value) => OnPropertyChanged(nameof(IsEmpty));
 
     /// <summary>Builds whose record is damaged: named here, left out of the list, never a crash.</summary>
     [ObservableProperty]

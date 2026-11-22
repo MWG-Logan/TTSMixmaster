@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -18,6 +18,7 @@ public sealed partial class MainWindow : Window
     private const int DefaultWidth = 1200, DefaultHeight = 800, MinWidth = 720, MinHeight = 560;
 
     private readonly AppServices _services;
+    private bool _closeConfirmed, _isAskingToClose;
 
     public MainWindow(AppServices services)
     {
@@ -31,6 +32,8 @@ public sealed partial class MainWindow : Window
 
         ApplyTheme();
         services.ThemeChanged += ApplyTheme;
+        services.ActiveBuildsChanged += UpdateBuildsBadge;
+        AppWindow.Closing += AppWindow_Closing;
         Closed += (_, _) => TrySaveSettings();
 
         RootFrame.Navigate(typeof(CollectionsPage));
@@ -91,6 +94,41 @@ public sealed partial class MainWindow : Window
 
     private void AppTitleBar_PaneToggleRequested(TitleBar sender, object args) =>
         NavView.IsPaneOpen = !NavView.IsPaneOpen;
+
+    /// <summary>The Builds nav item shows how many builds are running (hidden at zero).</summary>
+    private void UpdateBuildsBadge()
+    {
+        var running = _services.RunningBuildCount;
+        BuildsBadge.Value = running;
+        BuildsBadge.Visibility = running > 0 ? Visibility.Visible : Visibility.Collapsed;
+        AutomationProperties.SetName(BuildsItem, running > 0 ? $"Builds, {running} running" : "Builds");
+    }
+
+    /// <summary>
+    /// Closing while builds run asks first (they'd be lost silently otherwise), then cancels them cleanly so
+    /// yt-dlp/ffmpeg and uploads stop before the app exits.
+    /// </summary>
+    private async void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (_closeConfirmed || _services.CloseWarning() is not { } warning)
+            return;
+        args.Cancel = true;
+        if (_isAskingToClose || Content?.XamlRoot is not { } root)
+            return;
+        _isAskingToClose = true;
+        try
+        {
+            if (!await Dialogs.ConfirmCloseWhileBuildingAsync(root, warning, _services.RunningBuildCount))
+                return;
+            await _services.StopAllBuildsAsync(TimeSpan.FromSeconds(10));
+            _closeConfirmed = true;
+            Close();
+        }
+        finally
+        {
+            _isAskingToClose = false;
+        }
+    }
 
     private void ApplyTheme()
     {
