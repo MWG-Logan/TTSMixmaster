@@ -250,6 +250,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      created: ${{ steps.publish.outputs.created }}
     env:
       VERSION: ${{ needs.check.outputs.version }}
       GH_TOKEN: ${{ github.token }}
@@ -297,11 +299,13 @@ jobs:
           cat notes.md
 
       - name: Create or update GitHub release
+        id: publish
         run: |
           tag="v$VERSION"
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "Release $tag exists (force_release); replacing its assets."
             gh release upload "$tag" dist/* --clobber
+            echo "created=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -319,3 +323,17 @@ jobs:
           # Installed copies poll releases/latest/download/TTSMixmaster.appinstaller, so the
           # new release must become "latest".
           gh release create "$tag" dist/* --latest "${args[@]}"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+  # Optional winget submission for a newly created release (not for a force_release re-upload).
+  # Called directly: a release created with GITHUB_TOKEN doesn't trigger `release: published` workflows.
+  winget:
+    needs: [check, release]
+    if: needs.release.outputs.created == 'true' && vars.WINGET_ENABLED == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/winget.yml
+    with:
+      tag: v${{ needs.check.outputs.version }}
+    secrets:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}

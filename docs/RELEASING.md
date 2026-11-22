@@ -167,10 +167,14 @@ the publisher from the manifest. To check it against a signed file:
 
 ## winget (optional)
 
-[`.github/workflows/winget.yml`](../.github/workflows/winget.yml) runs when a release is
-published and uses Microsoft's [wingetcreate](https://github.com/microsoft/winget-create) (pinned
-version, SHA-256-checked) to open a PR against `microsoft/winget-pkgs` that adds the new version.
-Until you opt in it skips.
+[`.github/workflows/winget.yml`](../.github/workflows/winget.yml) uses Microsoft's
+[wingetcreate](https://github.com/microsoft/winget-create) (pinned version, SHA-256-checked) to open a
+PR against `microsoft/winget-pkgs` that adds the new version. Until you opt in it skips.
+
+The release workflow calls it as its last job (a reusable workflow, `workflow_call`) after it creates a
+new release; a `force_release` re-upload doesn't resubmit. It can't simply listen for `release: published`:
+GitHub doesn't start workflows for events created with the workflow's own `GITHUB_TOKEN`, and the release is
+created with that token. No extra PAT is needed just to trigger it.
 
 It submits the signed **`.msixbundle`**, the same package the `.appinstaller` installs; winget
 installs, upgrades and removes MSIX packages natively. The manifest has one installer entry per
@@ -199,8 +203,8 @@ submission is manual:
    - variable `WINGET_PACKAGE_ID`, only if you used a different identifier than
      `MorningwoodGaming.TTSMixmaster`.
 
-From then on every published release opens a winget PR automatically. To submit an existing
-release, run **Publish to winget** manually with its tag (for example `v2.0.0`).
+From then on every new release opens a winget PR automatically. To submit an existing release
+again, run **Publish to winget** manually with its tag (for example `v2.0.0`).
 
 ## Tooling and dependency policy
 

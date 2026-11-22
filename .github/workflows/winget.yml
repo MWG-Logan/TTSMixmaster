@@ -1,16 +1,27 @@
 name: Publish to winget
 
-# Optional. Opens a winget-pkgs PR for each published release with Microsoft's wingetcreate.
+# Optional. Opens a winget-pkgs PR for a release with Microsoft's wingetcreate.
 # A no-op until the owner opts in (docs/RELEASING.md, "winget"):
 #   repo variable WINGET_ENABLED = true
 #   repo secret   WINGET_TOKEN   = classic PAT with public_repo scope (owner of a winget-pkgs fork)
 #   repo variable WINGET_PACKAGE_ID (optional, default MorningwoodGaming.TTSMixmaster)
 # The package must already exist in winget-pkgs (first submission is manual), because
 # `wingetcreate update` only adds versions to an existing package.
+#
+# build-and-release.yml calls this (workflow_call) right after it publishes a new release. It can't rely on a
+# `release: published` trigger: GitHub doesn't start workflows for events created with GITHUB_TOKEN.
+# workflow_dispatch re-submits a release by hand. WINGET_TOKEN is only used here, to open the winget-pkgs PR.
 
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to submit, e.g. v2.0.0'
+        required: true
+        type: string
+    secrets:
+      WINGET_TOKEN:
+        required: false
   workflow_dispatch:
     inputs:
       tag:
@@ -27,10 +38,10 @@ env:
 
 jobs:
   winget:
-    if: vars.WINGET_ENABLED == 'true' && (github.event_name != 'release' || !github.event.release.prerelease)
+    if: vars.WINGET_ENABLED == 'true'
     runs-on: windows-latest
     env:
-      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      TAG: ${{ inputs.tag }}
       PACKAGE_ID: ${{ vars.WINGET_PACKAGE_ID || 'MorningwoodGaming.TTSMixmaster' }}
       WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
     defaults:
@@ -58,6 +69,7 @@ jobs:
       # with explicit architecture overrides.
       - name: Submit to winget-pkgs
         run: |
+          if ($env:TAG -notmatch '^v\d+\.\d+\.\d+$') { throw "Tag must look like v2.0.0 (got '$env:TAG')." }
           $version = $env:TAG.TrimStart('v')
           $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:TAG/TTSMixmaster-v$version.msixbundle"
           & (Join-Path $env:RUNNER_TEMP 'wingetcreate.exe') update $env:PACKAGE_ID `
