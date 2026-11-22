@@ -44,4 +44,9 @@
     <ProjectReference Include="..\..\src\TTSMixmaster.App\TTSMixmaster.App.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Crashes end with an exit code, never a WER dialog on the desktop (inherited by child processes). -->
+    <Compile Include="..\Shared\NoCrashDialogs.cs" Link="Shared\NoCrashDialogs.cs" />
+  </ItemGroup>
+
 </Project>

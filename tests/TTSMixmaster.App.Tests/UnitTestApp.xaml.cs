@@ -25,6 +25,8 @@ public partial class UnitTestApp : Application
 
     public UnitTestApp()
     {
+        // A crash in the test host must end the run with an exit code, never a WER dialog on the desktop.
+        TTSMixmaster.Tests.NoCrashDialogs.Apply();
         InitializeComponent();
     }
 
