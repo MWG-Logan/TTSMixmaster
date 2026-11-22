@@ -34,12 +34,15 @@ public sealed partial class LibraryLayout
 
     public LibraryLayout(AppPaths paths, Func<AppSettings> settings) : this(paths, settings, null) { }
 
-    /// <param name="moveFile">Test seam for the final rename (source, destination, overwrite); defaults to <see cref="FileReplace.Move(string, string, bool)"/>.</param>
+    /// <param name="moveFile">
+    /// Test seam for the raw rename (source, destination, overwrite) inside <see cref="FileReplace"/>'s retries;
+    /// defaults to <see cref="File.Move(string, string, bool)"/>.
+    /// </param>
     internal LibraryLayout(AppPaths paths, Func<AppSettings> settings, Action<string, string, bool>? moveFile)
     {
         _paths = paths;
         _settings = settings;
-        _moveFile = moveFile ?? FileReplace.Move;
+        _moveFile = moveFile ?? File.Move;
     }
 
     // ---- Collections -------------------------------------------------------------------------
@@ -316,7 +319,7 @@ public sealed partial class LibraryLayout
         if (state is not null && state.IsValid())
             return state;
         var stamp = DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'", CultureInfo.InvariantCulture);
-        _moveFile(path, $"{path}.corrupt-{stamp}", false);
+        Move(path, $"{path}.corrupt-{stamp}", false);
         return new CollectionState();
     }
 
@@ -366,7 +369,7 @@ public sealed partial class LibraryLayout
         var existing = new FileInfo(finalPath);
         if (existing.Exists && existing.Length == 0)
             existing.Delete();
-        _moveFile(tempPath, finalPath, false);
+        Move(tempPath, finalPath, false);
     }
 
     public Task<IReadOnlyList<string>> WriteTextFilesAsync(IReadOnlyList<(string Path, string Text)> files, CancellationToken ct = default) =>
@@ -396,7 +399,7 @@ public sealed partial class LibraryLayout
             }
             ct.ThrowIfCancellationRequested();
             foreach (var (temp, path) in staged)
-                _moveFile(temp, path, true);
+                Move(temp, path, true);
             return staged.Select(s => s.Final).ToList();
         }
         finally
@@ -430,8 +433,14 @@ public sealed partial class LibraryLayout
     /// <summary>
     /// Renames a staged temp into place. With <paramref name="overwrite"/> false a file that already exists is
     /// never replaced: the rename throws <see cref="IOException"/> and the existing file is untouched.
+    /// <paramref name="stillOk"/>, when given, is re-checked before every attempt (see <see cref="FileReplace"/>);
+    /// returns false, publishing nothing, once it fails.
     /// </summary>
-    internal void PublishStaged(string temp, string final, bool overwrite) => _moveFile(temp, final, overwrite);
+    internal bool PublishStaged(string temp, string final, bool overwrite, Func<bool>? stillOk = null) =>
+        FileReplace.Move(temp, final, overwrite, _moveFile, Thread.Sleep, stillOk);
+
+    private void Move(string source, string destination, bool overwrite) =>
+        FileReplace.Move(source, destination, overwrite, _moveFile, Thread.Sleep);
 
     /// <summary>SHA-256 of a file as lowercase hex, or null when it doesn't exist.</summary>
     public static string? FileSha256(string path)
@@ -452,7 +461,7 @@ public sealed partial class LibraryLayout
                 stream.Write(bytes);
                 stream.Flush(flushToDisk: true);
             }
-            _moveFile(temp, path, true);
+            Move(temp, path, true);
         }
         finally
         {

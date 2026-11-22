@@ -205,8 +205,9 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
 
     /// <summary>
     /// Renames a staged file into place. A file that was absent at the check is published without overwrite, so
-    /// one that appeared since is never replaced (returns false). A file we checked is re-verified just before
-    /// it is replaced, unless the user chose Replace.
+    /// one that appeared since is never replaced (returns false). A file we checked is re-verified before every
+    /// replace attempt (a retry waits while another program has it open, and that program may edit it), unless
+    /// the user chose Replace.
     /// </summary>
     private bool Publish(string temp, string destination, string? checkedSha, bool replace)
     {
@@ -214,18 +215,15 @@ public sealed class TtsExporter(LibraryLayout layout, TtsSavedObjects savedObjec
         {
             try
             {
-                layout.PublishStaged(temp, destination, overwrite: false);
-                return true;
+                return layout.PublishStaged(temp, destination, overwrite: false);
             }
             catch (IOException) when (File.Exists(destination))
             {
                 return false;
             }
         }
-        if (!replace && LibraryLayout.FileSha256(destination) is { } now && now != checkedSha)
-            return false;
-        layout.PublishStaged(temp, destination, overwrite: true);
-        return true;
+        return layout.PublishStaged(temp, destination, overwrite: true,
+            stillOk: replace ? null : () => LibraryLayout.FileSha256(destination) is not { } now || now == checkedSha);
     }
 
     private static TtsExportResult Appeared(string path) => new(TtsExportOutcome.Conflict, path,
