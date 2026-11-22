@@ -8,10 +8,14 @@
     xmlns:vm="using:TTSMixmaster.App.ViewModels">
 
     <Page.Resources>
-        <!--  Column widths shared by the header row and every track row.  -->
+        <!--
+            Column widths shared by the header row and every track row: # | title (star) | length | status.
+            Length and status are fixed and right-aligned, so they sit at the list's right edge at any width.
+            The status column fits a 20px ring with room to spare (and the "Status" heading).
+        -->
         <GridLength x:Key="NumberColumn">40</GridLength>
         <GridLength x:Key="LengthColumn">64</GridLength>
-        <GridLength x:Key="StatusColumn">260</GridLength>
+        <GridLength x:Key="StatusColumn">48</GridLength>
     </Page.Resources>
 
     <Grid Padding="{StaticResource PagePadding}">
@@ -329,14 +333,16 @@
                         </Grid>
                     </Expander>
 
-                    <!--  Column headings  -->
+                    <!--
+                        Column headings. The header panel is inset 16 on both sides, list items 16 left / 12 right
+                        (ListViewItem padding), so -4 on the right lines the headings up with the row columns.
+                    -->
                     <Grid
-                        Margin="0,16,0,4"
-                        Padding="0,0,12,0"
+                        Margin="0,16,-4,4"
+                        AutomationProperties.AutomationId="TrackListHeader"
                         ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="{StaticResource NumberColumn}" />
-                            <ColumnDefinition Width="2*" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="{StaticResource LengthColumn}" />
                             <ColumnDefinition Width="{StaticResource StatusColumn}" />
@@ -348,14 +354,12 @@
                             Text="Title" />
                         <TextBlock
                             Grid.Column="2"
-                            Style="{StaticResource SecondaryCaptionStyle}"
-                            Text="Album" />
-                        <TextBlock
-                            Grid.Column="3"
+                            HorizontalAlignment="Right"
                             Style="{StaticResource SecondaryCaptionStyle}"
                             Text="Length" />
                         <TextBlock
-                            Grid.Column="4"
+                            Grid.Column="3"
+                            HorizontalAlignment="Center"
                             Style="{StaticResource SecondaryCaptionStyle}"
                             Text="Status" />
                     </Grid>
@@ -376,7 +380,6 @@
                         ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="{StaticResource NumberColumn}" />
-                            <ColumnDefinition Width="2*" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="{StaticResource LengthColumn}" />
                             <ColumnDefinition Width="{StaticResource StatusColumn}" />
@@ -391,31 +394,35 @@
                                 Style="{StaticResource SecondaryCaptionStyle}"
                                 Text="{x:Bind Artist, Mode=OneTime}"
                                 TextTrimming="CharacterEllipsis" />
+                            <!--  Why a track failed (or "Already downloaded"): under the title, where there's room to read it.  -->
+                            <TextBlock
+                                Style="{StaticResource SecondaryCaptionStyle}"
+                                MaxLines="2"
+                                Text="{x:Bind ShortMessage, Mode=OneWay}"
+                                TextTrimming="CharacterEllipsis"
+                                TextWrapping="Wrap"
+                                ToolTipService.ToolTip="{x:Bind Message, Mode=OneWay}"
+                                Visibility="{x:Bind h:Bind.VisibleIfText(ShortMessage), Mode=OneWay}" />
                         </StackPanel>
                         <TextBlock
                             Grid.Column="2"
-                            VerticalAlignment="Center"
-                            Style="{StaticResource SecondaryTextStyle}"
-                            Text="{x:Bind Album, Mode=OneTime}"
-                            TextTrimming="CharacterEllipsis" />
-                        <TextBlock
-                            Grid.Column="3"
+                            HorizontalAlignment="Right"
                             VerticalAlignment="Center"
                             Style="{StaticResource SecondaryTextStyle}"
                             Text="{x:Bind Duration, Mode=OneTime}" />
                         <Grid
-                            Grid.Column="4"
+                            Grid.Column="3"
+                            Width="20"
+                            Height="20"
+                            HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            AutomationProperties.Name="{x:Bind AccessibleStatus, Mode=OneWay}"
-                            ColumnSpacing="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="16" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
+                            AutomationProperties.Name="{x:Bind AccessibleStatus, Mode=OneWay}">
                             <ProgressRing
-                                Width="16"
-                                Height="16"
-                                IsActive="True"
+                                Width="20"
+                                Height="20"
+                                MinWidth="20"
+                                MinHeight="20"
+                                IsActive="{x:Bind h:Bind.IsWorkingActive(Status), Mode=OneWay}"
                                 Visibility="{x:Bind h:Bind.IsWorking(Status), Mode=OneWay}" />
                             <FontIcon
                                 FontSize="16"
@@ -427,15 +434,6 @@
                                 Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                                 Glyph="&#xEA39;"
                                 Visibility="{x:Bind h:Bind.IsFailed(Status), Mode=OneWay}" />
-                            <TextBlock
-                                Grid.Column="1"
-                                VerticalAlignment="Center"
-                                Style="{StaticResource SecondaryCaptionStyle}"
-                                MaxLines="2"
-                                Text="{x:Bind ShortMessage, Mode=OneWay}"
-                                TextTrimming="CharacterEllipsis"
-                                TextWrapping="Wrap"
-                                ToolTipService.ToolTip="{x:Bind Message, Mode=OneWay}" />
                         </Grid>
                     </Grid>
                 </DataTemplate>

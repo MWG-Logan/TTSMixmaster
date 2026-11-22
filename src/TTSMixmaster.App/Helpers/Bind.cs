@@ -37,6 +37,12 @@ public static class Bind
 
     public static Visibility IsPending(TrackStatus s) => Visible(s == TrackStatus.Pending);
     public static Visibility IsWorking(TrackStatus s) => Visible(s == TrackStatus.Working);
+
+    /// <summary>
+    /// The row spinner's IsActive. Toggling it with the status restarts the animation each time the ring appears;
+    /// a ring left active while collapsed comes back frozen on its first frame (a thin sliver).
+    /// </summary>
+    public static bool IsWorkingActive(TrackStatus s) => s == TrackStatus.Working;
     public static Visibility IsDone(TrackStatus s) => Visible(s is TrackStatus.Done or TrackStatus.Skipped);
     public static Visibility IsFailed(TrackStatus s) => Visible(s == TrackStatus.Failed);
 }
