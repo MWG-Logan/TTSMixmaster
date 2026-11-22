@@ -17,35 +17,17 @@ public sealed class TtsFormatter(LibraryLayout layout) : ITtsFormatter
         TtsOutputOptions options, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        // The folder is keyed by collection identity, so same-named collections never share exports.
         var folder = layout.TtsFolder(collection);
-        Directory.CreateDirectory(folder);
-        var basename = LibraryLayout.SanitizeFileName(collection.Name).Replace(' ', '_');
+        var basename = Path.Combine(folder, LibraryLayout.SanitizeFileName(collection.Name).Replace(' ', '_'));
         var simple = GenerateSimplePlaylistLua(collection, uploads);
-        var artifacts = new (string Suffix, string Text)[]
-        {
-            (".lua", GenerateLuaScript(collection, uploads)),
-            ("_playlist.lua", simple),
-            ("_data.json", GenerateJsonData(collection, uploads)),
-            (".json", GenerateSaveFile(collection, uploads, options))
-        };
-        var written = new List<string>();
-        foreach (var (suffix, text) in artifacts)
-        {
-            ct.ThrowIfCancellationRequested();
-            var path = Path.Combine(folder, basename + suffix);
-            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
-            {
-                await File.WriteAllTextAsync(temporary, text, new UTF8Encoding(false), ct);
-                ct.ThrowIfCancellationRequested();
-                File.Move(temporary, path, overwrite: true);
-                written.Add(path);
-            }
-            finally
-            {
-                if (File.Exists(temporary)) File.Delete(temporary);
-            }
-        }
+        var written = await layout.WriteTextFilesAsync(
+        [
+            (basename + ".lua", GenerateLuaScript(collection, uploads)),
+            (basename + "_playlist.lua", simple),
+            (basename + "_data.json", GenerateJsonData(collection, uploads)),
+            (basename + ".json", GenerateSaveFile(collection, uploads, options))
+        ], ct);
         // This is the script embedded in the default save object.
         return new(written, simple);
     }

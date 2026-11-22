@@ -33,7 +33,10 @@ public sealed class AppSettings
     public string AzureStorageConnectionString { get; set; } = "";
     public string AzureContainerName { get; set; } = "tts-audio";
 
-    /// <summary>Skip re-uploading a blob modified within this many days.</summary>
+    /// <summary>
+    /// Legacy setting, kept so config.json round-trips. Ignored: blobs are content-addressed, so an existing blob
+    /// with the same bytes is always reused and a different one is never replaced (docs/adr/0001-library-layout.md).
+    /// </summary>
     public double AzureBlobFreshnessDays { get; set; } = 1.0;
 
     // Paths. Empty means "use the default under AppPaths".

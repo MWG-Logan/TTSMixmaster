@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
@@ -25,59 +26,99 @@ public sealed class AzureBlobUploaderTests : IDisposable
         return new(new Track { Artist = "Actual Artist", Title = "Actual Title", Duration = TimeSpan.FromSeconds(123) }, path, TrackStatus.Done);
     }
 
-    [Theory]
-    [InlineData(0, 1, true)]
-    [InlineData(1, 1, true)]
-    [InlineData(1.00001, 1, false)]
-    [InlineData(0.25, 0.5, true)]
-    [InlineData(-1, 1, true)]
-    [InlineData(0, 0, false)]
-    [InlineData(0, -1, false)]
-    public async Task Freshness_uses_inclusive_cutoff_and_nonpositive_means_replace(double age, double days, bool skipped)
+    private static string Sha256(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
+    private static readonly string Hash123 = Sha256([1, 2, 3]);
+
+    [Fact]
+    public async Task Blob_name_is_content_addressed_and_independent_of_the_local_file_name()
     {
-        var file = Download();
+        var first = Download("one name.mp3");
+        var second = Download("other folder name.mp3");
+        var results = await Uploader().UploadAsync([first, second]);
+        var expected = $"audio/{Hash123[..32]}/Actual Artist - Actual Title.mp3";
+        Assert.Equal([expected, expected], _container.RequestedNames);
+        Assert.Equal(new[] { TrackStatus.Done, TrackStatus.Skipped }, results.Select(r => r.Status));
+        Assert.Equal(1, _container.Blob.UploadCount);
+        Assert.Equal(results[0].PublicUrl, results[1].PublicUrl);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(365)]
+    public async Task Existing_blob_with_the_same_bytes_is_reused_regardless_of_age_or_freshness_setting(double days)
+    {
         _settings.AzureBlobFreshnessDays = days;
-        _container.Blob.LastModified = Now.AddDays(-age);
+        _container.Blob.Seed(3, Hash123, Now.AddDays(-400));
+        var file = Download();
         var result = Assert.Single(await Uploader().UploadAsync([file]));
-        Assert.Equal(skipped ? TrackStatus.Skipped : TrackStatus.Done, result.Status);
-        Assert.Equal(skipped ? 0 : 1, _container.Blob.UploadCount);
-        Assert.Equal(days > 0 ? 1 : 0, _container.Blob.PropertyReads);
+        Assert.Equal(TrackStatus.Skipped, result.Status);
+        Assert.Equal(0, _container.Blob.UploadCount);
         Assert.NotNull(result.PublicUrl);
         Assert.Same(file.Track, result.Track);
     }
 
     [Theory]
+    [InlineData(4, null)]
+    [InlineData(3, "0000000000000000000000000000000000000000000000000000000000000000")]
+    public async Task A_different_existing_blob_is_never_replaced(long length, string? hash)
+    {
+        _container.Blob.Seed(length, hash, Now);
+        var result = Assert.Single(await Uploader().UploadAsync([Download()]));
+        Assert.Equal(TrackStatus.Failed, result.Status);
+        Assert.Contains("left unchanged", result.Error);
+        Assert.Equal(0, _container.Blob.UploadCount);
+        Assert.Null(result.PublicUrl);
+    }
+
+    [Theory]
+    [InlineData(3, TrackStatus.Skipped)]
+    [InlineData(9, TrackStatus.Failed)]
+    public async Task Blob_created_concurrently_after_the_check_is_verified_not_overwritten(long racedLength, TrackStatus expected)
+    {
+        _container.Blob.RaceLength = racedLength;
+        var result = Assert.Single(await Uploader().UploadAsync([Download()]));
+        Assert.Equal(expected, result.Status);
+        Assert.Equal(ETag.All, _container.Blob.Options!.Conditions.IfNoneMatch);
+        Assert.Equal(racedLength, _container.Blob.ContentLength);
+    }
+
+    [Theory]
     [InlineData(404)]
     [InlineData(403)]
-    public async Task Unreadable_or_missing_properties_fall_back_to_upload(int status)
+    public async Task Unreadable_or_missing_properties_fall_back_to_conditional_upload(int status)
     {
         _container.Blob.PropertyError = new RequestFailedException(status, "test");
         Assert.Equal(TrackStatus.Done, Assert.Single(await Uploader().UploadAsync([Download()])).Status);
         Assert.Equal(1, _container.Blob.UploadCount);
+        Assert.Equal(ETag.All, _container.Blob.Options!.Conditions.IfNoneMatch);
     }
 
     [Fact]
-    public async Task Upload_preserves_filename_and_track_metadata_without_changing_container_access()
+    public async Task Upload_sets_ascii_safe_headers_and_track_metadata_without_changing_container_access()
     {
         var file = Download("Artist - Title #1%.mp3");
         var result = Assert.Single(await Uploader().UploadAsync([file]));
-        Assert.Equal("audio/Artist - Title #1%.mp3", _container.RequestedNames.Single());
-        Assert.Equal("https://example.blob.core.windows.net/tts-audio/audio/Artist%20-%20Title%20%231%25.mp3", result.PublicUrl);
+        var name = $"audio/{Hash123[..32]}/Actual Artist - Actual Title.mp3";
+        Assert.Equal(name, _container.RequestedNames.Single());
+        Assert.Equal($"https://example.blob.core.windows.net/tts-audio/audio/{Hash123[..32]}/Actual%20Artist%20-%20Actual%20Title.mp3", result.PublicUrl);
         Assert.Equal(PublicAccessType.None, _container.Access);
         Assert.Equal("audio/mpeg", _container.Blob.Options!.HttpHeaders.ContentType);
-        Assert.Equal("inline; filename=\"Artist - Title #1%.mp3\"", _container.Blob.Options.HttpHeaders.ContentDisposition);
+        Assert.Equal("inline; filename=\"Actual Artist - Actual Title.mp3\"; filename*=UTF-8''Actual%20Artist%20-%20Actual%20Title.mp3",
+            _container.Blob.Options.HttpHeaders.ContentDisposition);
         Assert.Equal(new byte[] { 1, 2, 3 }, _container.Blob.Bytes);
-        Assert.Equal("Actual Artist", _container.Blob.Options.Metadata["artist"]);
-        Assert.Equal("Actual Title", _container.Blob.Options.Metadata["title"]);
-        Assert.Equal("123", _container.Blob.Options.Metadata["duration"]);
-        Assert.Equal("3", _container.Blob.Options.Metadata["file_size"]);
-        Assert.Equal("2026-11-21T12:00:00.000000", _container.Blob.Options.Metadata["upload_time"]);
-        Assert.Equal("TTSMixmaster", _container.Blob.Options.Metadata["source"]);
-        Assert.False(_container.Blob.Options.Metadata.ContainsKey("album"));
-        Assert.Null(_container.Blob.Options.Conditions); // No If-None-Match: overwrites existing blobs.
+        var metadata = _container.Blob.Options.Metadata;
+        Assert.Equal("Actual%20Artist", metadata["artist"]);
+        Assert.Equal("Actual%20Title", metadata["title"]);
+        Assert.Equal("Artist%20-%20Title%20%231%25.mp3", metadata["original_filename"]);
+        Assert.Equal(Hash123, metadata["content_sha256"]);
+        Assert.Equal("123", metadata["duration"]);
+        Assert.Equal("3", metadata["file_size"]);
+        Assert.Equal("2026-11-21T12:00:00.000000", metadata["upload_time"]);
+        Assert.Equal("TTSMixmaster", metadata["source"]);
+        Assert.False(metadata.ContainsKey("album"));
         Assert.Equal(TrackStatus.Done, result.Status);
     }
-
     [Fact]
     public async Task One_failed_upload_never_aborts_remaining_tracks_and_reports_progress()
     {
@@ -90,7 +131,7 @@ public sealed class AzureBlobUploaderTests : IDisposable
         Assert.Same(first.Track, results[0].Track);
         Assert.Same(second.Track, results[1].Track);
         Assert.Null(results[0].PublicUrl);
-        Assert.Contains("two.mp3", results[1].PublicUrl);
+        Assert.EndsWith("/Other%20-%20Second.mp3", results[1].PublicUrl);
         Assert.Equal(new[] { TrackStatus.Working, TrackStatus.Failed, TrackStatus.Working, TrackStatus.Done }, events.Select(e => e.Status));
         Assert.Equal(new[] { 0, 0, 1, 1 }, events.Select(e => e.Index));
         Assert.All(events, e => Assert.Equal(2, e.Total));
@@ -207,35 +248,58 @@ public sealed class AzureBlobUploaderTests : IDisposable
     {
         public Uri Address { get; set; } = new("https://example.com");
         public override Uri Uri => Address;
-        public DateTimeOffset LastModified { get; set; } = Now.AddDays(-2);
+        public bool IsPresent { get; private set; }
+        public long ContentLength { get; private set; }
+        public IDictionary<string, string>? Metadata { get; private set; }
+        public DateTimeOffset LastModified { get; private set; }
+        /// <summary>When set, another writer creates the blob with this length just before our upload.</summary>
+        public long? RaceLength { get; set; }
         public Exception? PropertyError { get; set; }
         public Action? BeforeProperties { get; set; }
         public Action? BeforeUpload { get; set; }
         public bool FailFirstUpload { get; set; }
         public int UploadCount { get; private set; }
-        public int PropertyReads { get; private set; }
         public BlobUploadOptions? Options { get; private set; }
         public byte[]? Bytes { get; private set; }
+
+        public void Seed(long length, string? sha256, DateTimeOffset lastModified)
+        {
+            IsPresent = true;
+            ContentLength = length;
+            LastModified = lastModified;
+            Metadata = sha256 is null ? new Dictionary<string, string>() : new Dictionary<string, string> { ["content_sha256"] = sha256 };
+        }
+
         public override Task<Response<BlobProperties>> GetPropertiesAsync(BlobRequestConditions? conditions = null,
             CancellationToken cancellationToken = default)
         {
             BeforeProperties?.Invoke();
             cancellationToken.ThrowIfCancellationRequested();
-            PropertyReads++;
             if (PropertyError is not null) throw PropertyError;
-            return Task.FromResult(Response.FromValue(BlobsModelFactory.BlobProperties(lastModified: LastModified), null!));
+            if (!IsPresent) throw new RequestFailedException(404, "BlobNotFound");
+            return Task.FromResult(Response.FromValue(BlobsModelFactory.BlobProperties(
+                lastModified: LastModified, contentLength: ContentLength, metadata: Metadata), null!));
         }
+
         public override async Task<Response<BlobContentInfo>> UploadAsync(Stream content, BlobUploadOptions options,
             CancellationToken cancellationToken = default)
         {
             BeforeUpload?.Invoke();
             cancellationToken.ThrowIfCancellationRequested();
+            Options = options;
+            if (RaceLength is { } raced)
+            {
+                Seed(raced, null, Now);
+                PropertyError = null;
+            }
+            if (IsPresent && options.Conditions?.IfNoneMatch == ETag.All)
+                throw new RequestFailedException(409, "BlobAlreadyExists");
             UploadCount++;
             if (FailFirstUpload && UploadCount == 1) throw new RequestFailedException(500, "SECRET");
-            Options = options;
             using var copy = new MemoryStream();
             await content.CopyToAsync(copy, cancellationToken);
             Bytes = copy.ToArray();
+            Seed(Bytes.Length, (options.Metadata is { } m && m.TryGetValue("content_sha256", out var h) ? h : null), Now);
             return Response.FromValue(BlobsModelFactory.BlobContentInfo(default, Now, [], "", 0), null!);
         }
     }

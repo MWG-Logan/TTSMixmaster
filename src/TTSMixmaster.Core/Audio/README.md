@@ -14,14 +14,21 @@ Processes have a 15-minute timeout (15 seconds for version checks); cancellation
 and timeouts kill the process tree. User yt-dlp configuration is ignored so it
 cannot override the destination or post-processing arguments.
 
-Each attempt writes a unique `.tts-download-<guid>.*` prefix beside the destination.
-The MP3 is tagged through TagLibSharp before its final rename. All owned partials
-are removed on failure/cancellation. A crash can leave a hidden partial but cannot
-publish it as a completed track. Non-empty final files are skipped. Colliding
-names receive numeric suffixes; exact duplicates share a path and get a separate
-result/progress entry (normally `Skipped` after the first download). Use returned
-`DownloadedTrack.FilePath` downstream rather than reconstructing collision names.
+File names, reuse and the state file belong to `LibraryLayout` (docs/adr/0001-library-layout.md).
+Each batch first prepares the collection's identity-keyed folder (`<Name> [<service>-<id hash>]`).
+Each track's file is `Artist - Title [<track key hash>].mp3`, a pure function of its track key,
+so playlist order never changes which file a track gets. A cached file is reused (`Skipped`) only
+when `collection.json` records it for that key with the same length, or, failing that, when the
+track key embedded in its ID3 tag (`TXXX:TTSMIXMASTER_TRACK_KEY`) matches. A non-empty file that
+can't be verified fails the track and is left alone. Exact duplicates share a key and a file and get
+a separate result/progress entry (normally `Skipped` after the first download).
 
+Each attempt writes a unique `.tts-tmp-<guid>.*` prefix beside the destination. The MP3 is tagged
+(including the track key) through TagLibSharp before its final rename, which never replaces a
+non-empty file. The state file is updated only after that rename. If the update fails (for example
+disk full or a locked file), the track reports `Failed` and its file is adopted by embedded key on the
+next run. All owned partials are removed on failure or cancellation. Crash leftovers are swept after a day.
+Use the returned `DownloadedTrack.FilePath` downstream rather than rebuilding names.
 yt-dlp extracts MP3 at the configured kbps. Because it preserves existing MP3
 sources without changing bitrate, the downloader uses ffmpeg to re-encode when
 the resulting bitrate differs. TagLibSharp handles all metadata; ffmpeg is not
@@ -32,12 +39,12 @@ FFmpeg GPL license. It does not wire installation or CI.
 Legacy behavior intentionally omitted:
 
 - Mono conversion: no callers in `src/gui` or `src/tts_formatter`; preserve channels.
-- `playlist_manifest.txt`: neither GUI nor formatter reads it. The legacy
-  `get_playlist_completeness` helper is unused there; batch results provide status.
+- `playlist_manifest.txt`: neither GUI nor formatter reads it; `collection.json` replaces it.
+- Legacy name-only folders are ignored (never read or changed); see `LibraryLayout.LegacyAudioFolder`.
 - Python package/bundling workarounds and unconverted audio when ffmpeg is absent:
   this implementation requires executable tools and publishes only MP3s.
 - Album-based filename suffixes and collapsing exact duplicates out of the result
-  list: numeric suffixes are simpler, and every input track retains a result.
+  list: names carry a track-key hash instead, and every input track retains a result.
 - Album terms in search queries: use the requested `Artist - Title` query.
 
 External provider availability still determines whether a source/search succeeds.
