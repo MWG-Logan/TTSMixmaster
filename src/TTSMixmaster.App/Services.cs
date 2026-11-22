@@ -23,12 +23,12 @@ public sealed class AppServices : IDisposable
 {
     private readonly Dictionary<string, CollectionViewModel> _openCollections = [];
 
-    private AppServices(AppPaths paths)
+    private AppServices(AppPaths paths, string? legacySettingsFile, IAzureAccountService? azure = null)
     {
         Paths = paths;
         Log = new FileLog(paths.LogDirectory);
         Store = new SettingsStore(paths.SettingsFile);
-        ImportedSettingsFrom = ImportLegacySettings(paths, Store, Log);
+        ImportedSettingsFrom = ImportLegacySettings(legacySettingsFile, paths, Store, Log);
         Settings = LoadSettings(Store, Log);
         Log.Info($"TTSMixmaster {Version} starting; data in {paths.DataRoot}");
 
@@ -47,7 +47,7 @@ public sealed class AppServices : IDisposable
         var processes = new ProcessRunner();
         Downloader = new AudioDownloader(Tools, processes, Layout, () => Settings);
         YtDlpUpdater = new YtDlpUpdater(paths, Http, processes);
-        Azure = new AzureAccountService(() => Settings, paths, () => WindowHandle);
+        Azure = azure ?? new AzureAccountService(() => Settings, paths, () => WindowHandle);
         Uploader = new AzureBlobUploader(() => Settings, credentialProvider: Azure.GetCredential, library: Layout);
         Formatter = new TtsFormatter(Layout);
         SavedObjects = new TtsSavedObjects(() => Settings);
@@ -80,7 +80,7 @@ public sealed class AppServices : IDisposable
     public YtDlpUpdater YtDlpUpdater { get; }
 
     /// <summary>Interactive Azure sign-in, the storage picker and its explicit fixes. Lives for the app's lifetime.</summary>
-    public AzureAccountService Azure { get; }
+    public IAzureAccountService Azure { get; }
 
     public AzureBlobUploader Uploader { get; }
     public ITtsFormatter Formatter { get; }
@@ -100,7 +100,11 @@ public sealed class AppServices : IDisposable
     /// <summary>The yt-dlp/ffmpeg check from startup: null when both run, else what's missing.</summary>
     public Task<string?> ToolsCheck { get; private set; } = Task.FromResult<string?>(null);
 
-    public static AppServices Create() => new(new AppPaths());
+    public static AppServices Create() => new(new AppPaths(), AppPaths.FindLegacySettingsFile());
+
+    /// <summary>For tests: an isolated data root, no legacy import, and optionally a controlled Azure service.</summary>
+    public static AppServices CreateIsolated(string dataRoot, IAzureAccountService? azure = null) =>
+        new(new AppPaths(dataRoot), legacySettingsFile: null, azure);
 
     /// <summary>Starts the background startup work: Azure session restore and the tools check.</summary>
     public void Start()
@@ -200,9 +204,9 @@ public sealed class AppServices : IDisposable
     /// %LOCALAPPDATA%\TTSMixmaster\config.json, so existing users keep their keys. Never runs again once
     /// the new settings file exists. Values are never logged.
     /// </summary>
-    private static string? ImportLegacySettings(AppPaths paths, SettingsStore store, FileLog log)
+    private static string? ImportLegacySettings(string? legacy, AppPaths paths, SettingsStore store, FileLog log)
     {
-        if (File.Exists(store.FilePath) || AppPaths.FindLegacySettingsFile() is not { } legacy ||
+        if (File.Exists(store.FilePath) || legacy is null ||
             string.Equals(Path.GetFullPath(legacy), Path.GetFullPath(store.FilePath), StringComparison.OrdinalIgnoreCase))
             return null;
         try
