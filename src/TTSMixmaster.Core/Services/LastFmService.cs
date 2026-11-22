@@ -121,7 +121,7 @@ public sealed class LastFmService(Func<AppSettings> settings, HttpClient httpCli
                     Title = item.Text("name"), Artist = Name(item.Get("artist")), Album = Name(item.Get("album")),
                     Service = Kind, ServiceId = item.Text("mbid"), PlayCount = item.Number("playcount"),
                     Duration = TimeSpan.FromSeconds(Math.Max(0, item.Number("duration"))),
-                    ThumbnailUrl = item.Get("image").Items().Select(x => x.Text("#text")).LastOrDefault(x => x.Length > 0) ?? "",
+                    ThumbnailUrl = LargestImage(item),
                     TrackNumber = tracks.Count + 1
                 });
                 if (tracks.Count == limit) break;
@@ -179,7 +179,12 @@ public sealed class LastFmService(Func<AppSettings> settings, HttpClient httpCli
     private static IEnumerable<JsonElement> Entries(JsonElement items) => items.ValueKind == JsonValueKind.Object ? [items] : items.Items();
 
     /// <summary>Last.fm lists images small to large; the last non-empty one is the largest.</summary>
-    private static string LargestImage(JsonElement item) => item.Get("image").Items().Select(x => x.Text("#text")).LastOrDefault(x => x.Length > 0) ?? "";
+    /// <summary>The last (largest) image, or empty when there is none or it is Last.fm's grey-star placeholder.</summary>
+    internal static string LargestImage(JsonElement item) =>
+        item.Get("image").Items().Select(x => x.Text("#text")).LastOrDefault(x => x.Length > 0) is { } url && !url.Contains(PlaceholderImage, StringComparison.OrdinalIgnoreCase) ? url : "";
+
+    /// <summary>The image Last.fm returns for tracks it has no art for (most chart tracks), so it isn't art.</summary>
+    private const string PlaceholderImage = "2a96cbd8b46e442fc41c2b86b821562f";
 
     private static CollectionSummary? AlbumSummary(JsonElement item)
     {

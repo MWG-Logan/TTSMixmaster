@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using SkiaSharp;
 using TTSMixmaster.Core.Models;
+using TTSMixmaster.Core.Services;
 
 namespace TTSMixmaster.Core.Imaging;
 
@@ -30,49 +31,130 @@ public sealed class ChipImageBuilder(HttpClient http, TimeSpan? artTimeout = nul
     /// <summary>The chip back (unchanged from the original MWG chip), for <see cref="TtsOutputOptions.SecondaryImageUrl"/>.</summary>
     public static ChipImage BackImage => Back.Value;
 
-    /// <summary>Downloads the collection's art (falling back to its first track's) and renders the chip front.</summary>
+    /// <summary>Downloads the collection's art (see <see cref="FetchArtAsync"/>) and renders the chip front.</summary>
     /// <remarks>Download or decode failures fall back to a generated background; only cancellation throws.</remarks>
     public async Task<ChipImage> BuildFrontAsync(MusicCollection collection, ChipOptions options, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(collection);
         ArgumentNullException.ThrowIfNull(options);
         ct.ThrowIfCancellationRequested();
-
-        var candidates = new List<(string Url, ChipArtSource Source)> { (collection.Summary.ThumbnailUrl, ChipArtSource.Collection) };
-        var track = collection.Tracks.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.ThumbnailUrl));
-        if (track is not null) candidates.Add((track.ThumbnailUrl, ChipArtSource.Track));
-
-        foreach (var (url, source) in candidates)
-        {
-            var (bytes, _) = await TryDownloadAsync(url, ct);
-            using var art = ChipArt.Decode(bytes);
-            if (art is null) continue;
-            ct.ThrowIfCancellationRequested();
-            return Render(art, Title(collection, options), collection.Summary.Service, options, source);
-        }
-        ct.ThrowIfCancellationRequested();
-        return Render(null, Title(collection, options), collection.Summary.Service, options, ChipArtSource.Generated);
+        var fetch = await FetchArtAsync(collection, ct);
+        using var art = ChipArt.Decode(fetch.Art);
+        return Render(art, Title(collection, options), collection.Summary.Service, options, art is null ? ChipArtSource.Generated : fetch.Source);
     }
 
     /// <summary>
-    /// Downloads the art <see cref="BuildFrontAsync"/> would use (the collection's, else its first track's) without
-    /// rendering, so a caller can re-render (title, options) without downloading again. No art: the result says
-    /// whether a download timed out (worth retrying later) or there simply was no usable art.
+    /// Downloads the art <see cref="BuildFrontAsync"/> would use without rendering, so a caller can re-render (title,
+    /// options) without downloading again:
+    /// <list type="number">
+    /// <item>The collection's own art (<see cref="CollectionArtKind.Own"/> with a URL).</item>
+    /// <item>Otherwise, or if that fails: the first four distinct track covers as a 2x2 mosaic (a PNG composed here);
+    /// with one to three distinct covers, the first alone, as YouTube Music appears to.</item>
+    /// <item>A <see cref="CollectionArtKind.ServiceDefault"/> thumbnail, if no track cover could be had.</item>
+    /// </list>
+    /// No art: the result says whether a download timed out (worth retrying later) or there simply was no usable art.
     /// </summary>
     public async Task<ChipArtFetch> FetchArtAsync(MusicCollection collection, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(collection);
-        var track = collection.Tracks.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.ThumbnailUrl));
+        ct.ThrowIfCancellationRequested();
+        var summary = collection.Summary;
         var timedOut = false;
-        foreach (var url in new[] { collection.Summary.ThumbnailUrl, track?.ThumbnailUrl })
+        if (summary.ArtKind == CollectionArtKind.Own)
         {
-            var (bytes, timeout) = await TryDownloadAsync(url ?? "", ct);
+            var (bytes, timeout) = await TryDownloadAsync(summary.ThumbnailUrl, ct);
             timedOut |= timeout;
-            using var art = ChipArt.Decode(bytes);
-            if (art is not null) return new(bytes, false);
+            if (IsSupportedArt(bytes)) return new(bytes, false, ChipArtSource.Collection);
+        }
+
+        var (covers, coversTimedOut) = await DownloadCoversAsync(collection.Tracks, ct);
+        timedOut |= coversTimedOut;
+        if (covers.Count >= MosaicTiles) return new(ComposeMosaic(covers), false, ChipArtSource.Mosaic);
+        if (covers.Count > 0) return new(covers[0], false, ChipArtSource.Track);
+
+        if (summary.ArtKind == CollectionArtKind.ServiceDefault)
+        {
+            var (bytes, timeout) = await TryDownloadAsync(summary.ThumbnailUrl, ct);
+            timedOut |= timeout;
+            if (IsSupportedArt(bytes)) return new(bytes, false, ChipArtSource.Collection);
         }
         ct.ThrowIfCancellationRequested();
         return new(null, timedOut);
+    }
+
+    /// <summary>Tiles in a mosaic (2x2).</summary>
+    private const int MosaicTiles = 4;
+
+    /// <summary>At most this many distinct covers are tried for a mosaic, so a playlist of broken links stays cheap.</summary>
+    internal const int MaxCoverAttempts = 12;
+
+    /// <summary>Side of a composed mosaic in pixels (512 per tile): more than the window needs even at 2x.</summary>
+    internal const int MosaicSize = 1024;
+
+    /// <summary>
+    /// Up to four usable covers, in track order, from the tracks' distinct thumbnails. Covers are downloaded in
+    /// parallel; a failed one is replaced by the next distinct cover, at most <see cref="MaxCoverAttempts"/> in all.
+    /// The result depends only on which downloads succeed, never on their timing.
+    /// </summary>
+    private async Task<(List<byte[]> Covers, bool TimedOut)> DownloadCoversAsync(IEnumerable<Track> tracks, CancellationToken ct)
+    {
+        var candidates = DistinctCovers(tracks).Take(MaxCoverAttempts).ToArray();
+        var covers = new List<byte[]>(MosaicTiles);
+        var timedOut = false;
+        var next = 0;
+        while (covers.Count < MosaicTiles && next < candidates.Length)
+        {
+            var batch = candidates.Skip(next).Take(MosaicTiles - covers.Count).ToArray();
+            next += batch.Length;
+            var downloads = await Task.WhenAll(batch.Select(url => TryDownloadAsync(url, ct)));
+            foreach (var (bytes, timeout) in downloads)
+            {
+                timedOut |= timeout;
+                if (bytes is not null && IsSupportedArt(bytes)) covers.Add(bytes);
+            }
+        }
+        return (covers, timedOut);
+    }
+
+    /// <summary>
+    /// Track thumbnail URLs in track order, without repeats: the same URL, or (YouTube) a thumbnail of the same video
+    /// at another size, counts once. URLs that can't be fetched (no URL, other schemes) are skipped.
+    /// </summary>
+    internal static IEnumerable<string> DistinctCovers(IEnumerable<Track> tracks)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var track in tracks)
+        {
+            if (ArtUri(track.ThumbnailUrl) is not { } uri) continue;
+            var key = YouTubeService.ThumbnailVideoId(track.ThumbnailUrl) is { } videoId ? "yt:" + videoId : uri.AbsoluteUri;
+            if (seen.Add(key)) yield return track.ThumbnailUrl;
+        }
+    }
+
+    /// <summary>
+    /// The first four covers as a 2x2 PNG (top-left, top-right, bottom-left, bottom-right). Each tile is cover-fitted
+    /// like a single cover: black letterbox/pillarbox bars are trimmed, then the centre square is used.
+    /// </summary>
+    internal static byte[] ComposeMosaic(IReadOnlyList<byte[]> covers)
+    {
+        using var surface = SKSurface.Create(new SKImageInfo(MosaicSize, MosaicSize, SKColorType.Rgba8888, SKAlphaType.Premul))
+            ?? throw new InvalidOperationException("Could not create a drawing surface.");
+        var canvas = surface.Canvas;
+        canvas.Clear(SKColors.Black);
+        const int tile = MosaicSize / 2;
+        for (var i = 0; i < MosaicTiles; i++)
+        {
+            using var art = ChipArt.Decode(covers[i]) ?? throw new ArgumentException("Every cover must be supported art.", nameof(covers));
+            var cell = SKRect.Create(i % 2 * tile, i / 2 * tile, tile, tile);
+            canvas.Save();
+            canvas.ClipRect(cell);
+            ChipArt.DrawCover(canvas, art, cell);
+            canvas.Restore();
+        }
+        canvas.Flush();
+        using var snapshot = surface.Snapshot();
+        using var png = snapshot.Encode(SKEncodedImageFormat.Png, 100) ?? throw new InvalidOperationException("PNG encoding failed.");
+        return png.ToArray();
     }
 
     /// <summary>True when <paramref name="bytes"/> is art the chip renderer accepts (PNG, JPEG or WebP that decodes).</summary>

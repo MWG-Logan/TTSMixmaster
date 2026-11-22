@@ -79,6 +79,7 @@ public sealed class YouTubeService(Func<AppSettings> settings, HttpClient httpCl
         var summary = MapSummary(first);
         var isAlbum = summary.Kind == CollectionKind.Album;
         var tracks = new List<Track>();
+        string? firstItemThumbnail = null;
         await foreach (var page in PagesAsync("playlistItems", new() { ["part"] = "snippet,contentDetails", ["playlistId"] = id, ["maxResults"] = "50" }, ct))
         {
             var items = page.RequiredItems("items", "YouTube").ToArray();
@@ -93,6 +94,7 @@ public sealed class YouTubeService(Func<AppSettings> settings, HttpClient httpCl
             {
                 var videoId = item.Get("contentDetails").Text("videoId");
                 var snippet = item.Get("snippet");
+                firstItemThumbnail ??= Thumbnail(snippet);
                 var title = snippet.Text("title");
                 if (!ServiceHttp.IsId(videoId) || title is "Deleted video" or "Private video") continue;
                 var channel = snippet.Text("videoOwnerChannelTitle");
@@ -117,7 +119,27 @@ public sealed class YouTubeService(Func<AppSettings> settings, HttpClient httpCl
         // Album playlists are owned by "YouTube"; the artist's Topic channel on the tracks names the album's artist.
         if (isAlbum && summary.Owner.Length == 0)
             summary = summary with { Owner = tracks.GroupBy(x => x.Artist).OrderByDescending(x => x.Count()).Select(x => x.Key).FirstOrDefault() ?? "" };
+        if (!isAlbum && IsDefaultThumbnail(summary.ThumbnailUrl, firstItemThumbnail))
+            summary = summary with { ArtKind = CollectionArtKind.ServiceDefault };
         return new MusicCollection { Summary = summary with { TrackCount = tracks.Count }, Tracks = tracks };
+    }
+
+    /// <summary>
+    /// True when a playlist's thumbnail is YouTube's stand-in rather than a custom one: without a custom thumbnail the
+    /// Data API reports the first video's thumbnail. The video id in the <c>i.ytimg.com/vi/&lt;id&gt;/…</c> path is
+    /// compared, not the whole URL, because the two may name different sizes. Album playlists (<c>OLAK5uy_</c>) are
+    /// never asked: their thumbnail is the album cover.
+    /// </summary>
+    internal static bool IsDefaultThumbnail(string playlistThumbnail, string? firstItemThumbnail) =>
+        ThumbnailVideoId(playlistThumbnail) is { } id && id == ThumbnailVideoId(firstItemThumbnail);
+
+    /// <summary>The video id of a YouTube video thumbnail URL (<c>https://i.ytimg.com/vi/&lt;id&gt;/hqdefault.jpg</c>), else null.</summary>
+    internal static string? ThumbnailVideoId(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http")) return null;
+        if (!(uri.Host.EndsWith(".ytimg.com", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("img.youtube.com", StringComparison.OrdinalIgnoreCase))) return null;
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length >= 3 && segments[0] is "vi" or "vi_webp" && ServiceHttp.IsId(segments[1]) ? segments[1] : null;
     }
 
     private async IAsyncEnumerable<JsonElement> PagesAsync(string endpoint, Dictionary<string, string> parameters, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
@@ -166,7 +188,9 @@ public sealed class YouTubeService(Func<AppSettings> settings, HttpClient httpCl
     /// <summary>YouTube Music titles album playlists "Album - Name"; the prefix is dropped (any case).</summary>
     internal static string AlbumName(string title) =>
         title.StartsWith("Album - ", StringComparison.OrdinalIgnoreCase) && title.Length > 8 ? title[8..].Trim() : title;
-    private static string Thumbnail(JsonElement snippet) => new[] { "medium", "high", "default" }.Select(size => snippet.Get("thumbnails").Get(size).Text("url")).FirstOrDefault(x => x.Length > 0) ?? "";
+    /// <summary>The largest thumbnail the snippet lists (only sizes the video has are listed).</summary>
+    internal static string Thumbnail(JsonElement snippet) => ThumbnailSizes.Select(size => snippet.Get("thumbnails").Get(size).Text("url")).FirstOrDefault(x => x.Length > 0) ?? "";
+    private static readonly string[] ThumbnailSizes = ["maxres", "standard", "high", "medium", "default"];
     private static string ParsePlaylistId(string value)
     {
         value = value.Trim();

@@ -81,8 +81,16 @@ internal static class ChipArt
         // Only trim matched pairs of bars that leave a substantial picture; a dark sky is not a letterbox.
         var trimRows = top > 0 && bottom > 0 && Math.Abs(top - bottom) <= h / 50 + 2 && h - top - bottom >= h * 2 / 5;
         var trimCols = left > 0 && right > 0 && Math.Abs(left - right) <= w / 50 + 2 && w - left - right >= w * 2 / 5;
-        return new SKRectI(trimCols ? left : 0, trimRows ? top : 0, trimCols ? w - right : w, trimRows ? h - bottom : h);
+        // JPEG ringing leaves a dark fringe line or two where a bar meets the picture, just too bright to count as bar;
+        // a trimmed side also drops that fringe.
+        int rowFringe = Fringe(h), colFringe = Fringe(w);
+        return new SKRectI(
+            trimCols ? left + colFringe : 0, trimRows ? top + rowFringe : 0,
+            trimCols ? w - right - colFringe : w, trimRows ? h - bottom - rowFringe : h);
     }
+
+    /// <summary>Lines dropped beyond a trimmed bar: 2 px, or ~0.4% of the side on large art.</summary>
+    private static int Fringe(int length) => Math.Max(2, length / 256);
 
     /// <summary>The centred crop of <paramref name="source"/> with the aspect ratio of <paramref name="target"/>.</summary>
     internal static SKRect CoverCrop(SKRect source, SKRect target)
@@ -104,8 +112,13 @@ internal static class ChipArt
     internal static void DrawCover(SKCanvas canvas, SKBitmap art, SKRect target)
     {
         var content = ContentBounds(art);
-        var crop = CoverCrop(new SKRect(content.Left, content.Top, content.Right, content.Bottom), target);
-        using var image = SKImage.FromBitmap(art);
+        using var whole = SKImage.FromBitmap(art);
+        // Trimmed bars are cut off as a subset, so filtering and mipmaps at the crop's edge can't blend them back in
+        // (a dark seam between mosaic tiles).
+        var trimmed = content != SKRectI.Create(art.Width, art.Height);
+        using var subset = trimmed ? whole.Subset(content) : null;
+        var image = subset ?? whole;
+        var crop = CoverCrop(SKRect.Create(image.Width, image.Height), target);
         var scale = canvas.TotalMatrix.ScaleX * target.Width / crop.Width;
         // Upscaling small art: a cubic keeps it soft rather than blocky. Downscaling: mipmaps avoid aliasing.
         var sampling = scale > 1

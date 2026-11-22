@@ -10,17 +10,31 @@ ChipImage back  = ChipImageBuilder.BackImage;   // the original chip back, uncha
 ```
 
 `ChipImage` holds `Png` (bytes), `Hash` (lowercase SHA-256 of those bytes), `Width`/`Height`,
-`ArtSource` (`Collection`, `Track` or `Generated`) and `FileName` (`chip-<hash>.png`).
+`ArtSource` (`Collection`, `Mosaic`, `Track` or `Generated`) and `FileName` (`chip-<hash>.png`).
 `ChipImageBuilder.RenderFront(bytes, title, service, options)` renders from art you already have.
 
 ## Pipeline
 
-1. **Art.** `CollectionSummary.ThumbnailUrl`, else the first track that has a `ThumbnailUrl`, downloaded
-   with the injected `HttpClient` (http/https only, at most 20 MB). A failed download, an error status,
-   a timeout or bytes that don't decode all move on to the next candidate, then to a generated
-   background. Only cancellation of the caller's token throws.
-2. **Window.** The art is cover-fitted (centre-cropped) into the window. Symmetric black letterbox or
-   pillarbox bars (YouTube's 4:3 thumbnails of 16:9 videos) are trimmed first. Small art is upscaled with a
+1. **Art.** `FetchArtAsync` picks it, downloading with the injected `HttpClient` (https only, at most 20 MB
+   each, within the art timeout):
+   - the collection's own art: `CollectionSummary.ThumbnailUrl` when `ArtKind` is `Own`;
+   - otherwise (no URL, a YouTube `ServiceDefault` stand-in, or the download failed) a **mosaic**, as YouTube
+     Music and Spotify show playlists: the first four *distinct* track covers in track order, 2x2 (top-left,
+     top-right, bottom-left, bottom-right), composed into a 1024x1024 PNG. Covers are distinct by URL and, for
+     YouTube thumbnails, by video id (the same video at two sizes is one cover). They download in parallel; a
+     failed one is skipped and the next distinct cover is tried, at most 12 in all. With one to three distinct
+     covers the first is used alone, as YouTube Music appears to do (it documents no rule);
+   - then the `ServiceDefault` thumbnail itself, then a generated background.
+
+   A failed download, an error status, a timeout or bytes that don't decode all move on to the next candidate.
+   Only cancellation of the caller's token throws. The result depends on which downloads succeed, never on their
+   timing, so the same inputs render the same PNG. The App's "Use custom image…" replaces all of this.
+2. **Window.** The art is cover-fitted (centre-cropped) into the window. Symmetric near-black letterbox or
+   pillarbox bars are trimmed first: YouTube's 4:3 thumbnails of 16:9 videos, and the bars beside square album art
+   in a 16:9 music video thumbnail, so a YouTube track shows its square cover. Only matched, near-uniform dark bars
+   are trimmed (plus a 2 px, or ~0.4%, fringe where JPEG ringing leaves a dark line at the bar's edge); otherwise
+   the centre square is used, never more. Trimmed bars are cut off as an image subset, so filtering can't blend them
+   back in at the crop edge. Mosaic tiles are fitted the same way. Small art is upscaled with a
    Mitchell cubic; large art is downscaled with mipmaps. With no art, a dark service-tinted gradient with
    a faint record is drawn (Spotify green, YouTube red, Last.fm crimson, slate otherwise); never the crest.
 3. **Frame.** `Assets/Chip/frame.png` is drawn on top, pixel for pixel at 1x.

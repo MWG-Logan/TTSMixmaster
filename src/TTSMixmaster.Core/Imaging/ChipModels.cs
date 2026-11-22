@@ -25,18 +25,22 @@ public enum ChipArtSource
     /// <summary>The collection's own thumbnail (album art, playlist icon).</summary>
     Collection,
 
-    /// <summary>The first track that had a thumbnail.</summary>
+    /// <summary>One track's cover: the collection has no art of its own and fewer than four distinct track covers.</summary>
     Track,
+
+    /// <summary>A 2x2 mosaic of the first four distinct track covers (the collection has no art of its own).</summary>
+    Mosaic,
 
     /// <summary>No usable art: a generated background.</summary>
     Generated,
 }
 
 /// <summary>
-/// The art <see cref="ChipImageBuilder.FetchArtAsync"/> found: its bytes, or null with whether a download
-/// timed out (so the caller can say so and retry later rather than remember "no art").
+/// The art <see cref="ChipImageBuilder.FetchArtAsync"/> found: its bytes (a composed PNG for a mosaic) and where
+/// they came from, or null with whether a download timed out (so the caller can say so and retry later rather than
+/// remember "no art").
 /// </summary>
-public sealed record ChipArtFetch(byte[]? Art, bool TimedOut);
+public sealed record ChipArtFetch(byte[]? Art, bool TimedOut, ChipArtSource Source = ChipArtSource.Generated);
 
 /// <summary>A rendered chip face: PNG bytes and their SHA-256, which doubles as a content-addressed blob name.</summary>
 public sealed record ChipImage(byte[] Png, string Hash, int Width, int Height, ChipArtSource ArtSource)

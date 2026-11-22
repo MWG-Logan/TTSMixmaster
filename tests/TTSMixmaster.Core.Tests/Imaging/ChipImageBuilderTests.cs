@@ -109,7 +109,7 @@ public sealed class ChipImageBuilderTests
             c.DrawRect(SKRect.Create(0, 45, 480, 270), orange);
         });
         using (var bitmap = ChipArt.Decode(png)!)
-            Assert.AreEqual(new SKRectI(0, 45, 480, 315), ChipArt.ContentBounds(bitmap));
+            Assert.AreEqual(new SKRectI(0, 47, 480, 313), ChipArt.ContentBounds(bitmap)); // bars plus a 2 px JPEG-fringe margin
 
         using var output = Decode(ChipImageBuilder.RenderFront(png, "", null, NoTitle).Png);
         AssertClose(SKColors.Orange, output.GetPixel(239, 34), where: "window top");

@@ -47,6 +47,27 @@ additional package is `System.Security.Cryptography.ProtectedData`, pinned to `1
 Last.fm top/loved/recent and Spotify top/recent are `Chart`; albums are `Album`; other
 collections are `Playlist`. An album's artist (all artists, comma separated) is its `Owner`.
 
+### Collection art
+
+`CollectionSummary.ThumbnailUrl` is the collection's own image, and `ArtKind` says whether it really is:
+
+| Collection | `ThumbnailUrl` | `ArtKind` |
+|---|---|---|
+| Albums (every service), Spotify playlists (custom image or Spotify's own mosaic) | the image | `Own` |
+| YouTube playlist with a custom thumbnail | the thumbnail | `Own` |
+| YouTube playlist without one | the first video's thumbnail (that is what the Data API reports) | `ServiceDefault` |
+| Spotify Liked / Recently played / Top tracks, Last.fm charts | empty | (ignored) |
+
+Empty `ThumbnailUrl` always means "no art of its own". YouTube's stand-in is detected on load
+(`GetCollectionAsync`) by comparing the video id in the playlist's `i.ytimg.com/vi/<id>/…` URL with the first
+item's (sizes differ, so whole URLs are not compared); `OLAK5uy_` album playlists are never marked. Listings and
+search results leave `ArtKind` as `Own`. Chip art uses a 2x2 mosaic of track covers for collections without art of
+their own (`Imaging/README.md`).
+
+YouTube thumbnails are the largest size listed: `maxres` (1280x720), `standard`, `high`, `medium`, `default`.
+Last.fm's grey-star placeholder (`2a96cbd8b46e442fc41c2b86b821562f`), returned for most chart tracks, is treated as
+no image.
+
 Search by kind:
 - Spotify: `Playlist` (`type=playlist`) and `Album` (`type=album`).
 - YouTube: `Playlist` leaves out album playlists; `Album` is the same playlist search keeping
