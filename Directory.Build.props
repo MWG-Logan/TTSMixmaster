@@ -20,4 +20,13 @@
     <NuGetAuditMode>all</NuGetAuditMode>
     <WarningsAsErrors>$(WarningsAsErrors);NU1903;NU1904</WarningsAsErrors>
   </PropertyGroup>
+
+  <!--
+    .NET analyzers at the recommended level, plus the code-style rules in .editorconfig (IDE*) during
+    command-line and CI builds, not just in the IDE. The build must stay at zero warnings.
+  -->
+  <PropertyGroup>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
 </Project>
