@@ -11,6 +11,7 @@
     <Project Path="src/TTSMixmaster.Core/TTSMixmaster.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/TTSMixmaster.Core.IntegrationTests/TTSMixmaster.Core.IntegrationTests.csproj" />
     <Project Path="tests/TTSMixmaster.Core.Tests/TTSMixmaster.Core.Tests.csproj" />
   </Folder>
 </Solution>

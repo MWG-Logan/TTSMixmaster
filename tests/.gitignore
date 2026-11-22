@@ -1,0 +1,4 @@
+# yt-dlp/ffmpeg fetched for integration tests by scripts/fetch-tools.ps1
+.tools/
+# e2e screenshots and logs
+e2e/artifacts/

@@ -1,0 +1,23 @@
+<Project Sdk="MSTest.Sdk">
+
+  <!--
+    Integration layer: real filesystem, real yt-dlp/ffmpeg (fetched into tests/.tools by
+    scripts/fetch-tools.ps1) and Azurite when present. Every test is [TestCategory("Integration")];
+    a test whose dependency is missing ends Inconclusive with the reason. No cloud services or credentials.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Where scripts/fetch-tools.ps1 puts yt-dlp/ffmpeg for tests (override: TTSMIXMASTER_TEST_TOOLS). -->
+    <AssemblyMetadata Include="TestToolsDirectory" Value="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\.tools'))" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TTSMixmaster.Core\TTSMixmaster.Core.csproj" />
+  </ItemGroup>
+
+</Project>
