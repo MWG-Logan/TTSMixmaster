@@ -1,30 +1,21 @@
-<Project Sdk="WixToolset.Sdk/4.0.5">
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <!--
+    Per-machine MSI (C:\Program Files\TTSMixmaster). Build with:
+      dotnet build installer/TTSMixmaster.wixproj -c Release -p:InstallerPlatform=x64 -p:AppPublishDir=<publish folder>
+    scripts/package-release.ps1 does this for you. Version comes from Directory.Build.props.
+  -->
   <PropertyGroup>
-    <!-- File-name version (e.g. 1.0.3); falls back to the WiX Version if not provided -->
-    <OutputVersion Condition="'$(OutputVersion)' == ''">$(Version)</OutputVersion>
-    <OutputName>TTSMixmaster-v$(OutputVersion)-Setup</OutputName>
     <OutputType>Package</OutputType>
-    <PlatformTarget>x64</PlatformTarget>
-    <!-- Version will be passed from GitHub Actions -->
-    <Version Condition="'$(Version)' == ''">1.0.0.0</Version>
-    <!-- Define preprocessor variables for WiX -->
-    <DefineConstants>Version=$(Version);PyInstallerOutputDir=$(PyInstallerOutputDir);SourceDir=$(PyInstallerOutputDir)</DefineConstants>
+    <OutputName>TTSMixmaster</OutputName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- Stable since the first (Python) MSI: keeps MajorUpgrade working across releases. -->
+    <UpgradeCode>A1B2C3D4-E5F6-7890-ABCD-EF1234567890</UpgradeCode>
+    <DefineConstants>Version=$(Version);AppPublishDir=$(AppPublishDir);Scope=perMachine;UpgradeCode=$(UpgradeCode)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Harvest the PyInstaller output directory -->
-    <HarvestDirectory Include="$(PyInstallerOutputDir)">
-      <ComponentGroupName>HarvestedFiles</ComponentGroupName>
-      <DirectoryRefId>INSTALLFOLDER</DirectoryRefId>
-      <SuppressRootDirectory>true</SuppressRootDirectory>
-      <GenerateGuidsNow>false</GenerateGuidsNow>
-      <SuppressFragments>false</SuppressFragments>
-      <PreprocessorVariable>var.SourceDir</PreprocessorVariable>
-    </HarvestDirectory>
+    <Compile Include="TTSMixmaster.wxs" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- Include the WiX Heat package for directory harvesting -->
-    <PackageReference Include="WixToolset.Heat" Version="4.0.5" />
-  </ItemGroup>
+  <Import Project="Installer.targets" />
 </Project>

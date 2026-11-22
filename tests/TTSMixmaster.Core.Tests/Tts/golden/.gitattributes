@@ -1,0 +1,3 @@
+# Golden bytes are part of the contract, including on Windows checkouts.
+*.lua text eol=lf
+*.json text eol=lf

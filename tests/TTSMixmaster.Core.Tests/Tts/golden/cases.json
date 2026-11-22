@@ -1,0 +1,57 @@
+[
+  {
+    "id": "ordinary",
+    "name": "Evening Mix",
+    "tracks": [
+      {
+        "artist": "Artist One",
+        "title": "Opening",
+        "album": "First",
+        "url": "https://example.com/audio/one.mp3"
+      },
+      {
+        "artist": "Artist Two",
+        "title": "Missing",
+        "album": "",
+        "url": ""
+      }
+    ],
+    "options": {}
+  },
+  {
+    "id": "escaping",
+    "name": "Café \"mix\"\\night\n次",
+    "tracks": [
+      {
+        "artist": "Björk \"A\"",
+        "title": "Back\\slash\nNew\rLine\tTab 🎵",
+        "album": "日本 \"盤\"",
+        "url": "https://example.com/a%20b.mp3?x=\"q\"&y=\\z"
+      },
+      {
+        "artist": "Same",
+        "title": "Title",
+        "album": "",
+        "url": "https://example.com/other.mp3"
+      },
+      {
+        "artist": "Same",
+        "title": "Title",
+        "album": "Other",
+        "url": ""
+      }
+    ],
+    "options": {
+      "nickname": "Custom \"name\"\\\n音",
+      "description": "Description\nsecond\tline",
+      "image_url": " https://example.com/front.png ",
+      "image_secondary_url": " https://example.com/back.png "
+    }
+  },
+  {
+    "id": "empty",
+    "name": "Empty Collection",
+    "tracks": [],
+    "options": {}
+  }
+]

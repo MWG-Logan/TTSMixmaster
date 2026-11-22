@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TTSMixmaster setup.exe: per-user Burn bundle. Wraps the per-user MSI so a normal user can
+  install to %LOCALAPPDATA%\Programs\TTSMixmaster without admin rights. The bundle is the
+  single Apps & Features entry; the MSI inside is hidden.
+
+  Signing (CI): the embedded MSI is signed BEFORE this bundle is built; the bundle's Burn
+  engine is then detached, signed, reattached, and the final setup.exe signed
+  (see scripts/package-release.ps1 -Stage Bundle / Reattach).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle Name="TTSMixmaster"
+          Version="$(var.Version)"
+          Manufacturer="Morningwood Gaming LLC"
+          UpgradeCode="$(var.UpgradeCode)"
+          IconSourceFile="$(var.AppPublishDir)\Assets\AppIcon.ico"
+          AboutUrl="https://github.com/MWG-Logan/TTSMixmaster"
+          HelpUrl="https://github.com/MWG-Logan/TTSMixmaster/issues"
+          UpdateUrl="https://github.com/MWG-Logan/TTSMixmaster/releases">
+
+    <BootstrapperApplication>
+      <!-- No LicenseUrl: the standard UI then shows a plain Install button. -->
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense"
+                                              LicenseUrl=""
+                                              SuppressOptionsUI="yes"
+                                              SuppressRepair="yes" />
+    </BootstrapperApplication>
+
+    <Chain>
+      <MsiPackage Id="TTSMixmasterPerUser" SourceFile="$(var.PerUserMsi)" />
+    </Chain>
+  </Bundle>
+</Wix>
