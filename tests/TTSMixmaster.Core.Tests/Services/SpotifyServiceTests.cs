@@ -42,6 +42,7 @@ public sealed class SpotifyServiceTests
         await new SpotifyTokenStore(paths).SaveAsync("fake-client", "fake-refresh");
         using var fake = new FakeHttp(); using var http = fake.Client(); Token(fake);
         fake.Add("{\"items\":[" + Metadata + "],\"next\":null}", r => Assert.EndsWith("/me/playlists", r.RequestUri!.AbsolutePath));
+        fake.Add("""{"items":[],"next":null}""", r => Assert.EndsWith("/me/albums", r.RequestUri!.AbsolutePath));
         var result = await new SpotifyService(Settings(true), http, paths).GetMyCollectionsAsync();
         Assert.AreEqual(6, result.Count);
         Assert.AreEqual(CollectionKind.Playlist, result.Single(x => x.Id == "spotify:liked").Kind);
@@ -89,20 +90,22 @@ public sealed class SpotifyServiceTests
     }
 
     [TestMethod]
-    public async Task PlaylistSearchPagesSkipsNullResultsAndDoesNotSearchAlbums()
+    public async Task PlaylistSearchPagesSkipsNullResultsAndDoesNotSearchCharts()
     {
         using var root = new TemporaryData(); using var fake = new FakeHttp(); using var http = fake.Client(); Token(fake);
         fake.Add("{\"playlists\":{\"items\":[null," + Metadata + "],\"next\":\"https://api.spotify.com/v1/search?offset=10&type=playlist&q=test\"}}", r => Assert.AreEqual("playlist", FakeHttp.Query(r.RequestUri!)["type"]));
         fake.Add("""{"playlists":{"items":[{"id":"two","name":"Two"}],"next":null}}""");
         var service = new SpotifyService(Settings(), http, new(root.Root));
         Assert.AreEqual(2, (await service.SearchAsync("test", CollectionKind.Playlist, 2)).Count);
-        Assert.IsEmpty(await service.SearchAsync("test", CollectionKind.Album));
         Assert.IsEmpty(await service.SearchAsync("test", CollectionKind.Chart));
         Assert.AreEqual(3, fake.Requests);
     }
 
     [TestMethod]
-    [DataRow("https://open.spotify.com/album/album123")]
+    [DataRow("https://open.spotify.com/track/track123")]
+    [DataRow("https://open.spotify.com/artist/artist123")]
+    [DataRow("spotify:album:")]
+    [DataRow("https://evil.test/album/album123")]
     [DataRow("https://evil.test/playlist/playlist123")]
     [DataRow("spotify:top:invalid")]
     public async Task InvalidUrlsFailBeforeAuthentication(string id)

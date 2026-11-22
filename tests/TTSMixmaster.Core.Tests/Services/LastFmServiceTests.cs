@@ -11,16 +11,17 @@ public sealed class LastFmServiceTests
     private static AppSettings Settings() => new() { LastfmApiKey = "fake-key", LastfmUsername = "listener" };
 
     [TestMethod]
-    public async Task ListsChartsAndDoesNotSearchAlbumsOrPlaylists()
+    public async Task ListsChartsThenTopAlbumsAndDoesNotSearchPlaylists()
     {
         using var fake = new FakeHttp(); using var http = fake.Client();
+        fake.Add("""{"topalbums":{"album":[],"@attr":{"totalPages":"0"}}}""", r => Assert.AreEqual("user.gettopalbums", FakeHttp.Query(r.RequestUri!)["method"]));
         var service = new LastFmService(Settings(), http);
         var collections = await service.GetMyCollectionsAsync();
         Assert.AreEqual(3, collections.Count);
         foreach (var x in collections) { Assert.AreEqual(CollectionKind.Chart, x.Kind); Assert.AreEqual(ServiceKind.LastFm, x.Service); Assert.Contains("user=listener", x.Id); }
         Assert.IsEmpty(await service.SearchAsync("music", CollectionKind.Playlist));
-        Assert.IsEmpty(await service.SearchAsync("music", CollectionKind.Album));
-        Assert.AreEqual(0, fake.Requests);
+        Assert.IsEmpty(await service.SearchAsync("music", CollectionKind.Chart));
+        Assert.AreEqual(1, fake.Requests);
     }
 
     [TestMethod]

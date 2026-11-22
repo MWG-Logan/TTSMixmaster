@@ -9,6 +9,7 @@ namespace TTSMixmaster.Core.Services;
 /// <summary>
 /// Spotify metadata client with lazy Authorization Code + PKCE sign-in and optional public client-credentials mode.
 /// Playlist IDs are raw Spotify IDs; spotify:playlist:ID and https://open.spotify.com/playlist/ID are accepted.
+/// Album IDs are spotify:album:ID; https://open.spotify.com/album/ID (including /intl-xx/) is accepted.
 /// Personal IDs: spotify:liked, spotify:recent, spotify:top:short_term, spotify:top:medium_term, spotify:top:long_term.
 /// Recent history and top charts include all pages exposed by Spotify; history is not a complete listening archive.
 /// </summary>
@@ -55,6 +56,8 @@ public sealed class SpotifyService : IMusicService
             collections.Add(PersonalSummary("spotify:liked"));
             collections.Add(PersonalSummary("spotify:recent"));
             foreach (var period in new[] { "short_term", "medium_term", "long_term" }) collections.Add(PersonalSummary($"spotify:top:{period}"));
+            await foreach (var page in PagesAsync("me/albums?limit=50", ct, scopeHint: SavedAlbumsScope))
+                collections.AddRange(page.RequiredItems("items", "Spotify").Select(x => x.Get("album")).Where(x => x.ValueKind == JsonValueKind.Object).Select(MapAlbum));
         }
         return collections;
     }
@@ -62,13 +65,15 @@ public sealed class SpotifyService : IMusicService
     public async Task<IReadOnlyList<CollectionSummary>> SearchAsync(string query, CollectionKind kind, int limit = 20, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        if (kind != CollectionKind.Playlist || limit <= 0 || string.IsNullOrWhiteSpace(query)) return [];
+        if (kind is not (CollectionKind.Playlist or CollectionKind.Album) || limit <= 0 || string.IsNullOrWhiteSpace(query)) return [];
         var results = new List<CollectionSummary>();
+        var type = kind == CollectionKind.Album ? "album" : "playlist";
+        Func<JsonElement, CollectionSummary> map = kind == CollectionKind.Album ? MapAlbum : MapSummary;
         // Ten is accepted in current development mode as well as extended-quota applications.
-        var endpoint = $"search?type=playlist&q={Uri.EscapeDataString(query)}&limit={Math.Min(limit, 10)}";
-        await foreach (var page in PagesAsync(endpoint, ct, "playlists"))
+        var endpoint = $"search?type={type}&q={Uri.EscapeDataString(query)}&limit={Math.Min(limit, 10)}";
+        await foreach (var page in PagesAsync(endpoint, ct, type + "s"))
         {
-            results.AddRange(page.RequiredItems("items", "Spotify").Where(x => x.ValueKind == JsonValueKind.Object).Select(MapSummary));
+            results.AddRange(page.RequiredItems("items", "Spotify").Where(x => x.ValueKind == JsonValueKind.Object).Select(map));
             if (results.Count >= limit) break;
         }
         return results.Take(limit).ToArray();
@@ -77,6 +82,7 @@ public sealed class SpotifyService : IMusicService
     public async Task<MusicCollection> GetCollectionAsync(string idOrUrl, CancellationToken ct = default)
     {
         var id = ParseId(idOrUrl);
+        if (id.StartsWith(AlbumPrefix, StringComparison.Ordinal)) return await GetAlbumAsync(id[AlbumPrefix.Length..], ct);
         CollectionSummary summary;
         string endpoint;
         var isTop = id.StartsWith("spotify:top:", StringComparison.Ordinal);
@@ -121,13 +127,45 @@ public sealed class SpotifyService : IMusicService
         return new MusicCollection { Summary = summary with { TrackCount = tracks.Count }, Tracks = tracks };
     }
 
-    private async IAsyncEnumerable<JsonElement> PagesAsync(string endpoint, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct, string? wrapper = null)
+    private async Task<MusicCollection> GetAlbumAsync(string id, CancellationToken ct)
+    {
+        var summary = MapAlbum(await RequestAsync($"albums/{id}", ct));
+        if (summary.Id.Length == 0) throw new ServiceException("Spotify returned incomplete album information.");
+        var entries = new List<(int Disc, int Number, JsonElement Track)>();
+        await foreach (var page in PagesAsync($"albums/{id}/tracks?limit=50", ct))
+        {
+            foreach (var track in page.RequiredItems("items", "Spotify"))
+            {
+                if (track.ValueKind == JsonValueKind.Object && track.Text("type") == "track" && track.Get("is_local").ValueKind != JsonValueKind.True)
+                    entries.Add((track.Number("disc_number"), track.Number("track_number"), track));
+            }
+        }
+        // Spotify already lists disc 1, then disc 2; the stable sort only guards against out-of-order pages.
+        // TrackNumber is the position across the whole album, so disc 2 track 1 follows disc 1's last track.
+        var tracks = entries.OrderBy(x => x.Disc).ThenBy(x => x.Number).Select((x, index) => new Track
+        {
+            Title = x.Track.Text("name"), Artist = string.Join(", ", x.Track.Get("artists").Items().Select(a => a.Text("name"))),
+            Album = summary.Name, Service = Kind, ServiceId = x.Track.Text("id"),
+            Duration = TimeSpan.FromMilliseconds(Math.Max(0, x.Track.Number("duration_ms"))),
+            ThumbnailUrl = summary.ThumbnailUrl, TrackNumber = index + 1
+        }).ToList();
+        return new MusicCollection { Summary = summary with { TrackCount = tracks.Count }, Tracks = tracks };
+    }
+
+    private async IAsyncEnumerable<JsonElement> PagesAsync(string endpoint, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct, string? wrapper = null, string? scopeHint = null)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
         while (endpoint.Length > 0)
         {
             if (!seen.Add(endpoint)) throw new ServiceException("Spotify returned a repeated page. Please retry the collection.");
-            var data = await RequestAsync(endpoint, ct);
+            JsonElement data;
+            try { data = await RequestAsync(endpoint, ct); }
+            catch (ServiceException ex) when (ex.StatusCode == HttpStatusCode.Forbidden && scopeHint is not null)
+            {
+                // A sign-in from before this permission was requested: forget it so the next connection asks again.
+                _authentication.ForgetSignIn();
+                throw new ServiceException($"Spotify sign-in doesn't allow {scopeHint} yet. Connect Spotify again in Settings and approve the new permission.", HttpStatusCode.Forbidden);
+            }
             var page = wrapper is null ? data : data.Get(wrapper);
             yield return page;
             endpoint = page.Text("next");
@@ -161,6 +199,24 @@ public sealed class SpotifyService : IMusicService
         ThumbnailUrl = item.Get("images").Items().Select(x => x.Text("url")).FirstOrDefault() ?? ""
     };
 
+    private const string AlbumPrefix = "spotify:album:";
+    private const string SavedAlbumsScope = "reading your saved albums";
+
+    private static CollectionSummary MapAlbum(JsonElement album)
+    {
+        var id = album.Text("id");
+        var year = album.Text("release_date") is { Length: >= 4 } date ? date[..4] : "";
+        return new()
+        {
+            Id = id.Length == 0 ? "" : AlbumPrefix + id, Name = album.Text("name"), Service = ServiceKind.Spotify, Kind = CollectionKind.Album,
+            Owner = string.Join(", ", album.Get("artists").Items().Select(a => a.Text("name")).Where(x => x.Length > 0)),
+            Description = year.Length > 0 ? $"Released {year}" : "",
+            TrackCount = album.Get("total_tracks").ValueKind == JsonValueKind.Number ? album.Number("total_tracks") : null,
+            // The largest image becomes the TTS chip art.
+            ThumbnailUrl = album.Get("images").Items().OrderByDescending(x => x.Number("width")).Select(x => x.Text("url")).FirstOrDefault(x => x.Length > 0) ?? ""
+        };
+    }
+
     private static CollectionSummary PersonalSummary(string id) => new()
     {
         Id = id, Service = ServiceKind.Spotify, Kind = id == "spotify:liked" ? CollectionKind.Playlist : CollectionKind.Chart, Owner = "You",
@@ -171,16 +227,19 @@ public sealed class SpotifyService : IMusicService
     {
         value = value.Trim();
         if (value is "spotify:liked" or "spotify:recent" or "spotify:top:short_term" or "spotify:top:medium_term" or "spotify:top:long_term") return value;
+        var prefix = "";
         if (value.StartsWith("spotify:playlist:", StringComparison.Ordinal)) value = value[17..];
+        else if (value.StartsWith(AlbumPrefix, StringComparison.Ordinal)) (prefix, value) = (AlbumPrefix, value[AlbumPrefix.Length..]);
         else if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
         {
             var parts = uri.AbsolutePath.Trim('/').Split('/');
             if (parts.Length == 3 && parts[0].StartsWith("intl-", StringComparison.Ordinal)) parts = parts[1..];
-            if (uri.Scheme != "https" || uri.Host != "open.spotify.com" || parts.Length != 2 || parts[0] != "playlist")
-                throw new ServiceException("Paste a Spotify playlist share URL.");
+            if (uri.Scheme != "https" || uri.Host != "open.spotify.com" || parts.Length != 2 || parts[0] is not ("playlist" or "album"))
+                throw new ServiceException("Paste a Spotify playlist or album share URL.");
+            if (parts[0] == "album") prefix = AlbumPrefix;
             value = parts[1];
         }
-        if (value.Length == 0 || !value.All(char.IsAsciiLetterOrDigit)) throw new ServiceException("Enter a valid Spotify playlist ID or share URL.");
-        return value;
+        if (value.Length == 0 || !value.All(char.IsAsciiLetterOrDigit)) throw new ServiceException("Enter a valid Spotify playlist or album ID, or a share URL.");
+        return prefix + value;
     }
 }

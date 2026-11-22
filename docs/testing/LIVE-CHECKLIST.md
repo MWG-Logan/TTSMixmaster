@@ -68,4 +68,27 @@ For each: open its expander in Settings, check the status reads **Set up, not te
 - [ ] Settings > **Update yt-dlp** (with internet): succeeds and names the version; the file lands in
       `%LOCALAPPDATA%\TTSMixmaster\tools\yt-dlp.exe`, and the install folder is unchanged.
 
+## 7. Albums
+
+These need the owner's own accounts. The unit and App tests cover the same paths with recorded responses.
+
+- [ ] **Spotify saved albums:** signed in, **Collections → Albums** lists your saved albums with their artist
+      ("Spotify · Album · n tracks · Artist"). If Spotify hadn't granted saved-album access to an older sign-in,
+      the page says to connect again: **Sign in with Spotify**, approve, and the albums appear.
+- [ ] **Spotify album link:** paste `https://open.spotify.com/album/…` (also try an `/intl-xx/` link). The album
+      opens with its tracks in order (a multi-disc album keeps numbering on disc 2), and the chip shows the cover.
+- [ ] **Spotify album search:** on **Albums**, search an album name: albums only. Under **All**, the same search
+      shows playlists and albums, each labelled.
+- [ ] **YouTube Music album link:** on music.youtube.com open an album, **Share → Copy link**
+      (`music.youtube.com/playlist?list=OLAK5uy_…`) and paste it. It opens as an album named without
+      "Album - ", with the artist (not "YouTube") in the header and the album's song titles.
+- [ ] **YouTube Music browse link:** paste the address-bar link `music.youtube.com/browse/MPREb_…`: the error
+      says to copy the link from Share.
+- [ ] **YouTube album search:** on **Albums**, search "<artist> <album>". Only album playlists appear, possibly
+      none (YouTube's API has no album search).
+- [ ] **Last.fm album:** paste `https://www.last.fm/music/<Artist>/<Album>`, and search an album on **Albums**.
+      It opens with its track list. Your top albums appear under **Albums** in your own collections.
+- [ ] **Build** one album from each service: tracks download (Last.fm and Spotify by search), upload and export
+      like a playlist. Building a playlist that shares a track with the album leaves the album's folder alone.
+
 Record anything off-script as a GitHub issue (see `docs/agents/issue-tracker.md`).

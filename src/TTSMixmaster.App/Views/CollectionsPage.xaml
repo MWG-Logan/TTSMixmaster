@@ -37,7 +37,7 @@
                 x:Name="SearchBox"
                 AutomationProperties.AutomationId="SearchBox"
                 Header="Search or paste a link"
-                PlaceholderText="Playlist name, or a Spotify, YouTube or Last.fm link"
+                PlaceholderText="Name or share link"
                 QueryIcon="Find"
                 QuerySubmitted="SearchBox_QuerySubmitted"
                 Text="{x:Bind ViewModel.Query, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
@@ -67,7 +67,7 @@
             Grid.Row="2"
             Margin="0,16,0,0"
             Visibility="{x:Bind ViewModel.HasServices, Mode=OneWay}">
-            <!--  Albums slots in here as one more SelectorBarItem (Tag="Album").  -->
+            <!--  Tag is the CollectionKind name; empty means every kind.  -->
             <SelectorBar
                 x:Name="KindBar"
                 Margin="-12,0,0,0"
@@ -82,6 +82,10 @@
                     AutomationProperties.AutomationId="KindPlaylists"
                     Tag="Playlist"
                     Text="Playlists" />
+                <SelectorBarItem
+                    AutomationProperties.AutomationId="KindAlbums"
+                    Tag="Album"
+                    Text="Albums" />
                 <SelectorBarItem
                     AutomationProperties.AutomationId="KindCharts"
                     Tag="Chart"
@@ -225,7 +229,7 @@
                 TextAlignment="Center" />
             <TextBlock
                 Style="{StaticResource SecondaryTextStyle}"
-                Text="Add your Last.fm, YouTube or Spotify details and your playlists and charts show up here, ready to turn into a Tabletop Simulator music player."
+                Text="Add your Last.fm, YouTube or Spotify details and your playlists, albums and charts show up here, ready to turn into a Tabletop Simulator music player."
                 TextAlignment="Center"
                 TextWrapping="Wrap" />
             <Button

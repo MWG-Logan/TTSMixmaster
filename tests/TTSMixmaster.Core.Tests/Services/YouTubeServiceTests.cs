@@ -52,7 +52,7 @@ public sealed class YouTubeServiceTests
     }
 
     [TestMethod]
-    public async Task PlaylistSearchPagesPrefersOfficialAndAlbumSearchIsEmpty()
+    public async Task PlaylistSearchPagesPrefersOfficialAndChartSearchIsEmpty()
     {
         using var fake = new FakeHttp(); using var http = fake.Client();
         fake.Add("""{"items":[{"id":{"playlistId":"PLtopic"},"snippet":{"title":"Topic","channelTitle":"Artist - Topic"}}],"nextPageToken":"more"}""", r => Assert.AreEqual("playlist", FakeHttp.Query(r.RequestUri!)["type"]));
@@ -60,7 +60,6 @@ public sealed class YouTubeServiceTests
         var service = new YouTubeService(Settings(), http);
         var result = await service.SearchAsync("artist", CollectionKind.Playlist, 1);
         Assert.AreEqual("PLofficial", Assert.ContainsSingle(result).Id);
-        Assert.IsEmpty(await service.SearchAsync("artist", CollectionKind.Album));
         Assert.IsEmpty(await service.SearchAsync("artist", CollectionKind.Chart));
         Assert.AreEqual(2, fake.Requests);
     }

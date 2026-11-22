@@ -48,7 +48,12 @@ Legacy behavior intentionally omitted:
   this implementation requires executable tools and publishes only MP3s.
 - Album-based filename suffixes and collapsing exact duplicates out of the result
   list: names carry a track-key hash instead, and every input track retains a result.
-- Album terms in search queries: use the requested `Artist - Title` query.
+- Album terms in search queries: use the requested `Artist - Title` query, album tracks included.
+  Re-checked for albums on 2026-11-22 with 40 album tracks (20 hits, 20 deep cuts) through
+  `ytsearch1`, counting a result as right when its duration is within 8% of the album version:
+  `Artist - Title` matched 37/40 and `Artist - Title Album` 38/40. The album term also chose a
+  tribute band named after the album and a fan re-upload over the artist's own audio, so the
+  query stays as it is (`AudioDownloaderTests.Album_tracks_search_by_artist_and_title_without_the_album_name`).
 
 External provider availability still determines whether a source/search succeeds.
 Search fallback is a best-effort match, not verification of the recording's identity.
