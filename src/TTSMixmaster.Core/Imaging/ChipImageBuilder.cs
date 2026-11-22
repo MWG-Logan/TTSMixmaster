@@ -1,0 +1,151 @@
+using System.Security.Cryptography;
+using SkiaSharp;
+using TTSMixmaster.Core.Models;
+
+namespace TTSMixmaster.Core.Imaging;
+
+/// <summary>
+/// Renders the front image of a music chip: the collection's art behind the Morningwood Gaming chip
+/// frame, with the collection name on top. Output is deterministic for the same art, title, options and
+/// installed fonts (fonts only matter for characters Cinzel lacks).
+/// </summary>
+public sealed class ChipImageBuilder(HttpClient http)
+{
+    /// <summary>Art larger than this is ignored rather than downloaded.</summary>
+    public const long MaxArtBytes = 20 * 1024 * 1024;
+
+    /// <summary>How far the art is drawn past the window edge, so the frame's anti-aliased edge sits on art, not on nothing.</summary>
+    private const float ArtBleed = 1.5f;
+
+    private static readonly Lazy<ChipImage> Back = new(BackFromAssets);
+
+    /// <summary>The chip back (unchanged from the original MWG chip), for <see cref="TtsOutputOptions.SecondaryImageUrl"/>.</summary>
+    public static ChipImage BackImage => Back.Value;
+
+    /// <summary>Downloads the collection's art (falling back to its first track's) and renders the chip front.</summary>
+    /// <remarks>Download or decode failures fall back to a generated background; only cancellation throws.</remarks>
+    public async Task<ChipImage> BuildFrontAsync(MusicCollection collection, ChipOptions options, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(collection);
+        ArgumentNullException.ThrowIfNull(options);
+        ct.ThrowIfCancellationRequested();
+
+        var candidates = new List<(string Url, ChipArtSource Source)> { (collection.Summary.ThumbnailUrl, ChipArtSource.Collection) };
+        var track = collection.Tracks.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.ThumbnailUrl));
+        if (track is not null) candidates.Add((track.ThumbnailUrl, ChipArtSource.Track));
+
+        foreach (var (url, source) in candidates)
+        {
+            var bytes = await TryDownloadAsync(url, ct);
+            using var art = ChipArt.Decode(bytes);
+            if (art is null) continue;
+            ct.ThrowIfCancellationRequested();
+            return Render(art, Title(collection, options), collection.Summary.Service, options, source);
+        }
+        ct.ThrowIfCancellationRequested();
+        return Render(null, Title(collection, options), collection.Summary.Service, options, ChipArtSource.Generated);
+    }
+
+    /// <summary>Renders a chip front from art bytes already in hand (null or undecodable → generated background).</summary>
+    public static ChipImage RenderFront(byte[]? art, string title, ServiceKind? service, ChipOptions? options = null)
+    {
+        options ??= new ChipOptions();
+        using var bitmap = ChipArt.Decode(art);
+        return Render(bitmap, options.ShowTitle ? title : "", service, options,
+            bitmap is null ? ChipArtSource.Generated : ChipArtSource.Collection);
+    }
+
+    private static string Title(MusicCollection collection, ChipOptions options) =>
+        !options.ShowTitle ? "" : string.IsNullOrWhiteSpace(options.Title) ? collection.Name : options.Title;
+
+    private static ChipImage Render(SKBitmap? art, string title, ServiceKind? service, ChipOptions options, ChipArtSource source)
+    {
+        if (options.Scale is not (1 or 2))
+            throw new ArgumentOutOfRangeException(nameof(options), options.Scale, "Chip scale must be 1 or 2.");
+        var pixels = ChipGeometry.Size * options.Scale;
+
+        using var surface = SKSurface.Create(new SKImageInfo(pixels, pixels, SKColorType.Rgba8888, SKAlphaType.Premul))
+            ?? throw new InvalidOperationException("Could not create a drawing surface.");
+        var canvas = surface.Canvas;
+        canvas.Clear(SKColors.Transparent);
+        canvas.Scale(options.Scale);
+
+        using var typesetter = new ChipTitle(ChipAssets.TitleTypeface);
+        var layout = typesetter.Fit(title);
+
+        // Window content: art (or a generated backdrop) plus, under a title, a scrim for legibility.
+        using (var window = ChipGeometry.WindowPath(ArtBleed))
+        {
+            canvas.Save();
+            canvas.ClipPath(window, SKClipOperation.Intersect, antialias: true);
+            var target = ChipGeometry.WindowBounds;
+            target.Inflate(ArtBleed, ArtBleed);
+            if (art is not null) ChipArt.DrawCover(canvas, art, target);
+            else ChipArt.DrawGenerated(canvas, target, service);
+            if (layout is not null) DrawScrim(canvas, target, layout);
+            canvas.Restore();
+        }
+
+        // The frame, then the title on top.
+        var sampling = options.Scale == 1 ? new SKSamplingOptions(SKFilterMode.Nearest) : new SKSamplingOptions(SKCubicResampler.Mitchell);
+        canvas.DrawImage(ChipAssets.Frame, new SKRect(0, 0, ChipGeometry.Size, ChipGeometry.Size), sampling, null);
+        if (layout is not null) typesetter.Draw(canvas, layout);
+
+        canvas.Flush();
+        using var snapshot = surface.Snapshot();
+        using var png = snapshot.Encode(SKEncodedImageFormat.Png, 100)
+            ?? throw new InvalidOperationException("PNG encoding failed.");
+        return Image(png.ToArray(), pixels, pixels, source);
+    }
+
+    /// <summary>Darkens the lower part of the window, from clear above the title to ~70% black at the bottom edge.</summary>
+    private static void DrawScrim(SKCanvas canvas, SKRect target, ChipTitle.Layout layout)
+    {
+        var top = ChipTitle.LastLineBaseline - layout.Size * ChipTitle.LineSpacing * layout.Lines.Count - 70;
+        using var shader = SKShader.CreateLinearGradient(
+            new SKPoint(0, top), new SKPoint(0, target.Bottom),
+            [SKColors.Black.WithAlpha(0), SKColors.Black.WithAlpha(0x60), SKColors.Black.WithAlpha(0xB4)],
+            [0, 0.45f, 1], SKShaderTileMode.Clamp);
+        using var paint = new SKPaint { Shader = shader };
+        canvas.DrawRect(new SKRect(target.Left, top, target.Right, target.Bottom), paint);
+    }
+
+    private async Task<byte[]?> TryDownloadAsync(string url, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
+            return null;
+        try
+        {
+            using var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (!response.IsSuccessStatusCode) return null;
+            if (response.Content.Headers.ContentLength > MaxArtBytes) return null;
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var buffer = new MemoryStream();
+            var chunk = new byte[81920];
+            int read;
+            while ((read = await stream.ReadAsync(chunk, ct)) > 0)
+            {
+                if (buffer.Length + read > MaxArtBytes) return null;
+                buffer.Write(chunk, 0, read);
+            }
+            return buffer.ToArray();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception)
+        {
+            // Network errors, timeouts, bad responses: any art problem just means the generated background.
+            return null;
+        }
+    }
+
+    private static ChipImage BackFromAssets()
+    {
+        using var codec = SKCodec.Create(new SKMemoryStream(ChipAssets.Back))
+            ?? throw new InvalidOperationException("The embedded chip back is not a valid PNG.");
+        return Image(ChipAssets.Back, codec.Info.Width, codec.Info.Height, ChipArtSource.None);
+    }
+
+    private static ChipImage Image(byte[] png, int width, int height, ChipArtSource source) =>
+        new(png, Convert.ToHexStringLower(SHA256.HashData(png)), width, height, source);
+}
