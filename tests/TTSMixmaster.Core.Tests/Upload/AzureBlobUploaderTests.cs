@@ -14,7 +14,8 @@ public sealed class AzureBlobUploaderTests : IDisposable
     private readonly FakeContainer _container = new();
     private readonly AppSettings _settings = new() { AzureStorageConnectionString = "test-only", AzureContainerName = "tts-audio" };
 
-    private AzureBlobUploader Uploader() => new(() => _settings, new FixedClock(), _ => _container);
+    private AzureBlobUploader Uploader() => new(() => _settings, new FixedClock(), _ => _container,
+        anonymousReadProbe: (_, _) => Task.FromResult<bool?>(true));
 
     private DownloadedTrack Download(string name = "filename unrelated to title.mp3")
     {
@@ -56,13 +57,13 @@ public sealed class AzureBlobUploaderTests : IDisposable
     }
 
     [Fact]
-    public async Task Upload_preserves_filename_and_track_metadata_and_creates_public_blob_container()
+    public async Task Upload_preserves_filename_and_track_metadata_without_changing_container_access()
     {
         var file = Download("Artist - Title #1%.mp3");
         var result = Assert.Single(await Uploader().UploadAsync([file]));
         Assert.Equal("audio/Artist - Title #1%.mp3", _container.RequestedNames.Single());
         Assert.Equal("https://example.blob.core.windows.net/tts-audio/audio/Artist%20-%20Title%20%231%25.mp3", result.PublicUrl);
-        Assert.Equal(PublicAccessType.Blob, _container.Access);
+        Assert.Equal(PublicAccessType.None, _container.Access);
         Assert.Equal("audio/mpeg", _container.Blob.Options!.HttpHeaders.ContentType);
         Assert.Equal("inline; filename=\"Artist - Title #1%.mp3\"", _container.Blob.Options.HttpHeaders.ContentDisposition);
         Assert.Equal(new byte[] { 1, 2, 3 }, _container.Blob.Bytes);
@@ -195,8 +196,11 @@ public sealed class AzureBlobUploaderTests : IDisposable
             return Task.FromResult(Response.FromValue(BlobsModelFactory.BlobContainerInfo(default, Now), null!));
         }
         public override Task<Response<BlobContainerProperties>> GetPropertiesAsync(BlobRequestConditions? conditions = null,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(Response.FromValue<BlobContainerProperties>(null!, null!));
+            CancellationToken cancellationToken = default)
+        {
+            if (CreateError is not null) throw CreateError;
+            return Task.FromResult(Response.FromValue(BlobsModelFactory.BlobContainerProperties(default, default, null, null, null, PublicAccessType.Blob, null, null, null), null!));
+        }
     }
 
     private sealed class FakeBlob : BlobClient
