@@ -9,6 +9,7 @@ using static TTSMixmaster.Core.Tests.Imaging.ChipTestImages;
 namespace TTSMixmaster.Core.Tests.Tts;
 
 /// <summary>The saved object's thumbnail is the chip render when the caller supplies one.</summary>
+[TestClass]
 public sealed class TtsExportThumbnailTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("tts-thumb-").FullName;
@@ -31,7 +32,7 @@ public sealed class TtsExportThumbnailTests : IDisposable
             [new UploadedTrack(song, "", "https://example.com/a.mp3", TrackStatus.Done)]);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task A_supplied_256_png_becomes_the_thumbnail()
     {
         var (exporter, collection, uploads) = Setup();
@@ -39,11 +40,11 @@ public sealed class TtsExportThumbnailTests : IDisposable
 
         var result = await exporter.ExportToTtsAsync(collection, uploads, new(), thumbnail: thumbnail);
 
-        Assert.Equal(TtsExportOutcome.Created, result.Outcome);
-        Assert.Equal(thumbnail, File.ReadAllBytes(Path.ChangeExtension(result.Path!, ".png")));
+        Assert.AreEqual(TtsExportOutcome.Created, result.Outcome);
+        Assert.AreSequenceEqual(thumbnail, File.ReadAllBytes(Path.ChangeExtension(result.Path!, ".png")));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task A_thumbnail_of_the_wrong_size_falls_back_to_the_placeholder()
     {
         var (exporter, collection, uploads) = Setup();
@@ -51,6 +52,6 @@ public sealed class TtsExportThumbnailTests : IDisposable
 
         var result = await exporter.ExportToTtsAsync(collection, uploads, new(), thumbnail: wrongSize);
 
-        Assert.Equal(PlaceholderThumbnail.Png, File.ReadAllBytes(Path.ChangeExtension(result.Path!, ".png")));
+        Assert.AreSequenceEqual(PlaceholderThumbnail.Png, File.ReadAllBytes(Path.ChangeExtension(result.Path!, ".png")));
     }
 }
