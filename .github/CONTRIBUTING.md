@@ -20,36 +20,30 @@ We're actively looking for contributions in the following areas:
 ## Development Setup
 
 ### Prerequisites
-- Python 3.8 or higher
-- Git
-- A code editor (VS Code recommended)
+- Windows 10 1809+ or Windows 11 (x64 or ARM64)
+- .NET 10 SDK
+- Windows Developer Mode (Settings → System → For developers)
+- WinApp CLI: `winget install --id Microsoft.WinAppCli --source winget`
+- Git, plus Visual Studio 2026 or VS Code with the C# Dev Kit
 
 ### Getting Started
 1. **Fork the repository** on GitHub
 2. **Clone your fork**:
-   ```bash
+   ```powershell
    git clone https://github.com/yourusername/TTSMixmaster.git
    cd TTSMixmaster
    ```
-3. **Create a virtual environment**:
-   ```bash
-   python -m venv venv
-   venv\Scripts\activate  # Windows
-   # source venv/bin/activate  # Linux/Mac
+3. **Build** (the solution has no AnyCPU configuration, so always pass a platform):
+   ```powershell
+   dotnet build TTSMixmaster.slnx -p:Platform=x64
    ```
-4. **Install dependencies**:
-   ```bash
-   pip install .
+4. **Fetch yt-dlp and ffmpeg** for local runs:
+   ```powershell
+   ./scripts/fetch-tools.ps1 -OutputFolder "$env:LOCALAPPDATA\TTSMixmaster\tools"   # add -Arch arm64 on ARM
    ```
-5. **Install development dependencies**:
-   ```bash
-   pip install -e ".[dev]"
-   ```
-6. **Set up your environment**:
-   ```bash
-   cp .env.template .env
-   # Edit .env with your test API credentials
-   ```
+5. **Run the app**: `cd src/TTSMixmaster.App; winapp run .` (or F5 in Visual Studio). Enter test credentials in the app's Settings page; nothing secret goes in the repo.
+
+See [AGENTS.md](../AGENTS.md) for the project layout and conventions, and [docs/TESTING.md](../docs/TESTING.md) for the test layers.
 
 ### Development Workflow
 
