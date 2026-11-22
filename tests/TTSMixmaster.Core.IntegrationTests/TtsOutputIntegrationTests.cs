@@ -96,7 +96,8 @@ public sealed class TtsOutputIntegrationTests : IDisposable
     public async Task Exporter_publishes_a_saved_object_pair_into_the_injected_tts_root_and_updates_it_in_place()
     {
         using var media = new LocalMediaServer();
-        var thumbnail = media.Serve("art/cover.png", MediaFixtures.Png(512, 512), "image/png");
+        // 256×256 PNG: the only fetched art the exporter uses as-is (anything else becomes the placeholder).
+        var thumbnail = media.Serve("art/cover.png", MediaFixtures.Png(256, 256), "image/png");
         var collection = Collection(thumbnail.AbsoluteUri);
         // Art is fetched over HTTPS only: the exporter upgrades this http:// URL. The loopback server speaks plain
         // HTTP, so this handler stands in for TLS on that one host and port and records what was asked for.
