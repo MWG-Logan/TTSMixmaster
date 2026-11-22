@@ -69,6 +69,6 @@ public sealed record BuildRecord(
     {
         var temp = path + ".tmp";
         File.WriteAllBytes(temp, bytes);
-        File.Move(temp, path, overwrite: true);
+        FileReplace.Move(temp, path, overwrite: true);
     }
 }

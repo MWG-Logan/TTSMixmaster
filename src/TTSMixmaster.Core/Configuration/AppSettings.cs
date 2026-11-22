@@ -107,6 +107,6 @@ public sealed class SettingsStore(string filePath)
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(FilePath))!);
         var temp = FilePath + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(settings, AppSettings.JsonOptions));
-        File.Move(temp, FilePath, overwrite: true);
+        Files.FileReplace.Move(temp, FilePath, overwrite: true);
     }
 }
