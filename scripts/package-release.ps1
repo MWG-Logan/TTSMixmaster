@@ -1,37 +1,41 @@
 <#
 .SYNOPSIS
-  Builds the TTSMixmaster release artifacts for one architecture.
+  Builds the TTSMixmaster release artifacts.
 
 .DESCRIPTION
   Produces, in artifacts/release/:
+    TTSMixmaster-v<ver>.msixbundle            x64 + ARM64 MSIX bundle (the main download)
+    TTSMixmaster.appinstaller                 App Installer file that installs the bundle and
+                                              keeps it updated from the latest GitHub release
     TTSMixmaster-v<ver>-portable-<arch>.zip   self-contained publish folder + yt-dlp/ffmpeg
-    TTSMixmaster-v<ver>-<arch>.msi            per-machine MSI (Program Files)
-    TTSMixmaster-v<ver>-setup-<arch>.exe      per-user Burn bundle (%LOCALAPPDATA%\Programs, no admin)
-    TTSMixmaster-v<ver>-<arch>.msix           MSIX of the same publish folder
 
   The version comes from <Version> in Directory.Build.props.
 
-  CI runs the stages one at a time so it can sign in between (see
+  Stages (CI runs them separately so it can sign in between; see
   .github/workflows/build-and-release.yml):
 
-    Publish   dotnet publish + fetch-tools          -> sign TTSMixmaster.exe/.dll, TTSMixmaster.Core.dll
-    Package   zip, MSI, per-user MSI, MSIX          -> sign both MSIs and the MSIX
-    Bundle    build setup.exe around the signed per-user MSI, detach its Burn engine
-                                                    -> sign the engine
-    Reattach  reattach the signed engine            -> sign the final setup.exe
+    Publish   per arch: dotnet publish + fetch-tools      -> CI signs TTSMixmaster.exe/.dll and
+                                                             TTSMixmaster.Core.dll
+    Package   per arch: portable zip, unsigned .msix      (the .msix goes to artifacts/msix/)
+    Bundle    .msixbundle from artifacts/msix/*.msix,     -> CI signs the .msixbundle
+              plus TTSMixmaster.appinstaller
 
-  -Stage All runs everything unsigned for local testing (no engine detach).
+  -Stage All runs every stage for every -Arch, unsigned, for local testing.
 
 .EXAMPLE
-  ./scripts/package-release.ps1 -Arch x64
+  ./scripts/package-release.ps1                      # everything, x64 + arm64
+  ./scripts/package-release.ps1 -Arch x64 -Stage Publish
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('x64', 'arm64')]
-    [string]$Arch = 'x64',
+    [string[]]$Arch = @('x64', 'arm64'),
 
-    [ValidateSet('All', 'Publish', 'Package', 'Bundle', 'Reattach')]
+    [ValidateSet('All', 'Publish', 'Package', 'Bundle')]
     [string]$Stage = 'All',
+
+    # Base URL of the GitHub releases the .appinstaller points at.
+    [string]$ReleasesUrl = 'https://github.com/MWG-Logan/TTSMixmaster/releases',
 
     # Optional override of the MSIX Identity/@Publisher committed in
     # installer/msix/Package.appxmanifest (which equals the Trusted Signing certificate
@@ -47,11 +51,9 @@ $ProgressPreference = 'SilentlyContinue'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $ArtifactsDir) { $ArtifactsDir = Join-Path $repoRoot 'artifacts' }
 $ArtifactsDir = [IO.Path]::GetFullPath($ArtifactsDir)
-
-$publishDir = Join-Path $ArtifactsDir "publish\$Arch"
-$workDir = Join-Path $ArtifactsDir "work\$Arch"
 $releaseDir = Join-Path $ArtifactsDir 'release'
-$installerDir = Join-Path $repoRoot 'installer'
+$msixDir = Join-Path $ArtifactsDir 'msix'
+$msixSource = Join-Path $repoRoot 'installer\msix'
 
 function Invoke-Native([string]$Command, [string[]]$Arguments) {
     Write-Host "> $Command $($Arguments -join ' ')"
@@ -64,39 +66,31 @@ function Get-ReleaseVersion {
     $value = (& dotnet msbuild $props -nologo -getProperty:Version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) { throw "Could not read <Version> from $props." }
     if ($value -notmatch '^\d+\.\d+\.\d+$') {
-        throw "<Version> in Directory.Build.props must be MAJOR.MINOR.PATCH (MSI/MSIX can't carry a pre-release suffix). Got '$value'."
+        throw "<Version> in Directory.Build.props must be MAJOR.MINOR.PATCH (MSIX can't carry a pre-release suffix). Got '$value'."
     }
     return $value
 }
 
-function Assert-Published {
-    if (-not (Test-Path -LiteralPath (Join-Path $publishDir 'TTSMixmaster.exe'))) {
-        throw "No publish output at $publishDir. Run -Stage Publish first."
-    }
-    foreach ($tool in 'yt-dlp.exe', 'ffmpeg.exe', 'ffprobe.exe') {
-        if (-not (Test-Path -LiteralPath (Join-Path $publishDir $tool))) { throw "$tool is missing from $publishDir." }
+function Get-PublishDir([string]$A) { Join-Path $ArtifactsDir "publish\$A" }
+function Get-WorkDir([string]$A) { Join-Path $ArtifactsDir "work\$A" }
+
+function Assert-Published([string]$A) {
+    $dir = Get-PublishDir $A
+    foreach ($file in 'TTSMixmaster.exe', 'TTSMixmaster.pri', 'yt-dlp.exe', 'ffmpeg.exe', 'ffprobe.exe') {
+        if (-not (Test-Path -LiteralPath (Join-Path $dir $file))) { throw "$file is missing from $dir. Run -Stage Publish first." }
     }
 }
 
-# Builds a .wixproj into its own per-arch bin/obj under artifacts/work, returns the bin folder.
-function Invoke-WixBuild([string]$Project, [string]$Name, [string[]]$Extra = @()) {
-    $out = Join-Path $workDir "$Name\bin"
-    $obj = Join-Path $workDir "$Name\obj"
-    $buildArgs = @('build', $Project, '-c', 'Release', '-nologo', '-v:minimal',
-        "-p:InstallerPlatform=$Arch", "-p:AppPublishDir=$publishDir",
-        # MSBuild wants the trailing separator; '/' (not '\') so it can't escape a closing quote.
-        "-p:OutputPath=$out/", "-p:IntermediateOutputPath=$obj/") + $Extra
-    Invoke-Native 'dotnet' $buildArgs
-    return $out
-}
-
-function Invoke-Wix([string[]]$WixArgs) {
-    Push-Location $installerDir
-    try {
-        Invoke-Native 'dotnet' @('tool', 'restore')
-        Invoke-Native 'dotnet' (@('tool', 'run', 'wix', '--') + $WixArgs)
-    }
-    finally { Pop-Location }
+# The manifest with this build's Version and (optionally) a publisher override stamped in.
+function Get-StampedManifest([string]$Version, [string]$A) {
+    $manifest = New-Object xml
+    $manifest.PreserveWhitespace = $true
+    $manifest.Load((Join-Path $msixSource 'Package.appxmanifest'))
+    $identity = $manifest.Package.Identity
+    $identity.SetAttribute('Version', "$Version.0")
+    if ($MsixPublisher) { $identity.SetAttribute('Publisher', $MsixPublisher.Trim()) }
+    if ($A) { $identity.SetAttribute('ProcessorArchitecture', $A) }
+    return $manifest
 }
 
 function New-PortableZip([string]$Source, [string]$Destination) {
@@ -115,29 +109,20 @@ function New-PortableZip([string]$Source, [string]$Destination) {
     finally { $zip.Dispose() }
 }
 
-function New-Msix([string]$Version, [string]$Destination) {
-    $msixSource = Join-Path $installerDir 'msix'
-    $msixWork = Join-Path $workDir 'msix'
+function New-Msix([string]$Version, [string]$A, [string]$Destination) {
+    $publishDir = Get-PublishDir $A
+    $msixWork = Join-Path (Get-WorkDir $A) 'msix'
     $layout = Join-Path $msixWork 'layout'
     $priInput = Join-Path $msixWork 'pri-input'
     $manifestPath = Join-Path $msixWork 'Package.appxmanifest'
 
     # The package layout is a copy of the publish folder plus the tile icons, so the
-    # zip/MSI payload (the publish folder itself) stays untouched.
+    # portable zip's payload (the publish folder itself) stays untouched.
     New-Item -ItemType Directory -Path $msixWork, $priInput -Force | Out-Null
     Copy-Item -LiteralPath $publishDir -Destination $layout -Recurse
     Copy-Item -LiteralPath (Join-Path $msixSource 'Assets') -Destination $msixWork -Recurse
     Copy-Item -Path (Join-Path $msixSource 'Assets\*') -Destination (Join-Path $layout 'Assets') -Force
-    Copy-Item -LiteralPath (Join-Path $msixSource 'Package.appxmanifest') -Destination $manifestPath
-
-    $manifest = New-Object xml
-    $manifest.PreserveWhitespace = $true
-    $manifest.Load($manifestPath)
-    $identity = $manifest.Package.Identity
-    $identity.SetAttribute('Version', "$Version.0")
-    if ($MsixPublisher) { $identity.SetAttribute('Publisher', $MsixPublisher.Trim()) }
-    $identity.SetAttribute('ProcessorArchitecture', $Arch)
-    $manifest.Save($manifestPath)
+    (Get-StampedManifest $Version $A).Save($manifestPath)
 
     # A packaged process loads XAML and WinUI resources from resources.pri, whose primary
     # resource map must be the package's. The unpackaged build keeps them in TTSMixmaster.pri
@@ -153,81 +138,89 @@ function New-Msix([string]$Version, [string]$Destination) {
         '--skip-pri', '--no-sign', '--quiet')
 }
 
+function New-AppInstaller([string]$Version, [string]$Destination) {
+    $identity = (Get-StampedManifest $Version $null).Package.Identity
+    $base = $ReleasesUrl.TrimEnd('/')
+    $ns = 'http://schemas.microsoft.com/appx/appinstaller/2018'
+    $xml = New-Object xml
+    $xml.AppendChild($xml.CreateXmlDeclaration('1.0', 'utf-8', $null)) | Out-Null
+    $root = $xml.AppendChild($xml.CreateElement('AppInstaller', $ns))
+    $root.SetAttribute('Version', "$Version.0")
+    # Stable URL that always serves the newest .appinstaller: this is what installed copies
+    # poll for updates. GitHub redirects it to the asset of the latest (non-prerelease) release.
+    $root.SetAttribute('Uri', "$base/latest/download/TTSMixmaster.appinstaller")
+    $bundle = $root.AppendChild($xml.CreateElement('MainBundle', $ns))
+    $bundle.SetAttribute('Name', $identity.Name)
+    $bundle.SetAttribute('Publisher', $identity.Publisher)
+    $bundle.SetAttribute('Version', "$Version.0")
+    $bundle.SetAttribute('Uri', "$base/download/v$Version/TTSMixmaster-v$Version.msixbundle")
+    $update = $root.AppendChild($xml.CreateElement('UpdateSettings', $ns))
+    $onLaunch = $update.AppendChild($xml.CreateElement('OnLaunch', $ns))
+    $onLaunch.SetAttribute('HoursBetweenUpdateChecks', '24')
+    $onLaunch.SetAttribute('ShowPrompt', 'true')
+    $onLaunch.SetAttribute('UpdateBlocksActivation', 'false')
+    $update.AppendChild($xml.CreateElement('AutomaticBackgroundTask', $ns)) | Out-Null
+
+    $settings = New-Object System.Xml.XmlWriterSettings
+    $settings.Indent = $true
+    $settings.Encoding = New-Object System.Text.UTF8Encoding($false)
+    $writer = [System.Xml.XmlWriter]::Create($Destination, $settings)
+    try { $xml.Save($writer) } finally { $writer.Dispose() }
+}
+
 $version = Get-ReleaseVersion
 $base = "TTSMixmaster-v$version"
-$names = @{
-    Zip   = "$base-portable-$Arch.zip"
-    Msi   = "$base-$Arch.msi"
-    Setup = "$base-setup-$Arch.exe"
-    Msix  = "$base-$Arch.msix"
-}
-$perUserMsi = Join-Path $workDir 'TTSMixmaster.PerUser.msi'
-$bundleExe = Join-Path $workDir 'TTSMixmaster.Setup.exe'
-$burnEngine = Join-Path $workDir 'burn-engine.exe'
-Write-Host "TTSMixmaster $version ($Arch), stage $Stage"
+$bundleName = "$base.msixbundle"
+Write-Host "TTSMixmaster $version ($($Arch -join ', ')), stage $Stage"
+New-Item -ItemType Directory -Path $releaseDir, $msixDir -Force | Out-Null
 
-if ($Stage -in 'All', 'Publish') {
-    if (Test-Path -LiteralPath $publishDir) { Remove-Item -LiteralPath $publishDir -Recurse -Force }
-    $platform = @{ x64 = 'x64'; arm64 = 'ARM64' }[$Arch]
-    Invoke-Native 'dotnet' @('publish', (Join-Path $repoRoot 'src\TTSMixmaster.App\TTSMixmaster.App.csproj'),
-        '-c', 'Release', '-nologo', "-p:Platform=$platform", "-p:PublishDir=$publishDir",
-        # Stopgap: without MSIX tooling the publish output lacks TTSMixmaster.pri and the app
-        # crashes at startup. Redundant once the App csproj sets EnableMsixTooling itself.
-        '-p:EnableMsixTooling=true')
-    # The pinned tools are x64 builds; on ARM64 Windows they run under x64 emulation.
-    & (Join-Path $PSScriptRoot 'fetch-tools.ps1') -OutputFolder $publishDir
-    Assert-Published
-}
+foreach ($a in $Arch) {
+    $publishDir = Get-PublishDir $a
 
-if ($Stage -in 'All', 'Package') {
-    Assert-Published
-    if (Test-Path -LiteralPath $workDir) { Remove-Item -LiteralPath $workDir -Recurse -Force }
-    New-Item -ItemType Directory -Path $workDir, $releaseDir -Force | Out-Null
-    foreach ($name in $names.Values) {
-        $existing = Join-Path $releaseDir $name
-        if (Test-Path -LiteralPath $existing) { Remove-Item -LiteralPath $existing -Force }
+    if ($Stage -in 'All', 'Publish') {
+        if (Test-Path -LiteralPath $publishDir) { Remove-Item -LiteralPath $publishDir -Recurse -Force }
+        $platform = @{ x64 = 'x64'; arm64 = 'ARM64' }[$a]
+        Invoke-Native 'dotnet' @('publish', (Join-Path $repoRoot 'src\TTSMixmaster.App\TTSMixmaster.App.csproj'),
+            '-c', 'Release', '-nologo', "-p:Platform=$platform", "-p:PublishDir=$publishDir")
+        & (Join-Path $PSScriptRoot 'fetch-tools.ps1') -OutputFolder $publishDir -Arch $a
+        Assert-Published $a
     }
 
-    Write-Host "Portable zip"
-    New-PortableZip $publishDir (Join-Path $releaseDir $names.Zip)
+    if ($Stage -in 'All', 'Package') {
+        Assert-Published $a
+        $workDir = Get-WorkDir $a
+        if (Test-Path -LiteralPath $workDir) { Remove-Item -LiteralPath $workDir -Recurse -Force }
 
-    Write-Host "Per-machine MSI"
-    $bin = Invoke-WixBuild (Join-Path $installerDir 'TTSMixmaster.wixproj') 'msi'
-    Copy-Item (Join-Path $bin 'TTSMixmaster.msi') (Join-Path $releaseDir $names.Msi)
+        Write-Host "Portable zip ($a)"
+        New-PortableZip $publishDir (Join-Path $releaseDir "$base-portable-$a.zip")
 
-    Write-Host "Per-user MSI (for setup.exe)"
-    $bin = Invoke-WixBuild (Join-Path $installerDir 'peruser\TTSMixmaster.PerUser.wixproj') 'peruser'
-    Copy-Item (Join-Path $bin 'TTSMixmaster.PerUser.msi') $perUserMsi
-
-    Write-Host "MSIX"
-    New-Msix $version (Join-Path $releaseDir $names.Msix)
+        Write-Host "MSIX ($a)"
+        $msix = Join-Path $msixDir "$base-$a.msix"
+        if (Test-Path -LiteralPath $msix) { Remove-Item -LiteralPath $msix -Force }
+        New-Msix $version $a $msix
+    }
 }
 
 if ($Stage -in 'All', 'Bundle') {
-    if (-not (Test-Path -LiteralPath $perUserMsi)) { throw "Missing $perUserMsi. Run -Stage Package first." }
-    Write-Host "setup.exe bundle"
-    $bin = Invoke-WixBuild (Join-Path $installerDir 'bundle\TTSMixmaster.Bundle.wixproj') 'bundle' @("-p:PerUserMsi=$perUserMsi")
-    Copy-Item (Join-Path $bin 'TTSMixmaster.Setup.exe') $bundleExe -Force
+    # Bundle exactly this version's per-arch packages (CI downloads them into artifacts/msix).
+    $bundleInput = Join-Path $ArtifactsDir 'work\bundle-input'
+    if (Test-Path -LiteralPath $bundleInput) { Remove-Item -LiteralPath $bundleInput -Recurse -Force }
+    New-Item -ItemType Directory -Path $bundleInput -Force | Out-Null
+    foreach ($a in $Arch) {
+        $msix = Join-Path $msixDir "$base-$a.msix"
+        if (-not (Test-Path -LiteralPath $msix)) { throw "Missing $msix. Run -Stage Package for $a first." }
+        Copy-Item -LiteralPath $msix -Destination $bundleInput
+    }
 
-    if ($Stage -eq 'Bundle') {
-        # Burn bundles must be signed in two passes: the engine (setup.exe's own code, which
-        # Burn extracts and runs from a temp folder) and then the whole bundle. Detach the
-        # engine here; CI signs it, then -Stage Reattach puts it back.
-        if (Test-Path -LiteralPath $burnEngine) { Remove-Item -LiteralPath $burnEngine -Force }
-        Invoke-Wix @('burn', 'detach', $bundleExe, '-engine', $burnEngine)
-    }
-    else {
-        Copy-Item $bundleExe (Join-Path $releaseDir $names.Setup) -Force
-    }
+    Write-Host "MSIX bundle"
+    $bundle = Join-Path $releaseDir $bundleName
+    Invoke-Native 'winapp' @('tool', 'makeappx', 'bundle', '/d', $bundleInput, '/p', $bundle, '/bv', "$version.0", '/o')
+
+    Write-Host "App Installer file"
+    New-AppInstaller $version (Join-Path $releaseDir 'TTSMixmaster.appinstaller')
 }
 
-if ($Stage -eq 'Reattach') {
-    if (-not (Test-Path -LiteralPath $burnEngine)) { throw "Missing $burnEngine. Run -Stage Bundle first." }
-    $setup = Join-Path $releaseDir $names.Setup
-    Invoke-Wix @('burn', 'reattach', $bundleExe, '-engine', $burnEngine, '-o', $setup)
-}
-
-if ($Stage -in 'All', 'Package', 'Reattach') {
-    Get-ChildItem -LiteralPath $releaseDir -Filter "$base-*$Arch*" |
-        ForEach-Object { '{0,-48} {1,8:N1} MB' -f $_.Name, ($_.Length / 1MB) } | Write-Host
+if ($Stage -in 'All', 'Package', 'Bundle') {
+    Get-ChildItem -LiteralPath $releaseDir -File | Where-Object { $_.Name -like "$base*" -or $_.Name -eq 'TTSMixmaster.appinstaller' } |
+        ForEach-Object { '{0,-48} {1,10:N1} MB' -f $_.Name, ($_.Length / 1MB) } | Write-Host
 }
