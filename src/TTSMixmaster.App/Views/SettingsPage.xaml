@@ -241,7 +241,7 @@
                                 AutomationProperties.Name="Azure Storage connection string"
                                 Password="{x:Bind ViewModel.AzureConnectionString, Mode=TwoWay}" />
                         </tk:SettingsCard>
-                        <tk:SettingsCard Description="Created if it doesn't exist, with public read access for files." Header="Container">
+                        <tk:SettingsCard Description="An existing container that allows public read access for files (Blob level)." Header="Container">
                             <TextBox
                                 Width="{StaticResource FieldWidth}"
                                 AutomationProperties.AutomationId="AzureContainerName"
@@ -261,20 +261,6 @@
                     Content="{x:Bind ViewModel.Azure, Mode=OneTime}"
                     ContentTemplate="{StaticResource ConnectionResultTemplate}"
                     IsTabStop="False" />
-
-                <tk:SettingsCard Description="Files uploaded more recently than this aren't uploaded again." Header="Skip re-uploads (days)">
-                    <tk:SettingsCard.HeaderIcon>
-                        <FontIcon Glyph="&#xE895;" />
-                    </tk:SettingsCard.HeaderIcon>
-                    <NumberBox
-                        MinWidth="140"
-                        AutomationProperties.AutomationId="AzureFreshnessDays"
-                        AutomationProperties.Name="Skip re-uploads newer than, in days"
-                        Minimum="0"
-                        SmallChange="1"
-                        SpinButtonPlacementMode="Compact"
-                        Value="{x:Bind ViewModel.AzureFreshnessDays, Mode=TwoWay}" />
-                </tk:SettingsCard>
 
                 <!--  ============ Folders and audio ============  -->
                 <TextBlock

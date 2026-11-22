@@ -204,10 +204,9 @@
                 TextWrapping="Wrap" />
         </StackPanel>
 
-        <!--  First run: nothing connected yet.  -->
+        <!--  First run: nothing connected yet. Below the InfoBars (row 3), so a tools warning never covers it.  -->
         <StackPanel
-            Grid.Row="1"
-            Grid.RowSpan="4"
+            Grid.Row="4"
             MaxWidth="460"
             Margin="0,48,0,0"
             HorizontalAlignment="Center"

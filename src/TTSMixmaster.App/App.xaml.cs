@@ -30,10 +30,12 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         Services = AppServices.Create();
+        // Before the first page loads: pages await these. Restoring the Azure session never shows UI, so it
+        // doesn't need the window handle yet (sign-in reads it later).
+        Services.Start();
         Window = new MainWindow(Services);
         Services.WindowHandle = WindowNative.GetWindowHandle(Window);
         Window.Closed += (_, _) => Services.Dispose();
-        Services.Start();
         Window.Activate();
     }
 }

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Text.Json;
 using TTSMixmaster.App.ViewModels;
 using TTSMixmaster.Core;
 using TTSMixmaster.Core.Audio;
@@ -206,9 +207,18 @@ public sealed class AppServices : IDisposable
             return null;
         try
         {
+            // Validate first: SettingsStore.Load turns a damaged file into defaults (and writes a .corrupt copy
+            // beside it), which would "import" nothing and touch the old install folder.
+            using (JsonDocument.Parse(File.ReadAllText(legacy), new JsonDocumentOptions
+                   { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true })) { }
             store.Save(new SettingsStore(legacy).Load());
             log.Info($"Imported legacy settings from {legacy} into {paths.SettingsFile}");
             return legacy;
+        }
+        catch (JsonException)
+        {
+            log.Warn($"Didn't import {legacy}: it isn't valid JSON. Starting with default settings.");
+            return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

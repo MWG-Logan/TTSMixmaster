@@ -147,11 +147,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
     public string AzureContainerName { get => _s.AzureContainerName; set => Set(_s.AzureContainerName, value, (s, v) => s.AzureContainerName = v, Azure); }
-    public double AzureFreshnessDays
-    {
-        get => _s.AzureBlobFreshnessDays;
-        set => Set(_s.AzureBlobFreshnessDays, double.IsNaN(value) ? 1.0 : Math.Max(0, value), (s, v) => s.AzureBlobFreshnessDays = v);
-    }
 
     /// <summary>Core's connection check: reads the container and, when possible, verifies anonymous read.</summary>
     private async Task<string?> TestAzureAsync(CancellationToken ct)
@@ -265,7 +260,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             var problem = await _app.Downloader.CheckToolsAsync();
             AreToolsReady = problem is null;
-            ToolsStatus = problem ?? $"yt-dlp and ffmpeg are ready. yt-dlp: {_app.Tools.FindYtDlp()}";
+            ToolsStatus = problem?.ReplaceLineEndings(" ") ?? $"yt-dlp and ffmpeg are ready. yt-dlp: {_app.Tools.FindYtDlp()}";
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

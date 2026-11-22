@@ -60,6 +60,7 @@
                 Spacing="8">
                 <Button
                     AutomationProperties.AutomationId="BuildButton"
+                    AutomationProperties.Name="Build for Tabletop Simulator"
                     Command="{x:Bind ViewModel.BuildCommand}"
                     Style="{StaticResource AccentButtonStyle}"
                     ToolTipService.ToolTip="Download the audio, upload it to Azure, and generate the Tabletop Simulator files"
@@ -72,6 +73,7 @@
                 <!--  After a build, Copy Lua script is the next step, so rebuilding steps back to a standard button.  -->
                 <Button
                     AutomationProperties.AutomationId="RebuildButton"
+                    AutomationProperties.Name="Build again"
                     Command="{x:Bind ViewModel.BuildCommand}"
                     ToolTipService.ToolTip="Build the music player again, for example after changing the Tabletop object options"
                     Visibility="{x:Bind ViewModel.ShowRebuild, Mode=OneWay}">
@@ -260,8 +262,11 @@
                                 Chip preview: Core's render, byte for byte the image that is uploaded with the
                                 build. It depicts the physical chip, so it looks the same in every theme.
                             -->
-                            <StackPanel Width="184" Spacing="12">
-                                <Grid Width="184" Height="184">
+                            <StackPanel MaxWidth="240" Spacing="12">
+                                <Grid
+                                    Width="184"
+                                    Height="184"
+                                    HorizontalAlignment="Left">
                                     <ProgressRing
                                         AutomationProperties.Name="Drawing the chip preview"
                                         IsActive="{x:Bind h:Bind.Not(ViewModel.HasChipPreview), Mode=OneWay}" />
@@ -427,8 +432,10 @@
                                 Grid.Column="1"
                                 VerticalAlignment="Center"
                                 Style="{StaticResource SecondaryCaptionStyle}"
-                                Text="{x:Bind Message, Mode=OneWay}"
+                                MaxLines="2"
+                                Text="{x:Bind ShortMessage, Mode=OneWay}"
                                 TextTrimming="CharacterEllipsis"
+                                TextWrapping="Wrap"
                                 ToolTipService.ToolTip="{x:Bind Message, Mode=OneWay}" />
                         </Grid>
                     </Grid>

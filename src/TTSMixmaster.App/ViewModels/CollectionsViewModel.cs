@@ -84,9 +84,24 @@ public sealed partial class CollectionsViewModel(AppServices app) : ObservableOb
 
     public bool HasToolsProblem => ToolsProblem.Length > 0;
 
-    public string ToolsMessage =>
-        $"{ToolsProblem} TTSMixmaster uses yt-dlp and ffmpeg to find each track's audio, and they normally come with the app. " +
-        $"Reinstall TTSMixmaster, or put yt-dlp.exe and ffmpeg.exe in {app.Paths.ToolsDirectory}. Settings can download yt-dlp for you.";
+    /// <summary>
+    /// Names what's missing in plain words. Tools that were found but didn't run get Core's own message.
+    /// </summary>
+    public string ToolsMessage
+    {
+        get
+        {
+            string[] missing = [.. new[] { app.Tools.FindYtDlp() is null ? "yt-dlp" : null, app.Tools.FindFfmpeg() is null ? "ffmpeg" : null }.OfType<string>()];
+            var what = missing.Length switch
+            {
+                0 => ToolsProblem,
+                1 => $"{missing[0]} wasn't found.",
+                _ => "yt-dlp and ffmpeg weren't found.",
+            };
+            return $"{what} TTSMixmaster uses them to find each track's audio, and they normally come with the app. " +
+                $"Reinstall TTSMixmaster, or put yt-dlp.exe and ffmpeg.exe in {app.Paths.ToolsDirectory}. Settings can download the latest yt-dlp.";
+        }
+    }
 
     private bool _toolsChecked;
 

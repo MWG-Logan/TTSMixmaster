@@ -28,13 +28,26 @@ public sealed partial class TrackRowViewModel(int number, Track track) : Observa
     [ObservableProperty]
     public partial string Message { get; set; } = "";
 
+    /// <summary>
+    /// The reason as one short line for the row. yt-dlp's own errors (one per source tried) are long and
+    /// technical; they stay in <see cref="Message"/> for the tooltip and the log.
+    /// </summary>
+    public string ShortMessage =>
+        Message.Contains("yt-dlp exited", StringComparison.Ordinal) || Message.Contains("ERROR:", StringComparison.Ordinal)
+            ? "Couldn't find or download audio for this track. Point here for details."
+            : Message.ReplaceLineEndings("\n").Split('\n', 2)[0].Trim();
+
     /// <summary>Spoken status for screen readers: the icon alone isn't accessible.</summary>
-    public string AccessibleStatus => string.IsNullOrEmpty(Message) ? Status.ToString() : $"{Status}: {Message}";
+    public string AccessibleStatus => string.IsNullOrEmpty(Message) ? Status.ToString() : $"{Status}: {ShortMessage}";
 
     public override string ToString() => $"{Number}. {Title}, {Artist}"; // UI Automation name of the row
 
     partial void OnStatusChanged(TrackStatus value) => OnPropertyChanged(nameof(AccessibleStatus));
-    partial void OnMessageChanged(string value) => OnPropertyChanged(nameof(AccessibleStatus));
+    partial void OnMessageChanged(string value)
+    {
+        OnPropertyChanged(nameof(ShortMessage));
+        OnPropertyChanged(nameof(AccessibleStatus));
+    }
 }
 
 /// <summary>
@@ -564,6 +577,7 @@ public sealed partial class CollectionViewModel : ObservableObject
 
     private void Fail(Track track, string reason)
     {
+        _app.Log.Warn($"Track \"{track.Artist} - {track.Title}\" left out: {reason.ReplaceLineEndings(" | ")}");
         if (Tracks.FirstOrDefault(r => r.Track == track) is { } row)
         {
             row.Status = TrackStatus.Failed;
