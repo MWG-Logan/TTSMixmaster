@@ -59,15 +59,17 @@ public sealed partial class LibraryLayout
     public string PrepareExportFolder(MusicCollection collection) => ClaimFolder(TtsFolder(collection), collection.Summary);
 
     /// <summary>
-    /// Creates the folder if needed and verifies its owner marker names this collection (writing it on first
-    /// use), then sweeps stale temps. Fails closed with <see cref="IOException"/> when the folder belongs to a
-    /// different collection or its marker is unreadable; nothing in the folder is touched in that case.
+    /// Creates the folder if needed and verifies its owner marker names this collection, then sweeps stale temps.
+    /// A folder without a marker is claimed only when it is new or completely empty; a missing marker is never
+    /// proof of ownership. Fails closed with <see cref="IOException"/> when the folder belongs to a different
+    /// collection, its marker is unreadable, or it already holds files we can't attribute; nothing in the
+    /// folder is touched in those cases.
     /// </summary>
     public string ClaimFolder(string folder, CollectionSummary summary)
     {
         Directory.CreateDirectory(folder);
         var record = CollectionRecord.From(summary);
-        WithFolderLock(folder, () =>
+        var wasOwned = WithFolderLock(folder, () =>
         {
             var owner = ReadOwnerUnlocked(folder, out var corrupt);
             if (corrupt)
@@ -75,11 +77,16 @@ public sealed partial class LibraryLayout
                     $"({ReservedFolderName}\\{OwnerFileName} is damaged). Move the folder aside and try again.");
             if (owner is not null && (owner.Service != record.Service || owner.Id != record.Id))
                 throw new IOException($"The folder \"{folder}\" belongs to a different collection ({owner.Service} {owner.Id}). Move it aside and try again.");
+            if (owner is null && Directory.EnumerateFileSystemEntries(folder).Any())
+                throw new IOException($"The folder \"{folder}\" already exists and wasn't created by TTSMixmaster, so it won't be used. " +
+                    "Move it aside or choose another folder, then try again.");
             if (owner is null || owner.Name != record.Name || owner.Kind != record.Kind)
                 WriteBookkeeping(folder, OwnerPath(folder), JsonSerializer.SerializeToUtf8Bytes(record, CollectionState.Json));
-            return 0;
+            return owner is not null;
         });
-        SweepStaleTemps(folder);
+        // Only a folder that was already ours can hold our crash leftovers.
+        if (wasOwned)
+            SweepStaleTemps(folder);
         return folder;
     }
 
@@ -284,7 +291,8 @@ public sealed partial class LibraryLayout
         return 0;
     });
 
-    private static T WithFolderLock<T>(string folder, Func<T> action)
+    /// <summary>Runs synchronous work while holding the folder's named mutex (no awaits inside: it is thread-affine).</summary>
+    internal static T WithFolderLock<T>(string folder, Func<T> action)
     {
         // One kernel mutex per folder, so two app instances (or threads) can't interleave read-modify-write.
         var name = @"Local\TTSMixmaster-" + Hash(Path.GetFullPath(folder).TrimEnd('\\', '/').ToUpperInvariant(), 32);
@@ -398,6 +406,41 @@ public sealed partial class LibraryLayout
         }
     }
 
+    /// <summary>
+    /// Writes bytes to a new temp file in the folder's reserved temp folder (flushed to disk) and returns its path.
+    /// Nothing visible changes until <see cref="PublishStaged"/>; the caller deletes the temp if it isn't published.
+    /// </summary>
+    internal static async Task<string> StageAsync(string folder, byte[] bytes, CancellationToken ct)
+    {
+        var temp = NewTempPath(folder) + ".tmp";
+        try
+        {
+            await using var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            await stream.WriteAsync(bytes, ct);
+            stream.Flush(flushToDisk: true);
+        }
+        catch
+        {
+            DeleteQuietly(temp);
+            throw;
+        }
+        return temp;
+    }
+
+    /// <summary>
+    /// Renames a staged temp into place. With <paramref name="overwrite"/> false a file that already exists is
+    /// never replaced: the rename throws <see cref="IOException"/> and the existing file is untouched.
+    /// </summary>
+    internal void PublishStaged(string temp, string final, bool overwrite) => _moveFile(temp, final, overwrite);
+
+    /// <summary>SHA-256 of a file as lowercase hex, or null when it doesn't exist.</summary>
+    public static string? FileSha256(string path)
+    {
+        if (!File.Exists(path))
+            return null;
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexStringLower(SHA256.HashData(stream));
+    }
     // Atomically replaces one of the folder's own bookkeeping files (owner marker or state).
     private void WriteBookkeeping(string folder, string path, byte[] bytes)
     {

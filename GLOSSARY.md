@@ -22,7 +22,7 @@ The record, kept inside a collection folder, of which track file belongs to each
 _Avoid_: manifest, cache file
 
 **Owner marker**:
-The record in a collection folder naming the one collection it belongs to. A folder whose marker names another collection, or can't be read, is never written to.
+The record in a collection folder naming the one collection it belongs to. A folder whose marker names another collection, or can't be read, is never written to, and a folder with no marker is claimed only when it is new or empty.
 _Avoid_: lock file
 
 **Reserved folder**:
@@ -55,5 +55,5 @@ The set of TTS files generated for a collection (Lua scripts, playlist data and 
 _Avoid_: TTS output, artifacts
 
 **Saved object**:
-A collection's music player written into Tabletop Simulator's Saved Objects, with its thumbnail, so it can be spawned from inside TTS.
+A collection's music player written into Tabletop Simulator's Saved Objects so it can be spawned from inside TTS: a save file and its same-named thumbnail, owned and checked as one pair.
 _Avoid_: TTS export (ambiguous with Export), copied Lua

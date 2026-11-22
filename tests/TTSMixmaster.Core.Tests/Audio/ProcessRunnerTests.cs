@@ -48,7 +48,10 @@ public sealed class ProcessRunnerTests
             while (childId == 0)
             {
                 cts.Token.ThrowIfCancellationRequested();
-                if (File.Exists(pidFile)) int.TryParse(await File.ReadAllTextAsync(pidFile), out childId);
+                // A just-published file can still be held briefly by another reader (e.g. an AV scan):
+                // treat a sharing violation as "not ready yet" and retry within the same deadline.
+                try { if (File.Exists(pidFile)) int.TryParse(await File.ReadAllTextAsync(pidFile), out childId); }
+                catch (IOException) { childId = 0; }
                 if (childId == 0) await Task.Delay(50, cts.Token);
             }
             using var child = Process.GetProcessById(childId);

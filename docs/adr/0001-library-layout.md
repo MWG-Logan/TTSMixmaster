@@ -1,6 +1,6 @@
 # Library layout: owned collection folders, per-collection state, content-addressed blobs
 
-Status: accepted (2026-11-21; revised after the 69ed452 review)
+Status: accepted (2026-11-21; revised after the 69ed452 and 8e1a869 reviews)
 
 Before this decision, folders, track files, blobs and exports were named from display text. As a result,
 same-named playlists shared folders and exports, reordering a playlist could swap cached audio, and two
@@ -22,8 +22,12 @@ an export can never replace the state file, even when the audio and export roots
 under both the download root and the export root. The hash is the first 10 hex digits of SHA-256 of
 `service:id`, which is case-safe, short and readable. A folder with this suffix *and* a matching owner
 marker is reused after a rename. Every write path (download, export) first calls the one operation
-`ClaimFolder`, which writes the marker on first use. If the marker names another collection (a real
-40-bit collision with an equal name) or is unreadable, it fails closed and touches nothing.
+`ClaimFolder`. It writes the marker only for a folder that is new or completely empty: a missing marker is
+never proof of ownership. It fails closed, touching nothing, if the folder already holds files with no
+marker (move it aside or choose another folder), or if the marker names another collection (a real 40-bit
+collision with an equal name) or is unreadable. No legacy layout is positively identifiable, so none is
+adopted.
+
 
 **Track key.** `<service>:<service track id>`, or `<service>:meta:<hash of NFKC-normalized
 artist|title|album|duration>`. The state file maps each key to its file, and lookups go through that
@@ -32,13 +36,15 @@ stored here gets a new name, `<Artist - Title> [<8 hex of key hash>].mp3`. The k
 MP3 (`TXXX:TTSMIXMASTER_TRACK_KEY`).
 
 **State file.** `collection.json` maps track key → file, length, SHA-256, blob name/URL and upload time,
-plus the last TTS export (path and hash).
+plus the last TTS export (path, .json hash and .png hash) and an export pending publication.
 - **Parsing is strict.** Required fields are enforced, nulls are rejected, and unknown members are
   disallowed. An incomplete, foreign (e.g. a TTS save) or null-bearing document is corrupt, never an
   empty state. A corrupt file is renamed to `collection.json.corrupt-<time>` (kept) and the state starts
   empty.
 - **Updates are serialized.** Each read-modify-write runs under one named mutex per folder
   (`Local\TTSMixmaster-<path hash>`), across threads and app instances. The file is replaced atomically.
+  The scope is one Windows session and one path spelling. Other users or sessions, path aliases (junction,
+  8.3 or UNC), and other machines sharing a library are not coordinated.
 - **Reuse is verified.** A cached file is reused if its entry matches (key and length) or, with no entry,
   if its embedded key matches. A file at our name that can't be verified fails that track and is never
   overwritten or deleted.
@@ -59,8 +65,8 @@ plus RFC 5987 `filename*`), and metadata values are percent-encoded UTF-8.
 - Downloads never replace a non-empty file. The state is updated only after the file it describes is final.
 - Multi-file writes stage every file before renaming any. Each file ends up whole, old or new, but a set
   of files is not transactional, so the file that commits a set is renamed last.
-- The sweep deletes only files in `tmp\` that match a generated GUID name, are older than a day, and
-  belong to a folder this collection has just claimed.
+- The sweep deletes only files in `tmp\` that match a generated GUID name and are older than a day, and
+  only in a folder that already carried this collection's marker (never one claimed just now).
 - A failed state write after a download fails that track, and its file is adopted next run. A failure in
   the initial claim fails the batch. A failed upload-record write is ignored, because the blob is valid
   and can be re-derived.
@@ -73,14 +79,32 @@ plus RFC 5987 `filename*`), and metadata values are percent-encoded UTF-8.
   and nothing is created.
 - **File format.** The file is a save-format document with empty `SaveName`, `Date` and `VersionNumber`
   and one `ObjectStates` entry, centred on the table.
-- **Naming.** The name is the friendly name, or `<Name> [<service>-<hash>]` when that is taken by a file
-  we have no record of writing.
-- **Re-export and conflicts.** Re-export replaces the file recorded in the state file. If that file's hash
-  differs from what we wrote, the result is `Conflict` (the UI offers Replace / Keep both / Cancel) and
-  nothing is written. The `.png` is renamed before the `.json`, so the `.json` is the commit point. The
-  reserved folder is removed afterwards so TTS's browser doesn't list it.
-- **Thumbnail.** The thumbnail is the collection's own image when it downloads as PNG or JPEG, otherwise
-  a generated placeholder. Unity loads either format by content; this is not yet confirmed in-game.
+- **Naming.** The name is the friendly name, or `<Name> [<service>-<hash>]` when either file of that pair
+  exists without our record. Keep both uses `<Name> (n)`, and the new pair becomes ours.
+- **The object is the pair.** The `.json` and `.png` are recorded together, each with its own hash. If
+  either was changed outside the app, the result is `Conflict` (the UI offers Replace / Keep both / Cancel)
+  and nothing is written. An unrecorded file at either name is never replaced; such a name counts as taken.
+- **Order of work.** Slow steps come first and change nothing visible: rendering, the thumbnail download,
+  and staging both temps. Then, holding the Saved Objects folder's named mutex (no awaits inside), the
+  export does the following, in order:
+  1. Checks ownership.
+  2. Records the pair as *pending* in the collection state. If that write fails, nothing is published and
+     the result is `Failed`.
+  3. Publishes the `.png`, then the `.json`, which is the commit point.
+  4. Commits the record.
+
+  A name that was free at the check is published without overwrite, so a file that appears meanwhile is a
+  `Conflict`, not clobbered. A file we checked is re-hashed right before it is replaced. If only the final
+  commit fails, the result is `Created`/`Updated` with a warning `Message`. The pending record, verified by
+  hash, then lets the next export recognize those bytes as ours rather than as an outside edit.
+- **Contract.** `ExportToTtsAsync` returns a result for every failure. Only cancellation throws.
+- **Recorded paths.** The recorded paths are validated when the state loads: the path must be fully
+  qualified and already normalized (no `..`), with valid characters, a `.json` name and 64-hex hashes.
+  Anything else quarantines the state. A record is used only if it lies in the current export folder.
+- **Thumbnail.** The thumbnail is the collection's own image only if it is a structurally decoded 256×256
+  PNG: valid chunk CRCs, IHDR first and IEND last, and image data that inflates to exactly the scanline
+  size. Anything else, including any JPEG, uses the generated placeholder. No imaging library or resizing
+  is involved; a richer render can replace this later.
 - **Sources.** The official TTS Knowledge Base documents the save format (SaveState with ObjectStates)
   but not Saved Objects (https://kb.tabletopsimulator.com/custom-content/save-file-format/). The location,
   shape, subfolders and 256×256 same-name `.png` were therefore confirmed against an existing TTS install
