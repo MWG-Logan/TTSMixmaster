@@ -56,7 +56,7 @@ public sealed record BuildRecord(
     /// <summary>Total, null-safe check of everything the Builds page and Export to TTS use.</summary>
     internal bool IsValid() =>
         Summary is { Id: not null, Name: not null, Owner: not null, Description: not null, ThumbnailUrl: not null } summary &&
-        Enum.IsDefined(summary.Service) && Enum.IsDefined(summary.Kind) &&
+        Enum.IsDefined(summary.Service) && Enum.IsDefined(summary.Kind) && Enum.IsDefined(summary.ArtKind) &&
         Uploads is not null && Uploads.All(u =>
             u is { FilePath: not null, PublicUrl: { Length: > 0 } } && Enum.IsDefined(u.Status) && IsValid(u.Track)) &&
         Options is { ObjectNickname: not null, Description: not null, PrimaryImageUrl: not null, SecondaryImageUrl: not null } &&

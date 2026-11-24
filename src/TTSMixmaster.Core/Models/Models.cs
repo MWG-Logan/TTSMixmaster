@@ -21,6 +21,20 @@ public enum CollectionKind
     Chart,
 }
 
+/// <summary>Whether a collection's <see cref="CollectionSummary.ThumbnailUrl"/> is art of its own.</summary>
+/// <remarks>An empty <see cref="CollectionSummary.ThumbnailUrl"/> always means "no art of its own", whatever this says.</remarks>
+public enum CollectionArtKind
+{
+    /// <summary>The collection's own image: album cover, custom playlist image, or a mosaic the service made (Spotify).</summary>
+    Own,
+
+    /// <summary>
+    /// A stand-in the service filled in, not chosen for the collection: a YouTube playlist without a custom
+    /// thumbnail reports its first video's thumbnail. Chip art builds a track mosaic instead.
+    /// </summary>
+    ServiceDefault,
+}
+
 /// <summary>One track from any service.</summary>
 public sealed record Track
 {
@@ -54,7 +68,12 @@ public sealed record CollectionSummary
     public required CollectionKind Kind { get; init; }
     public string Owner { get; init; } = "";
     public string Description { get; init; } = "";
+    /// <summary>The collection's image; empty when it has none (Spotify Liked/Top/Recent, Last.fm charts).</summary>
     public string ThumbnailUrl { get; init; } = "";
+
+    /// <summary>Whether <see cref="ThumbnailUrl"/> is the collection's own art or a service stand-in.</summary>
+    public CollectionArtKind ArtKind { get; init; }
+
     public int? TrackCount { get; init; }
 }
 
